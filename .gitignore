@@ -5,3 +5,10 @@ __pycache__/
 .env
 stock_data.db
 reports/*.xlsx
+
+venv/
+.venv/
+**/__pycache__/
+*.pyc
+*.db
+*.xlsx
