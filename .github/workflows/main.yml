@@ -1,0 +1,42 @@
+name: Daily Stock Analysis Automation
+
+on:
+  schedule:
+    # KST (한국시간 UTC+9) 기준 16:00 -> UTC 07:00 (월~금)
+    - cron: '0 7 * * 1-5'
+    # KST (한국시간 UTC+9) 기준 20:30 -> UTC 11:30 (월~금)
+    - cron: '30 11 * * 1-5'
+  workflow_dispatch: # 깃허브 웹사이트에서 수동 실행 버튼 허용
+
+jobs:
+  build-and-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v3
+        
+      - name: 파이썬 환경 설정
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: 필수 패키지 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          
+      - name: 메인 자동화 스크립트 실행 (크롤링 -> 분석 -> 엑셀 -> 텔레그램)
+        env:
+          # GitHub Settings -> Secrets에 설정한 텔레그램 토큰을 가져옵니다.
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python main.py
+        
+      - name: 누적된 DB 및 엑셀 파일 깃허브 저장소에 커밋 및 푸시
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add stock_data.db reports/
+          # 데이터베이스나 엑셀 파일에 변경사항이 있을 때만 커밋 후 푸시합니다.
+          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-update stock data and daily reports [skip ci]"
+          git push

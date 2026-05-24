@@ -1,0 +1,7 @@
+pykrx
+pandas
+streamlit
+openpyxl
+python-telegram-bot
+requests
+beautifulsoup4
