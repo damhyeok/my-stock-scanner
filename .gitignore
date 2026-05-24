@@ -1,1 +1,7 @@
-.aider*
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+.env
+stock_data.db
+reports/*.xlsx
