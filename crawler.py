@@ -172,9 +172,16 @@ class StockCrawler:
         """분석된 데이터프레임을 SQLite에 저장"""
         conn = sqlite3.connect(self.db_path)
         
-        # 현재 시간에 따라 세션 결정 (16시 이전이면 정규장, 이후면 시간외/넥스트)
-        current_hour = datetime.now().hour
-        session = "정규장(16:00)" if current_hour < 18 else "시간외(20:30)"
+        # 현재 시간에 따라 세션 결정 (깃허브 액션 지연 시간을 고려한 동적 세션명 부여)
+        now = datetime.now()
+        hour, minute = now.hour, now.minute
+        
+        if hour < 15 or (hour == 15 and minute < 30):
+            session = f"장중({hour:02d}:{minute:02d})"
+        elif hour < 18:
+            session = "정규장(16:00)"
+        else:
+            session = "시간외(20:30)"
         
         print(f"[{session}] 데이터를 DB에 저장 중...")
         

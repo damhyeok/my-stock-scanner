@@ -171,8 +171,8 @@ else:
         st.header(f"📊 섹터별 자금 유입 요약 ({selected_session} 기준)")
         df_selected['total_net'] = df_selected['foreign_net'] + df_selected['inst_net']
         sector_grouped = df_selected.groupby('sector').agg({'total_net':'sum', 'trading_value':'sum', 'name':'count'}).reset_index()
-        sector_grouped = sector_grouped[sector_grouped['sector'] != '기타'].sort_values('total_net', ascending=False).head(15)
-        st.bar_chart(data=sector_grouped, x='sector', y='total_net', use_container_width=True)
+        sector_grouped = sector_grouped[sector_grouped['sector'] != '기타'].sort_values('trading_value', ascending=False).head(15)
+        st.bar_chart(data=sector_grouped, x='sector', y='trading_value', use_container_width=True)
         sector_disp = sector_grouped.rename(columns={'sector': '업종', 'total_net': '합산 순매수', 'trading_value': '합산 거래대금', 'name': '종목 수'})
         st.dataframe(sector_disp, use_container_width=True)
 
