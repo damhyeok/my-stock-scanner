@@ -77,12 +77,12 @@ class StockAnalyzer:
         return pd.DataFrame({'ticker': pullback_tickers, 'is_pullback': True})
 
     def run_analysis(self):
-        """전체 분석 로직 실행 및 최종 스코어링"""
-        print("데이터 분석을 시작합니다...")
+        """전체 종합 분석 로직 실행 및 최종 스코어링 (웹 대시보드 및 엑셀용)"""
+        print("데이터 종합 스코어링 분석을 시작합니다...")
         df_recent = self.load_data(days=5)
         
         if df_recent.empty:
-            print("DB에 분석할 데이터가 없습니다. (크롤러를 먼저 실행해주세요)")
+            print("DB에 분석할 데이터가 없습니다.")
             return pd.DataFrame()
             
         # 개별 알고리즘 모듈 실행
@@ -100,20 +100,13 @@ class StockAnalyzer:
             final_df['is_pullback'] = False
             
         # --- 스코어링 로직 ---
-        # 상주 지수(1회당 10점) + 순유입 잔존 비율(%) + 눌림목 발생 시 가산점(20점)
         final_df['total_score'] = (final_df['presence_index'] * 10) + final_df['retention_ratio']
         final_df.loc[final_df['is_pullback'] == True, 'total_score'] += 20
-        
-        # 점수 순 정렬
         final_df = final_df.sort_values(by='total_score', ascending=False).round(2)
-        
-        print("분석 완료! 상위 5개 추천 종목:")
-        print(final_df.head(5).to_string(index=False))
-        
         return final_df
 
-    def analyze_intraday(self):
-        """장중 실시간 분석 리포트 생성 (섹터 강세, 신규 진입, 거래급증)"""
+    def generate_telegram_report(self):
+        """지정된 스케줄마다 실행되어 직전 세션과 비교하는 텔레그램용 브리핑 리포트 생성"""
         df_raw = self.load_data(days=2)
         if df_raw.empty: return "분석할 데이터가 없습니다."
         
@@ -139,18 +132,23 @@ class StockAnalyzer:
         # 현재 Top 60 데이터
         curr_vol = df_today[(df_today['session'] == current_session) & (df_today['category'] == 'VOLUME_TOP_60')]
         
-        # [분석 1] 거래대금 강세 섹터 순위
+        # [분석 1] 거래대금 강세 섹터 순위 및 포함 종목
         sector_vol = curr_vol.groupby('sector')['trading_value'].sum().sort_values(ascending=False)
         sector_vol = sector_vol[sector_vol.index != '기타'].head(3)
         
-        report = f"🔥 <b>[{current_session} 실시간 장중 브리핑]</b>\n\n"
-        report += "<b>1. 💰 현재 거래대금 강세 섹터 Top 3</b>\n"
+        report = f"🔥 <b>[{current_session} 브리핑]</b>\n\n"
+        report += "<b>1. 💰 거래대금 강세 섹터 Top 3</b>\n"
         if sector_vol.empty:
             report += "- 강세 섹터 없음\n"
         else:
             for i, (sec, val) in enumerate(sector_vol.items()):
-                count = len(curr_vol[curr_vol['sector']==sec])
-                report += f" {i+1}. {sec} ({count}종목 집중)\n"
+                sector_stocks = curr_vol[curr_vol['sector']==sec]['name'].tolist()
+                count = len(sector_stocks)
+                stocks_str = ", ".join(sector_stocks)
+                # 메시지 길이를 위해 너무 길면 자르기
+                if len(stocks_str) > 40:
+                    stocks_str = stocks_str[:40] + "..."
+                report += f" {i+1}. {sec} ({count}종목: {stocks_str})\n"
                 
         # [분석 2 & 3] 이전 세션과 비교
         if not prev_session_df.empty:
@@ -162,7 +160,7 @@ class StockAnalyzer:
             new_entries = curr_tickers - prev_tickers
             new_df = curr_vol[curr_vol['ticker'].isin(new_entries)].sort_values('trading_value', ascending=False).head(3)
             
-            report += "\n<b>2. 🚀 거래대금 Top 60 신규 진입 종목</b>\n"
+            report += "\n<b>2. 🚀 이전 세션 대비 신규 진입 종목 (Top 60)</b>\n"
             if new_df.empty:
                 report += "- 이전 세션 대비 신규 진입 없음\n"
             else:
@@ -175,7 +173,6 @@ class StockAnalyzer:
             common_prev = prev_vol[prev_vol['ticker'].isin(common_tickers)][['ticker', 'trading_value']]
             
             merged = pd.merge(common_curr, common_prev, on='ticker', suffixes=('_curr', '_prev'))
-            # 0으로 나누기 방지
             merged['vol_growth'] = merged.apply(lambda x: ((x['trading_value_curr'] - x['trading_value_prev']) / x['trading_value_prev'] * 100) if x['trading_value_prev'] > 0 else 0, axis=1)
             fast_grow = merged.sort_values('vol_growth', ascending=False).head(3)
             
@@ -192,4 +189,3 @@ class StockAnalyzer:
 
 if __name__ == "__main__":
     analyzer = StockAnalyzer()
-    # analyzer.run_analysis()

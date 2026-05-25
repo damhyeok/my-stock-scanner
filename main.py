@@ -11,8 +11,8 @@ def main():
     crawler = StockCrawler()
     crawler.run()
     
-    # 2. 데이터 시계열 분석 및 스코어링
-    print("\n[Step 2] 데이터 분석을 시작합니다.")
+    # 2. 데이터 시계열 분석 및 스코어링 (엑셀/대시보드용 종합 분석)
+    print("\n[Step 2] 데이터 스코어링 분석을 시작합니다.")
     analyzer = StockAnalyzer()
     df_analyzed = analyzer.run_analysis()
     
@@ -21,10 +21,11 @@ def main():
     excel_mgr = ExcelManager()
     excel_mgr.export_to_excel(df_analyzed)
     
-    # 4. 텔레그램 요약 전송
-    print("\n[Step 4] 텔레그램 알림을 전송합니다.")
+    # 4. 텔레그램 요약 전송 (직전 세션 비교 브리핑 리포트 생성 및 전송)
+    print("\n[Step 4] 텔레그램 브리핑 리포트를 생성 및 전송합니다.")
+    report_text = analyzer.generate_telegram_report()
     notifier = TelegramNotifier()
-    notifier.send_summary(df_analyzed)
+    notifier.send_summary(report_text)
     
     print("\n✨ === 모든 자동화 프로세스가 완료되었습니다! ===")
 
