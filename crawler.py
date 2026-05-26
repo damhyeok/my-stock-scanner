@@ -146,27 +146,8 @@ class StockCrawler:
             return df_merged
             
         except Exception as e:
-            print(f"[Warning] KIS 서버 접속 오류 또는 키 미설정으로 테스트용 가상 데이터를 생성합니다: {e}")
-            import random
-            tickers = [f"{i:06d}" for i in range(1, 101)]
-            # 테스트를 위해 다양한 섹터 명칭 리스트 준비 (반도체 소부장 분리)
-            test_sectors = [
-                '반도체 칩/설계', '반도체 장비', '반도체 소재', '반도체 부품', 
-                '2차전지 소재', '2차전지 장비', '자동차 부품', '바이오 의약품', 
-                '플랫폼/서비스', '방산/항공'
-            ]
-            
-            df_merged = pd.DataFrame({
-                'ticker': tickers,
-                'name': [f"테스트종목_{t}" for t in tickers],
-                'close': [random.randint(1000, 100000) for _ in tickers],
-                'fluctuation_rate': [round(random.uniform(-10, 10), 2) for _ in tickers],
-                'volume': [random.randint(10000, 1000000) for _ in tickers],
-                'trading_value': [random.randint(100000000, 50000000000) for _ in tickers],
-                'market_cap': [random.randint(1000000000, 500000000000) for _ in tickers],
-                'sector': [random.choice(test_sectors) for _ in tickers] # 가상 섹터 할당
-            })
-            return df_merged
+            print(f"[Error] KIS API 시장 데이터 수집 실패: {e}")
+            raise
 
     def get_investor_data(self):
         """네이버 금융에서 외국인 및 기관 순매수 상위 종목을 크롤링합니다."""
@@ -219,15 +200,8 @@ class StockCrawler:
             return df_investor
             
         except Exception as e:
-            print(f"[Warning] 네이버 수급 데이터 크롤링 오류로 테스트용 가상 데이터를 생성합니다: {e}")
-            import random
-            tickers = [f"{i:06d}" for i in range(1, 101)]
-            df_investor = pd.DataFrame({
-                'ticker': tickers,
-                'foreign_net': [random.randint(-100000000, 100000000) for _ in tickers],
-                'inst_net': [random.randint(-100000000, 100000000) for _ in tickers]
-            })
-            return df_investor
+            print(f"[Error] 네이버 수급 데이터 크롤링 실패: {e}")
+            raise
 
     def get_sector_info(self, ticker):
         """네이버 금융에서 업종 및 테마 정보를 가져와서 더 정교하게 분류합니다."""
@@ -300,8 +274,46 @@ class StockCrawler:
         df_market = self.get_market_data()
         df_investor = self.get_investor_data()
         
-        # 데이터 병합
-        df_all = pd.merge(df_market, df_investor, on='ticker', how='left').fillna(0)
+        # 데이터 병합 (how='outer'로 변경하여 수급 상위 종목이 누락되지 않도록 함)
+        df_all = pd.merge(df_market, df_investor, on='ticker', how='outer')
+        
+        # --- 누락된 가격 정보 개별 조회 (KIS API) ---
+        # 거래량 상위에는 없지만 수급 상위에만 있는 종목들의 시세를 채워 넣습니다.
+        missing_mask = df_all['close'].isna() | (df_all['close'] == 0)
+        missing_tickers = df_all[missing_mask]['ticker'].tolist()
+        
+        if missing_tickers:
+            print(f"시세 정보가 누락된 {len(missing_tickers)}개 종목의 데이터를 한국투자증권 API로 개별 조회합니다...")
+            try:
+                token = self._get_kis_access_token()
+                url_price = f"{self.kis_base_url}/uapi/domestic-stock/v1/quotations/inquire-price"
+                headers_price = {
+                    "content-type": "application/json; charset=utf-8",
+                    "authorization": f"Bearer {token}",
+                    "appkey": self.kis_app_key,
+                    "appsecret": self.kis_app_secret,
+                    "tr_id": "FHKST01010100"
+                }
+                
+                for ticker in missing_tickers:
+                    params_price = {
+                        "FID_COND_MRKT_DIV_CODE": "J", 
+                        "FID_INPUT_ISCD": ticker
+                    }
+                    res_price = requests.get(url_price, headers=headers_price, params=params_price)
+                    if res_price.status_code == 200 and res_price.json().get('rt_cd') == '0':
+                        out = res_price.json().get('output', {})
+                        df_all.loc[df_all['ticker'] == ticker, 'close'] = pd.to_numeric(out.get('stck_prpr', 0), errors='coerce')
+                        df_all.loc[df_all['ticker'] == ticker, 'fluctuation_rate'] = pd.to_numeric(out.get('prdy_ctrt', 0), errors='coerce')
+                        df_all.loc[df_all['ticker'] == ticker, 'volume'] = pd.to_numeric(out.get('acml_vol', 0), errors='coerce')
+                        df_all.loc[df_all['ticker'] == ticker, 'trading_value'] = pd.to_numeric(out.get('acml_tr_pbmn', 0), errors='coerce')
+                        if pd.isna(df_all.loc[df_all['ticker'] == ticker, 'name'].iloc[0]) or df_all.loc[df_all['ticker'] == ticker, 'name'].iloc[0] == '':
+                            df_all.loc[df_all['ticker'] == ticker, 'name'] = out.get('hts_kor_isnm', '')
+                    time.sleep(0.05) # KIS API rate limit 방지
+            except Exception as e:
+                print(f"[Warning] 누락 데이터 개별 조회 중 오류: {e}")
+                
+        df_all = df_all.fillna(0)
         
         # --- 카테고리별 추출 ---
         # 1) 거래대금 상위 60위
