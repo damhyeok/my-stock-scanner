@@ -4,7 +4,7 @@ from excel_manager import ExcelManager
 from telegram_bot import TelegramNotifier
 
 def main():
-    print("🚀 === 주식 분석 자동화 시스템 시작 ===")
+    print("=== 주식 분석 자동화 시스템 시작 ===")
     
     # 1. 크롤링 및 DB 누적 저장
     print("\n[Step 1] 데이터 크롤링을 시작합니다.")
@@ -27,7 +27,7 @@ def main():
     notifier = TelegramNotifier()
     notifier.send_summary(report_text)
     
-    print("\n✨ === 모든 자동화 프로세스가 완료되었습니다! ===")
+    print("\n=== 모든 자동화 프로세스가 완료되었습니다! ===")
 
 if __name__ == "__main__":
     main()

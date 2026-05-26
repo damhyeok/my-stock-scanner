@@ -24,11 +24,11 @@ class ExcelManager:
             with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
                 df_analyzed.to_excel(writer, sheet_name='추천종목_스코어링', index=False)
             
-            print(f"✅ 엑셀 리포트가 성공적으로 저장되었습니다: {filepath}")
+            print(f"[Success] 엑셀 리포트가 성공적으로 저장되었습니다: {filepath}")
             return filepath
             
         except Exception as e:
-            print(f"❌ 엑셀 저장 중 오류 발생: {e}")
+            print(f"[Error] 엑셀 저장 중 오류 발생: {e}")
             return None
 
 if __name__ == "__main__":

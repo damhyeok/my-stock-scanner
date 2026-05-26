@@ -83,7 +83,7 @@ class StockCrawler:
             return df_merged
             
         except Exception as e:
-            print(f"⚠️ KRX 서버 접속 오류(pykrx 에러)로 인해 테스트용 가상 데이터를 생성합니다: {e}")
+            print(f"[Warning] KRX 서버 접속 오류(pykrx 에러)로 인해 테스트용 가상 데이터를 생성합니다: {e}")
             import random
             tickers = [f"{i:06d}" for i in range(1, 101)]
             # 테스트를 위해 다양한 섹터 명칭 리스트 준비 (반도체 소부장 분리)
@@ -128,7 +128,7 @@ class StockCrawler:
             return df_investor
             
         except Exception as e:
-            print(f"⚠️ KRX 수급 데이터 서버 오류로 테스트용 가상 데이터를 생성합니다: {e}")
+            print(f"[Warning] KRX 수급 데이터 서버 오류로 테스트용 가상 데이터를 생성합니다: {e}")
             import random
             tickers = [f"{i:06d}" for i in range(1, 101)]
             df_investor = pd.DataFrame({

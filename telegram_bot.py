@@ -11,7 +11,7 @@ class TelegramNotifier:
 
     async def _send_message(self, text):
         if not self.bot:
-            print("⚠️ 텔레그램 토큰이 설정되지 않아 테스트 모드로 출력만 합니다.")
+            print("[Warning] 텔레그램 토큰이 설정되지 않아 테스트 모드로 출력만 합니다.")
             print("="*40)
             print(f"[텔레그램 전송 예정 메시지]\n{text}")
             print("="*40)
@@ -19,9 +19,9 @@ class TelegramNotifier:
         
         try:
             await self.bot.send_message(chat_id=self.chat_id, text=text, parse_mode='HTML')
-            print("✅ 텔레그램 메시지 전송 완료!")
+            print("[Success] 텔레그램 메시지 전송 완료!")
         except Exception as e:
-            print(f"❌ 텔레그램 메시지 전송 실패: {e}")
+            print(f"[Error] 텔레그램 메시지 전송 실패: {e}")
 
     def send_summary(self, report_text):
         """배치 스케줄러(GitHub Actions) 실행 시: 생성된 분석 리포트를 텔레그램으로 전송"""
