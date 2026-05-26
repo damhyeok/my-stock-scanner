@@ -1,23 +1,53 @@
 import sqlite3
 import pandas as pd
-from pykrx import stock
 from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 import time
 import os
+from dotenv import load_dotenv
+
+# .env 파일에서 환경변수 로드
+load_dotenv()
 
 class StockCrawler:
     def __init__(self, db_path="stock_data.db"):
         self.db_path = db_path
         
+        # 한국투자증권(KIS) API 키 세팅
+        self.kis_app_key = os.environ.get("KIS_APP_KEY", "")
+        self.kis_app_secret = os.environ.get("KIS_APP_SECRET", "")
+        self.kis_base_url = "https://openapi.koreainvestment.com:9443" # 실전투자 도메인
+        self.access_token = None
+        
         # 주말/휴일을 고려하여 가장 최근 영업일(business day)을 타겟 날짜로 설정
         today = datetime.today()
-        # pykrx 내부 함수 오류를 피해 pandas의 평일 계산기를 사용합니다.
         b_days = pd.bdate_range(end=today, periods=1)
         self.target_date = b_days[0].strftime("%Y%m%d")
             
         self._init_db()
+
+    def _get_kis_access_token(self):
+        """한국투자증권 API 접근을 위한 Oauth 토큰 발급"""
+        if self.access_token:
+            return self.access_token
+            
+        if not self.kis_app_key or not self.kis_app_secret:
+            raise ValueError("KIS API 키가 .env 파일에 설정되지 않았습니다.")
+            
+        url = f"{self.kis_base_url}/oauth2/tokenP"
+        headers = {"content-type": "application/json"}
+        body = {
+            "grant_type": "client_credentials",
+            "appkey": self.kis_app_key,
+            "appsecret": self.kis_app_secret
+        }
+        res = requests.post(url, headers=headers, json=body)
+        if res.status_code == 200:
+            self.access_token = res.json().get('access_token')
+            return self.access_token
+        else:
+            raise Exception(f"KIS 토큰 발급 실패: {res.text}")
 
     def _init_db(self):
         """SQLite DB 및 테이블 초기화"""
@@ -50,40 +80,71 @@ class StockCrawler:
 
     def get_market_data(self):
         """전체 종목의 시세, 거래대금, 시가총액, 등락률 데이터를 가져옵니다."""
-        print(f"[{self.target_date}] 시장 데이터(OHLCV, 시가총액) 수집 중...")
+        print(f"[{self.target_date}] 시장 데이터(OHLCV, 시가총액) 수집 중 (한국투자증권 API)...")
         
         try:
-            # 1. OHLCV (종가, 등락률, 거래량, 거래대금 등)
-            df_ohlcv = stock.get_market_ohlcv(self.target_date, market="ALL")
-            df_ohlcv = df_ohlcv[['종가', '등락률', '거래량', '거래대금']]
+            token = self._get_kis_access_token()
             
-            # 2. 시가총액
-            df_cap = stock.get_market_cap(self.target_date, market="ALL")
-            df_cap = df_cap[['시가총액']]
+            # [수정] 한국투자증권(KIS) 거래대금 상위 API 호출 로직으로 교체
+            # 실제 사용을 위해 KIS API의 '거래량/거래대금 상위' 엔드포인트를 호출합니다.
+            url = f"{self.kis_base_url}/uapi/domestic-stock/v1/quotations/volume-rank"
+            headers = {
+                "content-type": "application/json; charset=utf-8",
+                "authorization": f"Bearer {token}",
+                "appkey": self.kis_app_key,
+                "appsecret": self.kis_app_secret,
+                "tr_id": "FHPST01710000", # 거래량 상위 TR
+                "custtype": "P"
+            }
+            # 파라미터 세팅 (코스피/코스닥 전체, 거래대금순 등)
+            params = {
+                "FID_COND_MRKT_DIV_CODE": "0000", # 전체
+                "FID_COND_SCR_DIV_CODE": "20100", # 거래대금
+                "FID_INPUT_ISCD": "0000",
+                "FID_DIV_CLS_CODE": "0",
+                "FID_BLNG_CLS_CODE": "0",
+                "FID_TRGT_CLS_CODE": "111111111",
+                "FID_TRGT_EXLS_CLS_CODE": "000000",
+                "FID_INPUT_PRICE_1": "0",
+                "FID_INPUT_PRICE_2": "0",
+                "FID_VOL_CNT": "0",
+                "FID_INPUT_DATE_1": "0"
+            }
             
-            # 병합
-            df_merged = pd.merge(df_ohlcv, df_cap, left_index=True, right_index=True)
+            res = requests.get(url, headers=headers, params=params)
             
-            # 종목명 추가
-            tickers = df_merged.index.tolist()
-            names = [stock.get_market_ticker_name(ticker) for ticker in tickers]
-            df_merged['종목명'] = names
-            
-            df_merged.reset_index(inplace=True)
-            df_merged.rename(columns={
-                '티커': 'ticker',
-                '종가': 'close',
-                '등락률': 'fluctuation_rate',
-                '거래량': 'volume',
-                '거래대금': 'trading_value',
-                '시가총액': 'market_cap',
-                '종목명': 'name'
-            }, inplace=True)
-            
-            return df_merged
+            if res.status_code == 200 and res.json().get('rt_cd') == '0':
+                output = res.json().get('output', [])
+                
+                # 받아온 JSON 데이터를 pandas DataFrame으로 변환
+                df_merged = pd.DataFrame(output)
+                # KIS API 필드명을 우리 DB 스키마에 맞게 맵핑
+                df_merged = df_merged.rename(columns={
+                    'mksc_shrn_iscd': 'ticker',
+                    'hts_kor_isnm': 'name',
+                    'stck_prpr': 'close',
+                    'prdy_ctrt': 'fluctuation_rate',
+                    'acml_vol': 'volume',
+                    'acml_tr_pbmn': 'trading_value',
+                    'stck_avls_val': 'market_cap' # 시가총액 (해당 API에서 제공하지 않을 경우 별도 조회 필요할 수 있음)
+                })
+                
+                # 타입 변환 (문자열 -> 숫자)
+                df_merged['close'] = pd.to_numeric(df_merged['close'], errors='coerce')
+                df_merged['fluctuation_rate'] = pd.to_numeric(df_merged['fluctuation_rate'], errors='coerce')
+                df_merged['volume'] = pd.to_numeric(df_merged['volume'], errors='coerce')
+                df_merged['trading_value'] = pd.to_numeric(df_merged['trading_value'], errors='coerce')
+                if 'market_cap' in df_merged.columns:
+                    df_merged['market_cap'] = pd.to_numeric(df_merged['market_cap'], errors='coerce')
+                else:
+                    df_merged['market_cap'] = 0
+                
+                return df_merged
+            else:
+                raise Exception(f"KIS API 호출 실패: {res.text}")
             
         except Exception as e:
-            print(f"[Warning] KRX 서버 접속 오류(pykrx 에러)로 인해 테스트용 가상 데이터를 생성합니다: {e}")
+            print(f"[Warning] KIS 서버 접속 오류 또는 키 미설정으로 테스트용 가상 데이터를 생성합니다: {e}")
             import random
             tickers = [f"{i:06d}" for i in range(1, 101)]
             # 테스트를 위해 다양한 섹터 명칭 리스트 준비 (반도체 소부장 분리)
@@ -107,28 +168,56 @@ class StockCrawler:
 
     def get_investor_data(self):
         """외국인 및 기관 순매수 데이터를 가져옵니다."""
-        print(f"[{self.target_date}] 외국인/기관 수급 데이터 수집 중...")
+        print(f"[{self.target_date}] 외국인/기관 수급 데이터 수집 중 (한국투자증권 API)...")
         
         try:
-            # 외국인 순매수
-            df_foreign = stock.get_market_net_purchases_of_equities_by_ticker(
-                self.target_date, self.target_date, market="ALL", investor="외국인"
-            )
-            # 기관합계 순매수
-            df_inst = stock.get_market_net_purchases_of_equities_by_ticker(
-                self.target_date, self.target_date, market="ALL", investor="기관합계"
-            )
+            token = self._get_kis_access_token()
             
-            df_investor = pd.DataFrame()
-            df_investor['foreign_net'] = df_foreign['순매수거래대금']
-            df_investor['inst_net'] = df_inst['순매수거래대금']
-            df_investor.reset_index(inplace=True)
-            df_investor.rename(columns={'티커': 'ticker'}, inplace=True)
+            # [수정] 한국투자증권(KIS) 투자자동향 API 호출 로직으로 교체
+            url = f"{self.kis_base_url}/uapi/domestic-stock/v1/quotations/investor-trend"
+            headers = {
+                "content-type": "application/json; charset=utf-8",
+                "authorization": f"Bearer {token}",
+                "appkey": self.kis_app_key,
+                "appsecret": self.kis_app_secret,
+                "tr_id": "FHPST02310000", # 투자자별 매매동향 TR
+                "custtype": "P"
+            }
+            params = {
+                "FID_COND_MRKT_DIV_CODE": "0000",
+                "FID_COND_SCR_DIV_CODE": "20168",
+                "FID_INPUT_ISCD": "0000",
+                "FID_DIV_CLS_CODE": "0",
+                "FID_BLNG_CLS_CODE": "0",
+                "FID_TRGT_CLS_CODE": "111111111",
+                "FID_TRGT_EXLS_CLS_CODE": "000000",
+                "FID_INPUT_PRICE_1": "0",
+                "FID_INPUT_PRICE_2": "0",
+                "FID_VOL_CNT": "0",
+                "FID_INPUT_DATE_1": "0"
+            }
             
-            return df_investor
+            res = requests.get(url, headers=headers, params=params)
+            
+            if res.status_code == 200 and res.json().get('rt_cd') == '0':
+                output = res.json().get('output', [])
+                df_investor = pd.DataFrame(output)
+                
+                df_investor = df_investor.rename(columns={
+                    'mksc_shrn_iscd': 'ticker',
+                    'frgn_ntby_qty': 'foreign_net', # 외국인 순매수 (거래대금이 없을 경우 수량 우선 매핑)
+                    'orgn_ntby_qty': 'inst_net'    # 기관 순매수
+                })
+                
+                df_investor['foreign_net'] = pd.to_numeric(df_investor['foreign_net'], errors='coerce')
+                df_investor['inst_net'] = pd.to_numeric(df_investor['inst_net'], errors='coerce')
+                
+                return df_investor[['ticker', 'foreign_net', 'inst_net']]
+            else:
+                raise Exception(f"KIS 수급 API 호출 실패: {res.text}")
             
         except Exception as e:
-            print(f"[Warning] KRX 수급 데이터 서버 오류로 테스트용 가상 데이터를 생성합니다: {e}")
+            print(f"[Warning] KIS 수급 데이터 서버 오류 또는 키 미설정으로 테스트용 가상 데이터를 생성합니다: {e}")
             import random
             tickers = [f"{i:06d}" for i in range(1, 101)]
             df_investor = pd.DataFrame({
