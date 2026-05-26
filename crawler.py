@@ -85,63 +85,65 @@ class StockCrawler:
         try:
             token = self._get_kis_access_token()
             
-            # [수정] 한국투자증권(KIS) 거래대금 상위 API 호출 로직으로 교체
-            # 실제 사용을 위해 KIS API의 '거래량/거래대금 상위' 엔드포인트를 호출합니다.
             url = f"{self.kis_base_url}/uapi/domestic-stock/v1/quotations/volume-rank"
             headers = {
                 "content-type": "application/json; charset=utf-8",
                 "authorization": f"Bearer {token}",
                 "appkey": self.kis_app_key,
                 "appsecret": self.kis_app_secret,
-                "tr_id": "FHPST01710000", # 거래량 상위 TR
+                "tr_id": "FHPST01710000",
                 "custtype": "P"
             }
-            # 파라미터 세팅 (코스피/코스닥 전체, 거래대금순 등)
-            params = {
-                "FID_COND_MRKT_DIV_CODE": "0000", # 전체
-                "FID_COND_SCR_DIV_CODE": "20100", # 거래대금
-                "FID_INPUT_ISCD": "0000",
-                "FID_DIV_CLS_CODE": "0",
-                "FID_BLNG_CLS_CODE": "0",
-                "FID_TRGT_CLS_CODE": "111111111",
-                "FID_TRGT_EXLS_CLS_CODE": "000000",
-                "FID_INPUT_PRICE_1": "0",
-                "FID_INPUT_PRICE_2": "0",
-                "FID_VOL_CNT": "0",
-                "FID_INPUT_DATE_1": "0"
-            }
             
-            res = requests.get(url, headers=headers, params=params)
+            # 코스피(J)와 코스닥(V) 각각 조회
+            market_codes = ['J', 'V']
+            all_data = []
             
-            if res.status_code == 200 and res.json().get('rt_cd') == '0':
-                output = res.json().get('output', [])
+            for m_code in market_codes:
+                params = {
+                    "FID_COND_MRKT_DIV_CODE": m_code,
+                    "FID_COND_SCR_DIV_CODE": "20171",
+                    "FID_INPUT_ISCD": "0000",
+                    "FID_DIV_CLS_CODE": "0",
+                    "FID_BLNG_CLS_CODE": "0",
+                    "FID_TRGT_CLS_CODE": "111111111",
+                    "FID_TRGT_EXLS_CLS_CODE": "000000",
+                    "FID_INPUT_PRICE_1": "",
+                    "FID_INPUT_PRICE_2": "",
+                    "FID_VOL_CNT": "",
+                    "FID_INPUT_DATE_1": ""
+                }
                 
-                # 받아온 JSON 데이터를 pandas DataFrame으로 변환
-                df_merged = pd.DataFrame(output)
-                # KIS API 필드명을 우리 DB 스키마에 맞게 맵핑
-                df_merged = df_merged.rename(columns={
-                    'mksc_shrn_iscd': 'ticker',
-                    'hts_kor_isnm': 'name',
-                    'stck_prpr': 'close',
-                    'prdy_ctrt': 'fluctuation_rate',
-                    'acml_vol': 'volume',
-                    'acml_tr_pbmn': 'trading_value',
-                    'stck_avls_val': 'market_cap' # 시가총액 (해당 API에서 제공하지 않을 경우 별도 조회 필요할 수 있음)
-                })
+                res = requests.get(url, headers=headers, params=params)
                 
-                # 타입 변환 (문자열 -> 숫자)
-                df_merged['close'] = pd.to_numeric(df_merged['close'], errors='coerce')
-                df_merged['fluctuation_rate'] = pd.to_numeric(df_merged['fluctuation_rate'], errors='coerce')
-                df_merged['volume'] = pd.to_numeric(df_merged['volume'], errors='coerce')
-                df_merged['trading_value'] = pd.to_numeric(df_merged['trading_value'], errors='coerce')
-                if 'market_cap' in df_merged.columns:
-                    df_merged['market_cap'] = pd.to_numeric(df_merged['market_cap'], errors='coerce')
+                if res.status_code == 200 and res.json().get('rt_cd') == '0':
+                    output = res.json().get('output', [])
+                    all_data.extend(output)
                 else:
-                    df_merged['market_cap'] = 0
+                    print(f"[Warning] KIS API {m_code} 호출 실패: {res.text}")
+            
+            if not all_data:
+                raise Exception("조회된 데이터가 없습니다.")
                 
-                return df_merged
-            else:
-                raise Exception(f"KIS API 호출 실패: {res.text}")
+            # 받아온 JSON 데이터를 pandas DataFrame으로 변환
+            df_merged = pd.DataFrame(all_data)
+            df_merged = df_merged.rename(columns={
+                'mksc_shrn_iscd': 'ticker',
+                'hts_kor_isnm': 'name',
+                'stck_prpr': 'close',
+                'prdy_ctrt': 'fluctuation_rate',
+                'acml_vol': 'volume',
+                'acml_tr_pbmn': 'trading_value'
+            })
+            
+            # 타입 변환 (문자열 -> 숫자)
+            df_merged['close'] = pd.to_numeric(df_merged['close'], errors='coerce')
+            df_merged['fluctuation_rate'] = pd.to_numeric(df_merged['fluctuation_rate'], errors='coerce')
+            df_merged['volume'] = pd.to_numeric(df_merged['volume'], errors='coerce')
+            df_merged['trading_value'] = pd.to_numeric(df_merged['trading_value'], errors='coerce')
+            df_merged['market_cap'] = 0 # 임시 처리
+            
+            return df_merged
             
         except Exception as e:
             print(f"[Warning] KIS 서버 접속 오류 또는 키 미설정으로 테스트용 가상 데이터를 생성합니다: {e}")
@@ -167,57 +169,57 @@ class StockCrawler:
             return df_merged
 
     def get_investor_data(self):
-        """외국인 및 기관 순매수 데이터를 가져옵니다."""
-        print(f"[{self.target_date}] 외국인/기관 수급 데이터 수집 중 (한국투자증권 API)...")
+        """네이버 금융에서 외국인 및 기관 순매수 상위 종목을 크롤링합니다."""
+        print(f"[{self.target_date}] 외국인/기관 수급 데이터 수집 중 (네이버 금융 크롤링)...")
         
         try:
-            token = self._get_kis_access_token()
+            headers = {'User-Agent': 'Mozilla/5.0'}
             
-            # [수정] 한국투자증권(KIS) 투자자동향 API 호출 로직으로 교체
-            url = f"{self.kis_base_url}/uapi/domestic-stock/v1/quotations/investor-trend"
-            headers = {
-                "content-type": "application/json; charset=utf-8",
-                "authorization": f"Bearer {token}",
-                "appkey": self.kis_app_key,
-                "appsecret": self.kis_app_secret,
-                "tr_id": "FHPST02310000", # 투자자별 매매동향 TR
-                "custtype": "P"
-            }
-            params = {
-                "FID_COND_MRKT_DIV_CODE": "0000",
-                "FID_COND_SCR_DIV_CODE": "20168",
-                "FID_INPUT_ISCD": "0000",
-                "FID_DIV_CLS_CODE": "0",
-                "FID_BLNG_CLS_CODE": "0",
-                "FID_TRGT_CLS_CODE": "111111111",
-                "FID_TRGT_EXLS_CLS_CODE": "000000",
-                "FID_INPUT_PRICE_1": "0",
-                "FID_INPUT_PRICE_2": "0",
-                "FID_VOL_CNT": "0",
-                "FID_INPUT_DATE_1": "0"
-            }
-            
-            res = requests.get(url, headers=headers, params=params)
-            
-            if res.status_code == 200 and res.json().get('rt_cd') == '0':
-                output = res.json().get('output', [])
-                df_investor = pd.DataFrame(output)
+            def scrape_naver_rank(mac_code):
+                url = f"https://finance.naver.com/sise/sise_deal_rank.naver?mac={mac_code}"
+                res = requests.get(url, headers=headers)
+                soup = BeautifulSoup(res.text, 'html.parser')
                 
-                df_investor = df_investor.rename(columns={
-                    'mksc_shrn_iscd': 'ticker',
-                    'frgn_ntby_qty': 'foreign_net', # 외국인 순매수 (거래대금이 없을 경우 수량 우선 매핑)
-                    'orgn_ntby_qty': 'inst_net'    # 기관 순매수
-                })
+                rows = soup.select('table.type_2 tbody tr, table.type_2 tr')
                 
-                df_investor['foreign_net'] = pd.to_numeric(df_investor['foreign_net'], errors='coerce')
-                df_investor['inst_net'] = pd.to_numeric(df_investor['inst_net'], errors='coerce')
+                data = []
+                # 순위를 기반으로 가상의 순매수 금액 부여 (스코어링 비례용: 300억부터 10억씩 차감)
+                dummy_net_value = 30000000000 
                 
-                return df_investor[['ticker', 'foreign_net', 'inst_net']]
+                for row in rows:
+                    a_tag = row.select_one('a.tltle')
+                    if a_tag:
+                        href = a_tag.get('href', '')
+                        if 'code=' in href:
+                            ticker = href.split('code=')[-1]
+                            data.append({'ticker': ticker, 'net_val': dummy_net_value})
+                            dummy_net_value -= 1000000000 # 순위가 낮아질수록 금액 감소
+                            
+                return pd.DataFrame(data)
+
+            # 외국인 (mac=1)
+            df_for = scrape_naver_rank(1)
+            if not df_for.empty:
+                df_for.rename(columns={'net_val': 'foreign_net'}, inplace=True)
             else:
-                raise Exception(f"KIS 수급 API 호출 실패: {res.text}")
+                df_for = pd.DataFrame(columns=['ticker', 'foreign_net'])
+                
+            # 기관 (mac=2)
+            df_inst = scrape_naver_rank(2)
+            if not df_inst.empty:
+                df_inst.rename(columns={'net_val': 'inst_net'}, inplace=True)
+            else:
+                df_inst = pd.DataFrame(columns=['ticker', 'inst_net'])
+            
+            # 병합
+            if df_for.empty and df_inst.empty:
+                raise Exception("크롤링된 수급 데이터가 없습니다.")
+                
+            df_investor = pd.merge(df_for, df_inst, on='ticker', how='outer').fillna(0)
+            return df_investor
             
         except Exception as e:
-            print(f"[Warning] KIS 수급 데이터 서버 오류 또는 키 미설정으로 테스트용 가상 데이터를 생성합니다: {e}")
+            print(f"[Warning] 네이버 수급 데이터 크롤링 오류로 테스트용 가상 데이터를 생성합니다: {e}")
             import random
             tickers = [f"{i:06d}" for i in range(1, 101)]
             df_investor = pd.DataFrame({
