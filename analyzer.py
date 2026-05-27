@@ -1,9 +1,18 @@
 import sqlite3
+import re
 import pandas as pd
 
 class StockAnalyzer:
     def __init__(self, db_path="stock_data.db"):
         self.db_path = db_path
+
+    def _session_sort_key(self, session):
+        """세션명에 포함된 HH:MM 값을 분 단위로 변환해 시간순 정렬에 사용합니다."""
+        match = re.search(r'\((\d{1,2}):(\d{2})\)', str(session))
+        if not match:
+            return -1
+        hour, minute = map(int, match.groups())
+        return hour * 60 + minute
         
     def _get_recent_dates(self, days=5):
         """DB에 저장된 가장 최근 영업일 N개를 가져옵니다."""
@@ -113,7 +122,7 @@ class StockAnalyzer:
         dates = sorted(df_raw['date'].unique(), reverse=True)
         today = dates[0]
         df_today = df_raw[df_raw['date'] == today]
-        sessions = sorted(df_today['session'].unique(), reverse=True)
+        sessions = sorted(df_today['session'].unique(), key=self._session_sort_key, reverse=True)
         
         if not sessions: return "오늘 수집된 세션 데이터가 없습니다."
         
@@ -125,7 +134,7 @@ class StockAnalyzer:
             prev_session_df = df_today[df_today['session'] == sessions[1]]
         elif len(dates) > 1:
             df_yest = df_raw[df_raw['date'] == dates[1]]
-            yest_sessions = sorted(df_yest['session'].unique(), reverse=True)
+            yest_sessions = sorted(df_yest['session'].unique(), key=self._session_sort_key, reverse=True)
             if yest_sessions:
                 prev_session_df = df_yest[df_yest['session'] == yest_sessions[0]]
                 

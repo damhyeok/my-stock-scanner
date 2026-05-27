@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
+import re
 from analyzer import StockAnalyzer
 
 # 페이지 기본 설정
@@ -26,6 +27,14 @@ COLUMN_MAP = {
     'is_pullback': '눌림목 여부',
     'total_score': '총점'
 }
+
+def session_sort_key(session):
+    """세션명에 포함된 HH:MM 값을 분 단위로 변환해 시간순 정렬에 사용합니다."""
+    match = re.search(r'\((\d{1,2}):(\d{2})\)', str(session))
+    if not match:
+        return -1
+    hour, minute = map(int, match.groups())
+    return hour * 60 + minute
 
 def display_formatted_df(df, use_container_width=True):
     """데이터프레임의 컬럼명을 한글로 변경하고 불필요한 열을 제거하여 출력합니다."""
@@ -87,7 +96,11 @@ else:
     selected_date = st.sidebar.selectbox("📅 조회할 날짜 선택:", available_dates)
     
     if 'session' in df_raw.columns:
-        day_sessions = sorted(df_raw[df_raw['date'] == selected_date]['session'].unique().tolist(), reverse=True)
+        day_sessions = sorted(
+            df_raw[df_raw['date'] == selected_date]['session'].unique().tolist(),
+            key=session_sort_key,
+            reverse=True
+        )
     else:
         day_sessions = ["데이터 없음 (DB 초기화 필요)"]
         

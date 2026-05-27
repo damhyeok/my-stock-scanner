@@ -40,6 +40,8 @@ jobs:
       - name: 메인 자동화 스크립트 실행 (크롤링 -> 분석 -> 엑셀 -> 텔레그램)
         env:
           # GitHub Settings -> Secrets에 설정한 텔레그램 토큰을 가져옵니다.
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py

@@ -1,6 +1,7 @@
 import sqlite3
 import pandas as pd
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import requests
 from bs4 import BeautifulSoup
 import time
@@ -13,6 +14,7 @@ load_dotenv()
 class StockCrawler:
     def __init__(self, db_path="stock_data.db"):
         self.db_path = db_path
+        self.kst = ZoneInfo("Asia/Seoul")
         
         # 한국투자증권(KIS) API 키 세팅
         self.kis_app_key = os.environ.get("KIS_APP_KEY", "")
@@ -21,7 +23,7 @@ class StockCrawler:
         self.access_token = None
         
         # 주말/휴일을 고려하여 가장 최근 영업일(business day)을 타겟 날짜로 설정
-        today = datetime.today()
+        today = datetime.now(self.kst)
         b_days = pd.bdate_range(end=today, periods=1)
         self.target_date = b_days[0].strftime("%Y%m%d")
             
@@ -238,7 +240,7 @@ class StockCrawler:
         conn = sqlite3.connect(self.db_path)
         
         # 현재 시간에 따라 세션 결정 (깃허브 액션 지연 시간을 고려한 동적 세션명 부여)
-        now = datetime.now()
+        now = datetime.now(self.kst)
         hour, minute = now.hour, now.minute
         
         if hour < 15 or (hour == 15 and minute < 30):
@@ -249,6 +251,31 @@ class StockCrawler:
             session = "시간외(20:30)"
         
         print(f"[{session}] 데이터를 DB에 저장 중...")
+        row_count = len(df)
+        empty_name_count = int(df['name'].fillna('').eq('').sum()) if 'name' in df.columns else row_count
+
+        def count_zero_values(column_name):
+            if column_name not in df.columns:
+                return row_count
+            values = pd.to_numeric(df[column_name], errors='coerce').fillna(0)
+            return int(values.eq(0).sum())
+
+        zero_price_count = count_zero_values('close')
+        zero_value_count = count_zero_values('trading_value')
+        print(
+            f"[Data Check] category={category}, rows={row_count}, "
+            f"empty_names={empty_name_count}, zero_close={zero_price_count}, "
+            f"zero_trading_value={zero_value_count}"
+        )
+        if row_count == 0:
+            print(f"[Warning] {category} 저장 대상 데이터가 0건입니다.")
+        if empty_name_count > 0:
+            print(f"[Warning] {category}에 종목명이 비어 있는 데이터가 {empty_name_count}건 있습니다.")
+        if zero_price_count > 0 or zero_value_count > 0:
+            print(
+                f"[Warning] {category}에 가격 또는 거래대금이 0인 데이터가 있습니다 "
+                f"(zero_close={zero_price_count}, zero_trading_value={zero_value_count})."
+            )
         
         for _, row in df.iterrows():
             conn.execute('''
