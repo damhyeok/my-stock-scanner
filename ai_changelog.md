@@ -1,3 +1,11 @@
+## [2026-05-29 00:38] Actions rebase 자동 stash 적용
+- **작업 목적:** 자동 커밋 후 남아 있는 unstaged 변경 때문에 `git pull --rebase`가 실패하던 문제를 해결했습니다.
+- **영향을 받은 파일:** `.github/workflows/main.yml`, `ai_changelog.md`
+- **주요 변경 사항:**
+  - GitHub Actions의 DB/리포트 저장 step에서 `git pull --rebase origin main`을 `git pull --rebase --autostash origin main`으로 변경했습니다.
+  - rebase 전 남아 있는 작업 트리 변경을 자동으로 임시 보관했다가 다시 적용할 수 있게 했습니다.
+---
+
 ## [2026-05-29 00:21] GitHub Actions 자동 커밋 푸시 충돌 완화
 - **작업 목적:** 자동 실행이 DB/리포트 커밋을 만든 뒤 원격 `main`에 새 커밋이 있어 `git push`가 거절되는 문제를 줄였습니다.
 - **영향을 받은 파일:** `.github/workflows/main.yml`, `ai_changelog.md`

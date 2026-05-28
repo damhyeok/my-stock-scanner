@@ -56,6 +56,6 @@ jobs:
             echo "No stock data or report changes to commit."
           else
             git commit -m "Auto-update stock data and daily reports [skip ci]"
-            git pull --rebase origin main
+            git pull --rebase --autostash origin main
             git push
           fi
