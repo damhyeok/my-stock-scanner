@@ -97,8 +97,8 @@ class StockCrawler:
                 "custtype": "P"
             }
             
-            # 코스피(J)와 코스닥(V) 각각 조회
-            market_codes = ['J', 'V']
+            # 거래량 순위 API의 J 코드는 KRX 주식 시장 기준입니다. V는 해당 API에서 유효하지 않습니다.
+            market_codes = ['J']
             all_data = []
             
             for m_code in market_codes:
