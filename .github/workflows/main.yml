@@ -52,5 +52,10 @@ jobs:
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add stock_data.db reports/
           # 데이터베이스나 엑셀 파일에 변경사항이 있을 때만 커밋 후 푸시합니다.
-          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-update stock data and daily reports [skip ci]"
-          git push
+          if git diff --quiet && git diff --staged --quiet; then
+            echo "No stock data or report changes to commit."
+          else
+            git commit -m "Auto-update stock data and daily reports [skip ci]"
+            git pull --rebase origin main
+            git push
+          fi

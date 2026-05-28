@@ -1,3 +1,11 @@
+## [2026-05-29 00:21] GitHub Actions 자동 커밋 푸시 충돌 완화
+- **작업 목적:** 자동 실행이 DB/리포트 커밋을 만든 뒤 원격 `main`에 새 커밋이 있어 `git push`가 거절되는 문제를 줄였습니다.
+- **영향을 받은 파일:** `.github/workflows/main.yml`, `ai_changelog.md`
+- **주요 변경 사항:**
+  - GitHub Actions의 DB/리포트 저장 step을 `if` 블록으로 정리해 변경사항이 있을 때만 커밋/푸시하도록 명확히 했습니다.
+  - 자동 커밋 생성 후 `git pull --rebase origin main`을 수행한 뒤 `git push`하도록 변경해 원격 브랜치 선행 커밋을 반영하게 했습니다.
+---
+
 ## [2026-05-29 00:14] 수급 데이터 수집 KIS API 전환
 - **작업 목적:** 네이버 금융 크롤링에 의존하던 외국인/기관 수급 데이터 수집을 검증된 KIS `foreign-institution-total` API 기반으로 전환했습니다.
 - **영향을 받은 파일:** `crawler.py`, `ai_changelog.md`
