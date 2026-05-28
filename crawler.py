@@ -326,6 +326,11 @@ class StockCrawler:
         
         # 데이터 병합 (how='outer'로 변경하여 수급 상위 종목이 누락되지 않도록 함)
         df_all = pd.merge(df_market, df_investor, on='ticker', how='outer')
+        if 'name_x' in df_all.columns or 'name_y' in df_all.columns:
+            market_names = df_all.get('name_x', pd.Series('', index=df_all.index)).fillna('')
+            investor_names = df_all.get('name_y', pd.Series('', index=df_all.index)).fillna('')
+            df_all['name'] = market_names.where(market_names != '', investor_names)
+            df_all = df_all.drop(columns=[c for c in ['name_x', 'name_y'] if c in df_all.columns])
         
         # --- 누락된 가격 정보 개별 조회 (KIS API) ---
         # 거래량 상위에는 없지만 수급 상위에만 있는 종목들의 시세를 채워 넣습니다.
@@ -363,7 +368,13 @@ class StockCrawler:
             except Exception as e:
                 print(f"[Warning] 누락 데이터 개별 조회 중 오류: {e}")
                 
-        df_all = df_all.fillna(0)
+        text_columns = ['ticker', 'name', 'sector', 'theme']
+        for col in text_columns:
+            if col in df_all.columns:
+                df_all[col] = df_all[col].fillna('')
+        numeric_columns = [col for col in df_all.columns if col not in text_columns]
+        for col in numeric_columns:
+            df_all[col] = pd.to_numeric(df_all[col], errors='coerce').fillna(0)
         
         # --- 카테고리별 추출 ---
         # 1) 거래대금 상위 60위
