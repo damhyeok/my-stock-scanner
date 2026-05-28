@@ -135,7 +135,8 @@ class StockCrawler:
                 'stck_prpr': 'close',
                 'prdy_ctrt': 'fluctuation_rate',
                 'acml_vol': 'volume',
-                'acml_tr_pbmn': 'trading_value'
+                'acml_tr_pbmn': 'trading_value',
+                'lstn_stcn': 'listed_shares'
             })
             
             # 타입 변환 (문자열 -> 숫자)
@@ -143,7 +144,9 @@ class StockCrawler:
             df_merged['fluctuation_rate'] = pd.to_numeric(df_merged['fluctuation_rate'], errors='coerce')
             df_merged['volume'] = pd.to_numeric(df_merged['volume'], errors='coerce')
             df_merged['trading_value'] = pd.to_numeric(df_merged['trading_value'], errors='coerce')
-            df_merged['market_cap'] = 0 # 임시 처리
+            df_merged['listed_shares'] = pd.to_numeric(df_merged.get('listed_shares', 0), errors='coerce').fillna(0)
+            df_merged['market_cap'] = (df_merged['close'].fillna(0) * df_merged['listed_shares']).astype('int64')
+            df_merged = df_merged.drop(columns=['listed_shares'])
             
             return df_merged
             
@@ -362,6 +365,10 @@ class StockCrawler:
                         df_all.loc[df_all['ticker'] == ticker, 'fluctuation_rate'] = pd.to_numeric(out.get('prdy_ctrt', 0), errors='coerce')
                         df_all.loc[df_all['ticker'] == ticker, 'volume'] = pd.to_numeric(out.get('acml_vol', 0), errors='coerce')
                         df_all.loc[df_all['ticker'] == ticker, 'trading_value'] = pd.to_numeric(out.get('acml_tr_pbmn', 0), errors='coerce')
+                        close_val = pd.to_numeric(out.get('stck_prpr', 0), errors='coerce')
+                        listed_shares = pd.to_numeric(out.get('lstn_stcn', 0), errors='coerce')
+                        if pd.notna(close_val) and pd.notna(listed_shares):
+                            df_all.loc[df_all['ticker'] == ticker, 'market_cap'] = int(close_val * listed_shares)
                         if pd.isna(df_all.loc[df_all['ticker'] == ticker, 'name'].iloc[0]) or df_all.loc[df_all['ticker'] == ticker, 'name'].iloc[0] == '':
                             df_all.loc[df_all['ticker'] == ticker, 'name'] = out.get('hts_kor_isnm', '')
                     time.sleep(0.05) # KIS API rate limit 방지
