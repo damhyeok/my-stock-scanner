@@ -154,6 +154,8 @@ class StockCrawler:
     def get_investor_data(self):
         """네이버 금융에서 외국인 및 기관 순매수 상위 종목을 크롤링합니다."""
         print(f"[{self.target_date}] 외국인/기관 수급 데이터 수집 중 (네이버 금융 크롤링)...")
+
+        empty_investor_df = pd.DataFrame(columns=['ticker', 'foreign_net', 'inst_net'])
         
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
@@ -196,14 +198,20 @@ class StockCrawler:
             
             # 병합
             if df_for.empty and df_inst.empty:
-                raise Exception("크롤링된 수급 데이터가 없습니다.")
+                print("[Warning] 크롤링된 수급 데이터가 없습니다. 수급 금액을 0으로 대체하고 계속 진행합니다.")
+                return empty_investor_df
                 
             df_investor = pd.merge(df_for, df_inst, on='ticker', how='outer').fillna(0)
+            if 'foreign_net' not in df_investor.columns:
+                df_investor['foreign_net'] = 0
+            if 'inst_net' not in df_investor.columns:
+                df_investor['inst_net'] = 0
             return df_investor
             
         except Exception as e:
-            print(f"[Error] 네이버 수급 데이터 크롤링 실패: {e}")
-            raise
+            print(f"[Warning] 네이버 수급 데이터 크롤링 실패: {e}")
+            print("[Warning] 수급 금액을 0으로 대체하고 계속 진행합니다.")
+            return empty_investor_df
 
     def get_sector_info(self, ticker):
         """네이버 금융에서 업종 및 테마 정보를 가져와서 더 정교하게 분류합니다."""
