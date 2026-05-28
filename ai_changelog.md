@@ -1,3 +1,12 @@
+## [2026-05-29 00:07] KIS 수급 API 후보 탐색 스크립트 확장
+- **작업 목적:** 네이버 크롤링을 대체할 KIS 수급 API 후보를 찾기 위해 검증 스크립트가 여러 endpoint/TR 조합을 중단 없이 테스트하도록 확장했습니다.
+- **영향을 받은 파일:** `test_kis_investor_api.py`, `ai_changelog.md`
+- **주요 변경 사항:**
+  - `ApiProbe` 구조를 추가해 여러 KIS API 후보를 순차 테스트할 수 있게 했습니다.
+  - `foreign-institution-total`, `inquire-investor`, `investor-trend-estimate` 후보를 추가하고 HTTP 오류가 나도 다음 후보를 계속 검사하도록 변경했습니다.
+  - 로컬 검증 결과 `foreign-institution-total` API에서 외국인/기관 순매수 금액 필드(`frgn_ntby_tr_pbmn`, `orgn_ntby_tr_pbmn`)가 정상 응답하는 것을 확인했습니다.
+---
+
 ## [2026-05-28 23:55] KIS 투자자 수급 API 검증 스크립트 추가
 - **작업 목적:** 네이버 크롤링을 KIS API 기반 수급 데이터로 대체할 수 있는지 안전하게 확인하기 위한 독립 검증 스크립트를 추가했습니다.
 - **영향을 받은 파일:** `test_kis_investor_api.py`, `ai_changelog.md`
