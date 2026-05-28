@@ -152,64 +152,79 @@ class StockCrawler:
             raise
 
     def get_investor_data(self):
-        """네이버 금융에서 외국인 및 기관 순매수 상위 종목을 크롤링합니다."""
-        print(f"[{self.target_date}] 외국인/기관 수급 데이터 수집 중 (네이버 금융 크롤링)...")
+        """KIS API에서 외국인 및 기관 순매수 상위 종목을 조회합니다."""
+        print(f"[{self.target_date}] 외국인/기관 수급 데이터 수집 중 (한국투자증권 API)...")
 
         empty_investor_df = pd.DataFrame(columns=['ticker', 'foreign_net', 'inst_net'])
         
         try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
+            token = self._get_kis_access_token()
+            url = f"{self.kis_base_url}/uapi/domestic-stock/v1/quotations/foreign-institution-total"
+            headers = {
+                "content-type": "application/json; charset=utf-8",
+                "authorization": f"Bearer {token}",
+                "appkey": self.kis_app_key,
+                "appsecret": self.kis_app_secret,
+                "tr_id": "FHPTJ04400000",
+                "custtype": "P"
+            }
             
-            def scrape_naver_rank(mac_code):
-                url = f"https://finance.naver.com/sise/sise_deal_rank.naver?mac={mac_code}"
-                res = requests.get(url, headers=headers)
-                soup = BeautifulSoup(res.text, 'html.parser')
-                
-                rows = soup.select('table.type_2 tbody tr, table.type_2 tr')
-                
-                data = []
-                # 순위를 기반으로 가상의 순매수 금액 부여 (스코어링 비례용: 300억부터 10억씩 차감)
-                dummy_net_value = 30000000000 
-                
-                for row in rows:
-                    a_tag = row.select_one('a.tltle')
-                    if a_tag:
-                        href = a_tag.get('href', '')
-                        if 'code=' in href:
-                            ticker = href.split('code=')[-1]
-                            data.append({'ticker': ticker, 'net_val': dummy_net_value})
-                            dummy_net_value -= 1000000000 # 순위가 낮아질수록 금액 감소
-                            
-                return pd.DataFrame(data)
+            def fetch_investor_rank(etc_cls_code, value_column):
+                params = {
+                    "FID_COND_MRKT_DIV_CODE": "V",
+                    "FID_COND_SCR_DIV_CODE": "16449",
+                    "FID_INPUT_ISCD": "0000",
+                    "FID_DIV_CLS_CODE": "1",
+                    "FID_RANK_SORT_CLS_CODE": "0",
+                    "FID_ETC_CLS_CODE": etc_cls_code,
+                }
+                res = requests.get(url, headers=headers, params=params)
+                if res.status_code != 200 or res.json().get('rt_cd') != '0':
+                    print(f"[Warning] KIS 수급 API 호출 실패(etc_cls_code={etc_cls_code}): {res.text}")
+                    return pd.DataFrame(columns=['ticker', 'name', value_column])
 
-            # 외국인 (mac=1)
-            df_for = scrape_naver_rank(1)
-            if not df_for.empty:
-                df_for.rename(columns={'net_val': 'foreign_net'}, inplace=True)
-            else:
-                df_for = pd.DataFrame(columns=['ticker', 'foreign_net'])
-                
-            # 기관 (mac=2)
-            df_inst = scrape_naver_rank(2)
-            if not df_inst.empty:
-                df_inst.rename(columns={'net_val': 'inst_net'}, inplace=True)
-            else:
-                df_inst = pd.DataFrame(columns=['ticker', 'inst_net'])
+                rows = res.json().get('output', [])
+                df = pd.DataFrame(rows)
+                if df.empty:
+                    return pd.DataFrame(columns=['ticker', 'name', value_column])
+
+                df = df.rename(columns={
+                    'mksc_shrn_iscd': 'ticker',
+                    'hts_kor_isnm': 'name',
+                    value_column: value_column
+                })
+                df[value_column] = pd.to_numeric(df[value_column], errors='coerce').fillna(0).astype(int)
+                return df[['ticker', 'name', value_column]]
+
+            df_for = fetch_investor_rank("1", "frgn_ntby_tr_pbmn")
+            df_for = df_for.rename(columns={'frgn_ntby_tr_pbmn': 'foreign_net'})
+
+            df_inst = fetch_investor_rank("2", "orgn_ntby_tr_pbmn")
+            df_inst = df_inst.rename(columns={'orgn_ntby_tr_pbmn': 'inst_net'})
             
             # 병합
             if df_for.empty and df_inst.empty:
-                print("[Warning] 크롤링된 수급 데이터가 없습니다. 수급 금액을 0으로 대체하고 계속 진행합니다.")
+                print("[Warning] KIS 수급 데이터가 없습니다. 수급 금액을 0으로 대체하고 계속 진행합니다.")
                 return empty_investor_df
                 
-            df_investor = pd.merge(df_for, df_inst, on='ticker', how='outer').fillna(0)
+            df_investor = pd.merge(df_for, df_inst, on='ticker', how='outer', suffixes=('_foreign', '_inst'))
+            if 'name_foreign' in df_investor.columns or 'name_inst' in df_investor.columns:
+                foreign_names = df_investor.get('name_foreign', pd.Series('', index=df_investor.index)).fillna('')
+                inst_names = df_investor.get('name_inst', pd.Series('', index=df_investor.index)).fillna('')
+                df_investor['name'] = foreign_names.where(foreign_names != '', inst_names)
+                df_investor = df_investor.drop(columns=[c for c in ['name_foreign', 'name_inst'] if c in df_investor.columns])
             if 'foreign_net' not in df_investor.columns:
                 df_investor['foreign_net'] = 0
             if 'inst_net' not in df_investor.columns:
                 df_investor['inst_net'] = 0
+            df_investor['foreign_net'] = pd.to_numeric(df_investor['foreign_net'], errors='coerce').fillna(0).astype(int)
+            df_investor['inst_net'] = pd.to_numeric(df_investor['inst_net'], errors='coerce').fillna(0).astype(int)
+            if 'name' in df_investor.columns:
+                df_investor['name'] = df_investor['name'].fillna('')
             return df_investor
             
         except Exception as e:
-            print(f"[Warning] 네이버 수급 데이터 크롤링 실패: {e}")
+            print(f"[Warning] KIS 수급 데이터 조회 실패: {e}")
             print("[Warning] 수급 금액을 0으로 대체하고 계속 진행합니다.")
             return empty_investor_df
 

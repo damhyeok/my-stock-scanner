@@ -1,3 +1,12 @@
+## [2026-05-29 00:14] 수급 데이터 수집 KIS API 전환
+- **작업 목적:** 네이버 금융 크롤링에 의존하던 외국인/기관 수급 데이터 수집을 검증된 KIS `foreign-institution-total` API 기반으로 전환했습니다.
+- **영향을 받은 파일:** `crawler.py`, `ai_changelog.md`
+- **주요 변경 사항:**
+  - `get_investor_data()`가 네이버 HTML 크롤링 대신 KIS `foreign-institution-total` API를 호출하도록 변경했습니다.
+  - 외국인 순매수 상위와 기관 순매수 상위를 각각 조회해 `foreign_net`, `inst_net`, `ticker`, `name`으로 병합하도록 매핑했습니다.
+  - KIS 수급 조회 실패 시 기존처럼 경고를 남기고 빈 수급 DataFrame을 반환해 자동화가 중단되지 않도록 유지했습니다.
+---
+
 ## [2026-05-29 00:07] KIS 수급 API 후보 탐색 스크립트 확장
 - **작업 목적:** 네이버 크롤링을 대체할 KIS 수급 API 후보를 찾기 위해 검증 스크립트가 여러 endpoint/TR 조합을 중단 없이 테스트하도록 확장했습니다.
 - **영향을 받은 파일:** `test_kis_investor_api.py`, `ai_changelog.md`
