@@ -305,6 +305,65 @@ class StockCrawler:
 
         return df[~product_mask].copy()
 
+    def _normalize_sector(self, ticker, name, sector):
+        """네이버 업종을 주요 주도 테마 기준 섹터로 보정합니다."""
+        ticker_sector_map = {
+            '005930': '반도체',
+            '000660': '반도체',
+            '000990': '반도체',
+            '042700': '반도체 장비',
+            '036930': '반도체 장비',
+            '440110': '반도체 설계',
+            '108490': '로봇',
+            '454910': '로봇',
+            '277810': '로봇',
+            '034020': '전력/전기장비',
+            '298040': '전력/전기장비',
+            '010120': '전력/전기장비',
+            '012450': '방산',
+            '064350': '방산',
+            '079550': '방산',
+            '005380': '자동차',
+            '000270': '자동차',
+            '012330': '자동차',
+            '018880': '자동차',
+            '005385': '자동차',
+            '005387': '자동차',
+            '035420': '인터넷/플랫폼',
+            '402340': '지주/투자',
+            '000150': '지주/투자',
+            '028260': '지주/투자',
+            '064400': 'IT서비스',
+            '022100': 'IT서비스',
+            '242040': 'IT서비스',
+            '010170': '통신장비',
+            '017670': '통신',
+        }
+        if ticker in ticker_sector_map:
+            return ticker_sector_map[ticker]
+
+        name_text = str(name or '')
+        keyword_sector_map = [
+            ('로보', '로봇'),
+            ('레인보우로보틱스', '로봇'),
+            ('반도체', '반도체'),
+            ('하이닉스', '반도체'),
+            ('삼성전자', '반도체'),
+            ('전기', '전력/전기장비'),
+            ('중공업', '전력/전기장비'),
+            ('에어로스페이스', '방산'),
+            ('디펜스', '방산'),
+            ('현대로템', '방산'),
+            ('현대차', '자동차'),
+            ('기아', '자동차'),
+            ('모비스', '자동차'),
+        ]
+        for keyword, normalized_sector in keyword_sector_map:
+            if keyword in name_text:
+                return normalized_sector
+
+        return sector if sector else '기타'
+
     def save_to_db(self, df, category):
         """분석된 데이터프레임을 SQLite에 저장"""
         conn = sqlite3.connect(self.db_path)
@@ -451,6 +510,10 @@ class StockCrawler:
         # 데이터프레임에 섹터 적용 함수
         def apply_sector(df):
             df['sector'] = df['ticker'].map(sector_dict)
+            df['sector'] = df.apply(
+                lambda row: self._normalize_sector(row.get('ticker', ''), row.get('name', ''), row.get('sector', '')),
+                axis=1
+            )
             df['theme'] = '' # 테마는 추후 고도화 시 추가
             return df
             
