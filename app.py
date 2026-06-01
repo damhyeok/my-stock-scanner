@@ -36,9 +36,23 @@ def session_sort_key(session):
     hour, minute = map(int, match.groups())
     return hour * 60 + minute
 
+def format_eok(value):
+    """원 단위 금액을 억 단위 문자열로 변환합니다."""
+    numeric_value = pd.to_numeric(value, errors='coerce')
+    if pd.isna(numeric_value):
+        numeric_value = 0
+    return f"{numeric_value / 100_000_000:,.1f}억"
+
+def format_amount_columns(df):
+    temp_df = df.copy()
+    for col in ['market_cap', 'trading_value', 'foreign_net', 'inst_net']:
+        if col in temp_df.columns:
+            temp_df[col] = temp_df[col].apply(format_eok)
+    return temp_df
+
 def display_formatted_df(df, use_container_width=True):
     """데이터프레임의 컬럼명을 한글로 변경하고 불필요한 열을 제거하여 출력합니다."""
-    temp_df = df.copy()
+    temp_df = format_amount_columns(df)
     if 'category' in temp_df.columns:
         temp_df = temp_df.drop(columns=['category'])
     current_map = {k: v for k, v in COLUMN_MAP.items() if k in temp_df.columns}
@@ -193,6 +207,8 @@ else:
         sector_grouped = sector_grouped[sector_grouped['sector'] != '기타'].sort_values('trading_value', ascending=False).head(15)
         st.bar_chart(data=sector_grouped, x='sector', y='trading_value', use_container_width=True)
         sector_disp = sector_grouped.rename(columns={'sector': '업종', 'total_net': '합산 순매수', 'trading_value': '합산 거래대금', 'stock_count': '종목 수', 'included_stocks': '포함된 종목들'})
+        sector_disp['합산 순매수'] = sector_disp['합산 순매수'].apply(format_eok)
+        sector_disp['합산 거래대금'] = sector_disp['합산 거래대금'].apply(format_eok)
         st.dataframe(sector_disp, use_container_width=True)
 
     # 탭 6: 트렌드
@@ -232,7 +248,14 @@ else:
                     merged = pd.merge(df_curr[df_curr['ticker'].isin(common_tickers)][['ticker', 'name', 'trading_value', 'sector']], df_prev[df_prev['ticker'].isin(common_tickers)][['ticker', 'trading_value']], on='ticker', suffixes=('_현재', '_이전'))
                     merged['거래대금 급증률(%)'] = ((merged['trading_value_현재'] - merged['trading_value_이전']) / merged['trading_value_이전'] * 100).round(2)
                     st.subheader("🔥 이전 세션 대비 거래대금 급증 종목 Top 10")
-                    st.dataframe(merged.sort_values('거래대금 급증률(%)', ascending=False).head(10).reset_index(drop=True), use_container_width=True)
+                    merged_disp = merged.sort_values('거래대금 급증률(%)', ascending=False).head(10).reset_index(drop=True)
+                    merged_disp['trading_value_현재'] = merged_disp['trading_value_현재'].apply(format_eok)
+                    merged_disp['trading_value_이전'] = merged_disp['trading_value_이전'].apply(format_eok)
+                    merged_disp = merged_disp.rename(columns={
+                        'trading_value_현재': '거래대금 현재(억)',
+                        'trading_value_이전': '거래대금 이전(억)'
+                    })
+                    st.dataframe(merged_disp, use_container_width=True)
             else: st.info("비교할 이전 세션 데이터가 없습니다.")
 
     # 탭 8: 정규장 vs 시간외 (일일 총평)

@@ -6,6 +6,12 @@ class StockAnalyzer:
     def __init__(self, db_path="stock_data.db"):
         self.db_path = db_path
 
+    def _format_eok(self, value):
+        numeric_value = pd.to_numeric(value, errors='coerce')
+        if pd.isna(numeric_value):
+            numeric_value = 0
+        return f"{numeric_value / 100_000_000:,.1f}억"
+
     def _session_sort_key(self, session):
         """세션명에 포함된 HH:MM 값을 분 단위로 변환해 시간순 정렬에 사용합니다."""
         match = re.search(r'\((\d{1,2}):(\d{2})\)', str(session))
@@ -157,7 +163,7 @@ class StockAnalyzer:
                 # 메시지 길이를 위해 너무 길면 자르기
                 if len(stocks_str) > 40:
                     stocks_str = stocks_str[:40] + "..."
-                report += f" {i+1}. {sec} ({count}종목: {stocks_str})\n"
+                report += f" {i+1}. {sec} ({self._format_eok(val)}, {count}종목: {stocks_str})\n"
                 
         # [분석 2 & 3] 이전 세션과 비교
         if not prev_session_df.empty:
@@ -174,7 +180,12 @@ class StockAnalyzer:
                 report += "- 이전 세션 대비 신규 진입 없음\n"
             else:
                 for _, r in new_df.iterrows():
-                    report += f" - {r['name']} ({r['sector']}, {r['fluctuation_rate']}%) \n"
+                    report += (
+                        f" - {r['name']} ({r['sector']}, {r['fluctuation_rate']}%, "
+                        f"거래대금 {self._format_eok(r.get('trading_value', 0))}, "
+                        f"외인 {self._format_eok(r.get('foreign_net', 0))}, "
+                        f"기관 {self._format_eok(r.get('inst_net', 0))})\n"
+                    )
                     
             # [분석 3] 거래급증 활발 종목
             common_tickers = curr_tickers.intersection(prev_tickers)
@@ -191,7 +202,10 @@ class StockAnalyzer:
             else:
                 for _, r in fast_grow.iterrows():
                     if r['vol_growth'] > 0:
-                        report += f" - {r['name']} ({r['sector']}, 급증률: +{r['vol_growth']:.1f}%)\n"
+                        report += (
+                            f" - {r['name']} ({r['sector']}, 급증률: +{r['vol_growth']:.1f}%, "
+                            f"거래대금 {self._format_eok(r['trading_value_curr'])})\n"
+                        )
                         
         report += "\n💡 상세 데이터는 대시보드(웹)에서 확인하세요!"
         return report
