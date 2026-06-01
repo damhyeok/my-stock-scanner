@@ -15,11 +15,11 @@ COLUMN_MAP = {
     'name': '종목명',
     'close': '종가',
     'fluctuation_rate': '등락률(%)',
-    'market_cap': '시가총액',
+    'market_cap': '시가총액(억)',
     'volume': '거래량',
-    'trading_value': '거래대금',
-    'foreign_net': '외인 순매수',
-    'inst_net': '기관 순매수',
+    'trading_value': '거래대금(억)',
+    'foreign_net': '외인 순매수(억)',
+    'inst_net': '기관 순매수(억)',
     'sector': '업종',
     'theme': '테마',
     'presence_index': '주도주 지표',
@@ -36,18 +36,28 @@ def session_sort_key(session):
     hour, minute = map(int, match.groups())
     return hour * 60 + minute
 
-def format_eok(value):
-    """원 단위 금액을 억 단위 문자열로 변환합니다."""
+def format_won_to_eok(value):
+    """원 단위 금액을 억 단위 정수로 변환합니다."""
     numeric_value = pd.to_numeric(value, errors='coerce')
     if pd.isna(numeric_value):
         numeric_value = 0
-    return f"{numeric_value / 100_000_000:,.1f}억"
+    return round(numeric_value / 100_000_000)
+
+def format_kis_flow_to_eok(value):
+    """KIS 수급 금액을 억 단위 정수로 변환합니다."""
+    numeric_value = pd.to_numeric(value, errors='coerce')
+    if pd.isna(numeric_value):
+        numeric_value = 0
+    return round(numeric_value / 100)
 
 def format_amount_columns(df):
     temp_df = df.copy()
-    for col in ['market_cap', 'trading_value', 'foreign_net', 'inst_net']:
+    for col in ['market_cap', 'trading_value']:
         if col in temp_df.columns:
-            temp_df[col] = temp_df[col].apply(format_eok)
+            temp_df[col] = temp_df[col].apply(format_won_to_eok)
+    for col in ['foreign_net', 'inst_net']:
+        if col in temp_df.columns:
+            temp_df[col] = temp_df[col].apply(format_kis_flow_to_eok)
     return temp_df
 
 def display_formatted_df(df, use_container_width=True):
@@ -207,8 +217,12 @@ else:
         sector_grouped = sector_grouped[sector_grouped['sector'] != '기타'].sort_values('trading_value', ascending=False).head(15)
         st.bar_chart(data=sector_grouped, x='sector', y='trading_value', use_container_width=True)
         sector_disp = sector_grouped.rename(columns={'sector': '업종', 'total_net': '합산 순매수', 'trading_value': '합산 거래대금', 'stock_count': '종목 수', 'included_stocks': '포함된 종목들'})
-        sector_disp['합산 순매수'] = sector_disp['합산 순매수'].apply(format_eok)
-        sector_disp['합산 거래대금'] = sector_disp['합산 거래대금'].apply(format_eok)
+        sector_disp['합산 순매수'] = sector_disp['합산 순매수'].apply(format_kis_flow_to_eok)
+        sector_disp['합산 거래대금'] = sector_disp['합산 거래대금'].apply(format_won_to_eok)
+        sector_disp = sector_disp.rename(columns={
+            '합산 순매수': '합산 순매수(억)',
+            '합산 거래대금': '합산 거래대금(억)'
+        })
         st.dataframe(sector_disp, use_container_width=True)
 
     # 탭 6: 트렌드
@@ -249,8 +263,8 @@ else:
                     merged['거래대금 급증률(%)'] = ((merged['trading_value_현재'] - merged['trading_value_이전']) / merged['trading_value_이전'] * 100).round(2)
                     st.subheader("🔥 이전 세션 대비 거래대금 급증 종목 Top 10")
                     merged_disp = merged.sort_values('거래대금 급증률(%)', ascending=False).head(10).reset_index(drop=True)
-                    merged_disp['trading_value_현재'] = merged_disp['trading_value_현재'].apply(format_eok)
-                    merged_disp['trading_value_이전'] = merged_disp['trading_value_이전'].apply(format_eok)
+                    merged_disp['trading_value_현재'] = merged_disp['trading_value_현재'].apply(format_won_to_eok)
+                    merged_disp['trading_value_이전'] = merged_disp['trading_value_이전'].apply(format_won_to_eok)
                     merged_disp = merged_disp.rename(columns={
                         'trading_value_현재': '거래대금 현재(억)',
                         'trading_value_이전': '거래대금 이전(억)'
