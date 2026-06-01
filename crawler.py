@@ -285,6 +285,26 @@ class StockCrawler:
             return "정규장(16:00)"
         return "시간외(20:30)"
 
+    def _exclude_exchange_traded_products(self, df):
+        """ETF/ETN/레버리지/인버스 등 상품형 종목을 분석 대상에서 제외합니다."""
+        if df.empty or 'name' not in df.columns:
+            return df
+
+        product_keywords = [
+            'KODEX', 'TIGER', 'ACE', 'SOL', 'PLUS', 'RISE', 'HANARO',
+            'KOSEF', 'ARIRANG', 'KBSTAR', 'KINDEX', 'TREX', 'TIMEFOLIO',
+            'FOCUS', 'WOORI', '1Q', '마이티', '히어로즈',
+            'ETF', 'ETN', '레버리지', '인버스', '선물', '채권',
+        ]
+        name_upper = df['name'].fillna('').astype(str).str.upper()
+        product_mask = name_upper.str.contains('|'.join(product_keywords), regex=True, na=False)
+        excluded_count = int(product_mask.sum())
+
+        if excluded_count > 0:
+            print(f"[Filter] ETF/ETN 등 상품형 종목 {excluded_count}건을 분석 대상에서 제외했습니다.")
+
+        return df[~product_mask].copy()
+
     def save_to_db(self, df, category):
         """분석된 데이터프레임을 SQLite에 저장"""
         conn = sqlite3.connect(self.db_path)
@@ -397,6 +417,8 @@ class StockCrawler:
         numeric_columns = [col for col in df_all.columns if col not in text_columns]
         for col in numeric_columns:
             df_all[col] = pd.to_numeric(df_all[col], errors='coerce').fillna(0)
+
+        df_all = self._exclude_exchange_traded_products(df_all)
         
         # --- 카테고리별 추출 ---
         # 1) 거래대금 상위 60위
