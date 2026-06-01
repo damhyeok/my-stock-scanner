@@ -1,3 +1,12 @@
+## [2026-06-01 23:16] 자동 분석 세션 시간 고정
+- **작업 목적:** GitHub Actions 실행 지연으로 DB/웹페이지/텔레그램에 실제 실행 시간이 세션명으로 저장되는 문제를 수정했습니다.
+- **영향을 받은 파일:** `crawler.py`, `.github/workflows/main.yml`, `ai_changelog.md`
+- **주요 변경 사항:**
+  - GitHub Actions의 예약 cron 값을 `GITHUB_EVENT_SCHEDULE` 환경변수로 Python 실행 단계에 전달하도록 추가했습니다.
+  - `StockCrawler._get_session_name()`을 추가해 예약 cron 값을 `장중(09:05)`, `정규장(16:00)`, `시간외(20:30)` 같은 고정 세션명으로 매핑하도록 했습니다.
+  - 수동 실행처럼 예약 cron 값이 없는 경우에는 기존 방식대로 현재 KST 시각 기준 세션명을 사용하도록 유지했습니다.
+---
+
 ## [2026-05-29 00:57] KIS 상장주식수 기반 시가총액 계산 추가
 - **작업 목적:** 시장 데이터 저장 시 `market_cap`이 항상 0으로 저장되던 문제를 해결했습니다.
 - **영향을 받은 파일:** `crawler.py`, `ai_changelog.md`

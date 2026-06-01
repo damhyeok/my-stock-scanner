@@ -15,6 +15,7 @@ class StockCrawler:
     def __init__(self, db_path="stock_data.db"):
         self.db_path = db_path
         self.kst = ZoneInfo("Asia/Seoul")
+        self.scheduled_cron = os.environ.get("GITHUB_EVENT_SCHEDULE", "").strip()
         
         # 한국투자증권(KIS) API 키 세팅
         self.kis_app_key = os.environ.get("KIS_APP_KEY", "")
@@ -261,20 +262,34 @@ class StockCrawler:
         except Exception:
             return "기타"
 
+    def _get_session_name(self):
+        scheduled_sessions = {
+            "5 0 * * 1-5": "장중(09:05)",
+            "20 0 * * 1-5": "장중(09:20)",
+            "0 1 * * 1-5": "장중(10:00)",
+            "0 5 * * 1-5": "장중(14:00)",
+            "30 5 * * 1-5": "장중(14:30)",
+            "0 7 * * 1-5": "정규장(16:00)",
+            "30 11 * * 1-5": "시간외(20:30)",
+        }
+
+        if self.scheduled_cron in scheduled_sessions:
+            return scheduled_sessions[self.scheduled_cron]
+
+        now = datetime.now(self.kst)
+        hour, minute = now.hour, now.minute
+
+        if hour < 15 or (hour == 15 and minute < 30):
+            return f"장중({hour:02d}:{minute:02d})"
+        if hour < 18:
+            return "정규장(16:00)"
+        return "시간외(20:30)"
+
     def save_to_db(self, df, category):
         """분석된 데이터프레임을 SQLite에 저장"""
         conn = sqlite3.connect(self.db_path)
         
-        # 현재 시간에 따라 세션 결정 (깃허브 액션 지연 시간을 고려한 동적 세션명 부여)
-        now = datetime.now(self.kst)
-        hour, minute = now.hour, now.minute
-        
-        if hour < 15 or (hour == 15 and minute < 30):
-            session = f"장중({hour:02d}:{minute:02d})"
-        elif hour < 18:
-            session = "정규장(16:00)"
-        else:
-            session = "시간외(20:30)"
+        session = self._get_session_name()
         
         print(f"[{session}] 데이터를 DB에 저장 중...")
         row_count = len(df)
