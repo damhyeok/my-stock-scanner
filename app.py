@@ -10,7 +10,7 @@ st.set_page_config(page_title="주식 분석 대시보드", layout="wide", page_
 # 컬럼 한글 매핑 딕셔너리
 COLUMN_MAP = {
     'date': '날짜',
-    'session': '세션',
+    'session': '시간',
     'ticker': '종목코드',
     'name': '종목명',
     'close': '종가',
@@ -126,7 +126,7 @@ with st.spinner("데이터를 불러오고 있습니다..."):
 if df_analyzed is None or df_raw.empty:
     st.warning("⚠️ 분석할 데이터가 없습니다. 먼저 `crawler.py`를 실행하여 데이터를 수집해주세요.")
 else:
-    # ----------------- 사이드바 (날짜 및 세션 선택) -----------------
+    # ----------------- 사이드바 (날짜 및 시간 선택) -----------------
     st.sidebar.title("🔍 조회 및 분석 옵션")
     
     available_dates = sorted(df_raw['date'].unique().tolist(), reverse=True)
@@ -141,7 +141,7 @@ else:
     else:
         day_sessions = ["데이터 없음 (DB 초기화 필요)"]
         
-    selected_session = st.sidebar.selectbox("⏰ 세션 선택:", day_sessions)
+    selected_session = st.sidebar.selectbox("⏰ 시간 선택:", day_sessions)
 
     selected_session_df = df_raw[
         (df_raw['date'] == selected_date) & (df_raw['session'] == selected_session)
@@ -151,7 +151,7 @@ else:
     st.sidebar.divider()
     st.sidebar.subheader("📥 데이터 다운로드")
     st.sidebar.download_button(
-        "선택 세션 CSV",
+        "선택 시간 CSV",
         data=to_csv_bytes(selected_session_df),
         file_name=f"stock_data_{selected_date}_{safe_filename(selected_session)}.csv",
         mime="text/csv"
@@ -182,7 +182,7 @@ else:
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("선택된 날짜", selected_date)
     selected_session_label = display_session_name(selected_session)
-    col2.metric("선택된 세션", selected_session_label)
+    col2.metric("선택된 시간", selected_session_label)
     col3.metric("분석 대상 종목 수", f"{len(df_analyzed)}개")
     col4.metric("오늘의 눌림목 포착", f"{len(df_analyzed[df_analyzed['is_pullback'] == True])}개")
     
@@ -280,9 +280,9 @@ else:
             trend_pivot = df_filtered.groupby(['date_session', 'sector'])['total_net'].sum().reset_index().pivot(index='date_session', columns='sector', values='total_net').fillna(0)
             st.line_chart(trend_pivot, use_container_width=True)
 
-    # 탭 7: 직전 세션 대비 변화
+    # 탭 7: 직전 시간 대비 변화
     with tab7:
-        st.header(f"⚡ {selected_session_label} 기준 직전 세션 대비 변화")
+        st.header(f"⚡ {selected_session_label} 기준 직전 시간 대비 변화")
         if 'session' in df_raw.columns and selected_session in day_sessions:
             current_session_idx = day_sessions.index(selected_session)
             if current_session_idx < len(day_sessions) - 1:
@@ -302,7 +302,7 @@ else:
                 if common_tickers:
                     merged = pd.merge(df_curr[df_curr['ticker'].isin(common_tickers)][['ticker', 'name', 'trading_value', 'sector']], df_prev[df_prev['ticker'].isin(common_tickers)][['ticker', 'trading_value']], on='ticker', suffixes=('_현재', '_이전'))
                     merged['거래대금 급증률(%)'] = ((merged['trading_value_현재'] - merged['trading_value_이전']) / merged['trading_value_이전'] * 100).round(2)
-                    st.subheader("🔥 이전 세션 대비 거래대금 급증 종목 Top 10")
+                    st.subheader("🔥 이전 시간 대비 거래대금 급증 종목 Top 10")
                     merged_disp = merged.sort_values('거래대금 급증률(%)', ascending=False).head(10).reset_index(drop=True)
                     merged_disp['trading_value_현재'] = merged_disp['trading_value_현재'].apply(format_won_to_eok)
                     merged_disp['trading_value_이전'] = merged_disp['trading_value_이전'].apply(format_won_to_eok)
@@ -311,7 +311,7 @@ else:
                         'trading_value_이전': '거래대금 이전(억)'
                     })
                     st.dataframe(merged_disp, use_container_width=True)
-            else: st.info("비교할 이전 세션 데이터가 없습니다.")
+            else: st.info("비교할 이전 시간 데이터가 없습니다.")
 
     # 탭 8: 정규장 vs 시간외 (일일 총평)
     with tab8:
