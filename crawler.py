@@ -23,12 +23,19 @@ class StockCrawler:
         self.kis_base_url = "https://openapi.koreainvestment.com:9443" # 실전투자 도메인
         self.access_token = None
         
-        # 주말/휴일을 고려하여 가장 최근 영업일(business day)을 타겟 날짜로 설정
-        today = datetime.now(self.kst)
-        b_days = pd.bdate_range(end=today, periods=1)
-        self.target_date = b_days[0].strftime("%Y%m%d")
+        self.target_date = self._resolve_target_date()
             
         self._init_db()
+
+    def _resolve_target_date(self):
+        """스케줄 지연으로 자정을 넘긴 시간외 실행은 직전 영업일 데이터로 저장합니다."""
+        now = datetime.now(self.kst)
+        target_day = now
+        if self.scheduled_cron == "30 11 * * 1-5" and now.hour < 6:
+            target_day = now - pd.Timedelta(days=1)
+
+        b_days = pd.bdate_range(end=target_day, periods=1)
+        return b_days[0].strftime("%Y%m%d")
 
     def _get_kis_access_token(self):
         """한국투자증권 API 접근을 위한 Oauth 토큰 발급"""
