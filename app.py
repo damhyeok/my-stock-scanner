@@ -60,6 +60,11 @@ def format_amount_columns(df):
             temp_df[col] = temp_df[col].apply(format_kis_flow_to_eok)
     return temp_df
 
+def display_session_name(session):
+    if session == "시간외(20:30)":
+        return "NXT 시간외(20:30)"
+    return session
+
 def display_formatted_df(df, use_container_width=True):
     """데이터프레임의 컬럼명을 한글로 변경하고 불필요한 열을 제거하여 출력합니다."""
     temp_df = format_amount_columns(df)
@@ -142,7 +147,8 @@ else:
     # 상단 KPI
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("선택된 날짜", selected_date)
-    col2.metric("선택된 세션", selected_session)
+    selected_session_label = display_session_name(selected_session)
+    col2.metric("선택된 세션", selected_session_label)
     col3.metric("분석 대상 종목 수", f"{len(df_analyzed)}개")
     col4.metric("오늘의 눌림목 포착", f"{len(df_analyzed[df_analyzed['is_pullback'] == True])}개")
     
@@ -167,7 +173,7 @@ else:
 
     # 탭 1: 종합 추천
     with tab1:
-        st.header(f"🏆 {selected_session} 기준 추천 종목 Top 10")
+        st.header(f"🏆 {selected_session_label} 기준 추천 종목 Top 10")
         st.info("""
         💡 **분석 지표 설명**
         - **주도주 지표**: 최근 5거래일 동안 '거래대금' 또는 '수급' 상위권에 얼마나 자주 등장했는지(지속성)를 나타냅니다.
@@ -183,20 +189,20 @@ else:
 
     # 탭 2, 3, 4: 각 카테고리별 데이터
     with tab2:
-        st.header(f"🔥 거래대금 Top 60 ({selected_session})")
+        st.header(f"🔥 거래대금 Top 60 ({selected_session_label})")
         df_vol = df_selected[df_selected['category'] == 'VOLUME_TOP_60'].copy()
         display_formatted_df(df_vol)
         display_sector_summary(df_vol)
 
     with tab3:
-        st.header(f"🟢 외국인 순매수 Top 30 ({selected_session})")
+        st.header(f"🟢 외국인 순매수 Top 30 ({selected_session_label})")
         df_for = df_selected[df_selected['category'] == 'FOREIGN_TOP_30'].copy()
         df_for = df_for.sort_values(by='foreign_net', ascending=False)
         display_formatted_df(df_for)
         display_sector_summary(df_for)
 
     with tab4:
-        st.header(f"🔴 기관 순매수 Top 30 ({selected_session})")
+        st.header(f"🔴 기관 순매수 Top 30 ({selected_session_label})")
         df_inst = df_selected[df_selected['category'] == 'INST_TOP_30'].copy()
         df_inst = df_inst.sort_values(by='inst_net', ascending=False)
         display_formatted_df(df_inst)
@@ -204,7 +210,7 @@ else:
         
     # 탭 5: 섹터 요약
     with tab5:
-        st.header(f"📊 섹터별 자금 유입 요약 ({selected_session} 기준)")
+        st.header(f"📊 섹터별 자금 유입 요약 ({selected_session_label} 기준)")
         df_selected['total_net'] = df_selected['foreign_net'] + df_selected['inst_net']
         
         sector_grouped = df_selected.groupby('sector').agg(
@@ -241,7 +247,7 @@ else:
 
     # 탭 7: 직전 세션 대비 변화
     with tab7:
-        st.header(f"⚡ {selected_session} 기준 직전 세션 대비 변화")
+        st.header(f"⚡ {selected_session_label} 기준 직전 세션 대비 변화")
         if 'session' in df_raw.columns and selected_session in day_sessions:
             current_session_idx = day_sessions.index(selected_session)
             if current_session_idx < len(day_sessions) - 1:

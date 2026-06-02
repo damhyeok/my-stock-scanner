@@ -18,6 +18,11 @@ class StockAnalyzer:
             numeric_value = 0
         return f"{round(numeric_value / 100):,}억"
 
+    def _display_session(self, session):
+        if session == "시간외(20:30)":
+            return "NXT 시간외(20:30)"
+        return session
+
     def _session_sort_key(self, session):
         """세션명에 포함된 HH:MM 값을 분 단위로 변환해 시간순 정렬에 사용합니다."""
         match = re.search(r'\((\d{1,2}):(\d{2})\)', str(session))
@@ -157,7 +162,7 @@ class StockAnalyzer:
         sector_vol = curr_vol.groupby('sector')['trading_value'].sum().sort_values(ascending=False)
         sector_vol = sector_vol[sector_vol.index != '기타'].head(3)
         
-        report = f"🔥 <b>[{current_session} 브리핑]</b>\n\n"
+        report = f"🔥 <b>[{self._display_session(current_session)} 브리핑]</b>\n\n"
         report += "<b>1. 💰 거래대금 강세 섹터 Top 3</b>\n"
         if sector_vol.empty:
             report += "- 강세 섹터 없음\n"

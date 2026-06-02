@@ -6,6 +6,7 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import os
+import re
 from dotenv import load_dotenv
 
 # .env 파일에서 환경변수 로드
@@ -161,6 +162,117 @@ class StockCrawler:
         except Exception as e:
             print(f"[Error] KIS API 시장 데이터 수집 실패: {e}")
             raise
+
+    def _parse_nxt_number(self, value):
+        text = str(value).strip()
+        if text in ['', '-', 'nan', 'None']:
+            return 0
+        text = re.sub(r'[^0-9.\-]', '', text)
+        if text in ['', '-', '.']:
+            return 0
+        return pd.to_numeric(text, errors='coerce')
+
+    def _load_name_ticker_map(self):
+        name_ticker_map = {
+            '삼성전자': '005930',
+            'SK하이닉스': '000660',
+            'LG전자': '066570',
+            'LG씨엔에스': '064400',
+            'LG이노텍': '011070',
+            '삼성전기': '009150',
+            'NAVER': '035420',
+            '현대차': '005380',
+            '삼성에스디에스': '018260',
+            '현대모비스': '012330',
+            'LG에너지솔루션': '373220',
+        }
+        try:
+            conn = sqlite3.connect(self.db_path)
+            df_names = pd.read_sql(
+                "SELECT ticker, name FROM daily_stocks WHERE name IS NOT NULL AND name != ''",
+                conn
+            )
+            conn.close()
+            for _, row in df_names.drop_duplicates('name').iterrows():
+                name_ticker_map[str(row['name'])] = str(row['ticker']).zfill(6)
+        except Exception:
+            pass
+        return name_ticker_map
+
+    def get_nxt_aftermarket_data(self):
+        """넥스트레이드 공개 페이지에서 NXT 시간외 거래대금 상위 데이터를 가져옵니다."""
+        print(f"[{self.target_date}] NXT 시간외 거래대금 데이터를 수집 중 (넥스트레이드 공개 페이지)...")
+        url = "https://www.nextrade.co.kr/main.do"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+
+        try:
+            res = requests.get(url, headers=headers, timeout=10)
+            res.raise_for_status()
+        except Exception as e:
+            raise Exception(f"NXT 공개 페이지 수집 실패: {e}")
+
+        soup = BeautifulSoup(res.text, 'html.parser')
+        target_table = None
+        for table in soup.find_all('table'):
+            headers = [cell.get_text(strip=True) for cell in table.find_all('th')]
+            if '종목명' not in headers or '거래대금' not in headers:
+                continue
+
+            table_rows = []
+            for tr in table.find_all('tr'):
+                cells = [cell.get_text(strip=True) for cell in tr.find_all('td')]
+                if len(cells) == len(headers):
+                    table_rows.append(dict(zip(headers, cells)))
+
+            if table_rows:
+                target_table = pd.DataFrame(table_rows)
+                break
+
+        if target_table is None or target_table.empty:
+            raise Exception("NXT 거래대금 상위종목 표를 찾지 못했습니다.")
+
+        name_ticker_map = self._load_name_ticker_map()
+        rows = []
+        skipped_names = []
+
+        for _, row in target_table.iterrows():
+            name = str(row.get('종목명', '')).strip()
+            if not name:
+                continue
+
+            ticker = name_ticker_map.get(name)
+            if not ticker:
+                skipped_names.append(name)
+                continue
+
+            close = self._parse_nxt_number(row.get('현재가', 0))
+            fluctuation_rate = self._parse_nxt_number(row.get('등락률', 0))
+            volume = self._parse_nxt_number(row.get('거래량', 0))
+            trading_value = self._parse_nxt_number(row.get('거래대금', 0))
+
+            rows.append({
+                'ticker': ticker,
+                'name': name,
+                'close': close,
+                'fluctuation_rate': fluctuation_rate,
+                'market_cap': 0,
+                'volume': volume,
+                'trading_value': trading_value,
+                'foreign_net': 0,
+                'inst_net': 0,
+                'sector': '',
+                'theme': '',
+            })
+
+        if skipped_names:
+            print(f"[Warning] NXT 종목코드 매핑 실패로 제외된 종목: {', '.join(skipped_names[:10])}")
+        if not rows:
+            raise Exception("NXT 거래대금 상위종목 중 저장 가능한 데이터가 없습니다.")
+
+        df_nxt = pd.DataFrame(rows)
+        df_nxt = df_nxt.sort_values('trading_value', ascending=False).drop_duplicates('ticker')
+        print(f"[NXT] 거래대금 상위종목 {len(df_nxt)}건을 수집했습니다.")
+        return df_nxt
 
     def get_investor_data(self):
         """KIS API에서 외국인 및 기관 순매수 상위 종목을 조회합니다."""
@@ -380,6 +492,10 @@ class StockCrawler:
         session = self._get_session_name()
         
         print(f"[{session}] 데이터를 DB에 저장 중...")
+        conn.execute(
+            "DELETE FROM daily_stocks WHERE date = ? AND session = ? AND category = ?",
+            (self.target_date, session, category)
+        )
         row_count = len(df)
         empty_name_count = int(df['name'].fillna('').eq('').sum()) if 'name' in df.columns else row_count
 
@@ -425,25 +541,30 @@ class StockCrawler:
 
     def run(self):
         print(f"========== {self.target_date} 데이터 크롤링 시작 ==========")
+        session = self._get_session_name()
+        is_nxt_afterhours = session == "시간외(20:30)"
         
         # 1. 기본 시장 데이터 & 수급 데이터 수집
-        df_market = self.get_market_data()
-        df_investor = self.get_investor_data()
+        if is_nxt_afterhours:
+            df_all = self.get_nxt_aftermarket_data()
+        else:
+            df_market = self.get_market_data()
+            df_investor = self.get_investor_data()
         
-        # 데이터 병합 (how='outer'로 변경하여 수급 상위 종목이 누락되지 않도록 함)
-        df_all = pd.merge(df_market, df_investor, on='ticker', how='outer')
-        if 'name_x' in df_all.columns or 'name_y' in df_all.columns:
-            market_names = df_all.get('name_x', pd.Series('', index=df_all.index)).fillna('')
-            investor_names = df_all.get('name_y', pd.Series('', index=df_all.index)).fillna('')
-            df_all['name'] = market_names.where(market_names != '', investor_names)
-            df_all = df_all.drop(columns=[c for c in ['name_x', 'name_y'] if c in df_all.columns])
+            # 데이터 병합 (how='outer'로 변경하여 수급 상위 종목이 누락되지 않도록 함)
+            df_all = pd.merge(df_market, df_investor, on='ticker', how='outer')
+            if 'name_x' in df_all.columns or 'name_y' in df_all.columns:
+                market_names = df_all.get('name_x', pd.Series('', index=df_all.index)).fillna('')
+                investor_names = df_all.get('name_y', pd.Series('', index=df_all.index)).fillna('')
+                df_all['name'] = market_names.where(market_names != '', investor_names)
+                df_all = df_all.drop(columns=[c for c in ['name_x', 'name_y'] if c in df_all.columns])
         
         # --- 누락된 가격 정보 개별 조회 (KIS API) ---
         # 거래량 상위에는 없지만 수급 상위에만 있는 종목들의 시세를 채워 넣습니다.
         missing_mask = df_all['close'].isna() | (df_all['close'] == 0)
         missing_tickers = df_all[missing_mask]['ticker'].tolist()
         
-        if missing_tickers:
+        if missing_tickers and not is_nxt_afterhours:
             print(f"시세 정보가 누락된 {len(missing_tickers)}개 종목의 데이터를 한국투자증권 API로 개별 조회합니다...")
             try:
                 token = self._get_kis_access_token()
@@ -493,10 +614,16 @@ class StockCrawler:
         df_vol_top = df_all.sort_values(by='trading_value', ascending=False).head(60).copy()
         
         # 2) 외국인 순매수 상위 30위
-        df_for_top = df_all.sort_values(by='foreign_net', ascending=False).head(30).copy()
+        if is_nxt_afterhours:
+            df_for_top = df_all.iloc[0:0].copy()
+        else:
+            df_for_top = df_all.sort_values(by='foreign_net', ascending=False).head(30).copy()
         
         # 3) 기관 순매수 상위 30위
-        df_inst_top = df_all.sort_values(by='inst_net', ascending=False).head(30).copy()
+        if is_nxt_afterhours:
+            df_inst_top = df_all.iloc[0:0].copy()
+        else:
+            df_inst_top = df_all.sort_values(by='inst_net', ascending=False).head(30).copy()
         
         # 크롤링 대상 고유 티커 추출 (중복 제거를 위해)
         target_tickers = set(df_vol_top['ticker']).union(set(df_for_top['ticker'])).union(set(df_inst_top['ticker']))
