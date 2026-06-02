@@ -74,6 +74,12 @@ def display_formatted_df(df, use_container_width=True):
     temp_df = temp_df.rename(columns=current_map)
     st.dataframe(temp_df, use_container_width=use_container_width)
 
+def to_csv_bytes(df):
+    return df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+
+def safe_filename(value):
+    return re.sub(r'[^0-9A-Za-z가-힣_-]+', '_', str(value)).strip('_')
+
 def display_sector_summary(df):
     """해당 리스트의 업종별 요약과 포함된 종목 리스트를 아래에 출력합니다."""
     if 'sector' in df.columns and not df.empty:
@@ -136,6 +142,32 @@ else:
         day_sessions = ["데이터 없음 (DB 초기화 필요)"]
         
     selected_session = st.sidebar.selectbox("⏰ 세션 선택:", day_sessions)
+
+    selected_session_df = df_raw[
+        (df_raw['date'] == selected_date) & (df_raw['session'] == selected_session)
+    ].copy()
+    selected_date_df = df_raw[df_raw['date'] == selected_date].copy()
+
+    st.sidebar.divider()
+    st.sidebar.subheader("📥 데이터 다운로드")
+    st.sidebar.download_button(
+        "선택 세션 CSV",
+        data=to_csv_bytes(selected_session_df),
+        file_name=f"stock_data_{selected_date}_{safe_filename(selected_session)}.csv",
+        mime="text/csv"
+    )
+    st.sidebar.download_button(
+        "선택 날짜 CSV",
+        data=to_csv_bytes(selected_date_df),
+        file_name=f"stock_data_{selected_date}.csv",
+        mime="text/csv"
+    )
+    st.sidebar.download_button(
+        "전체 데이터 CSV",
+        data=to_csv_bytes(df_raw),
+        file_name="stock_data_all.csv",
+        mime="text/csv"
+    )
     
     st.sidebar.divider()
     st.sidebar.subheader("📈 트렌드 분석 설정")
