@@ -107,8 +107,8 @@ class StockCrawler:
                     "FID_COND_MRKT_DIV_CODE": m_code,
                     "FID_COND_SCR_DIV_CODE": "20171",
                     "FID_INPUT_ISCD": "0000",
-                    "FID_DIV_CLS_CODE": "0",
-                    "FID_BLNG_CLS_CODE": "0",
+                    "FID_DIV_CLS_CODE": "1",
+                    "FID_BLNG_CLS_CODE": "3",
                     "FID_TRGT_CLS_CODE": "111111111",
                     "FID_TRGT_EXLS_CLS_CODE": "000000",
                     "FID_INPUT_PRICE_1": "",
@@ -263,6 +263,8 @@ class StockCrawler:
             return "기타"
 
     def _get_session_name(self):
+        now = datetime.now(self.kst)
+        hour, minute = now.hour, now.minute
         scheduled_sessions = {
             "5 0 * * 1-5": "장중(09:05)",
             "20 0 * * 1-5": "장중(09:20)",
@@ -270,19 +272,19 @@ class StockCrawler:
             "0 5 * * 1-5": "장중(14:00)",
             "30 5 * * 1-5": "장중(14:30)",
             "0 7 * * 1-5": "정규장(16:00)",
-            "30 11 * * 1-5": "시간외(20:30)",
         }
 
         if self.scheduled_cron in scheduled_sessions:
             return scheduled_sessions[self.scheduled_cron]
-
-        now = datetime.now(self.kst)
-        hour, minute = now.hour, now.minute
+        if self.scheduled_cron == "30 11 * * 1-5" and (hour > 20 or (hour == 20 and minute >= 30)):
+            return "시간외(20:30)"
 
         if hour < 15 or (hour == 15 and minute < 30):
             return f"장중({hour:02d}:{minute:02d})"
         if hour < 18:
             return "정규장(16:00)"
+        if hour < 20 or (hour == 20 and minute < 30):
+            return f"시간외진행({hour:02d}:{minute:02d})"
         return "시간외(20:30)"
 
     def _exclude_exchange_traded_products(self, df):
