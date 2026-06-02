@@ -79,10 +79,12 @@ def display_sector_summary(df):
     if 'sector' in df.columns and not df.empty:
         st.write("---")
         st.subheader("📊 업종별 종목 묶음 보기")
+        sector_df = df.drop_duplicates(subset=['ticker']).copy()
         
         # 업종별로 그룹화하여 종목 수 카운트 및 종목명 결합
-        summary = df.groupby('sector').agg({
-            'name': ['count', lambda x: ', '.join(x)]
+        summary = sector_df.groupby('sector').agg({
+            'ticker': 'nunique',
+            'name': lambda x: ', '.join(dict.fromkeys(x.astype(str)))
         }).reset_index()
         
         # 멀티인덱스 컬럼 정리
@@ -211,13 +213,14 @@ else:
     # 탭 5: 섹터 요약
     with tab5:
         st.header(f"📊 섹터별 자금 유입 요약 ({selected_session_label} 기준)")
-        df_selected['total_net'] = df_selected['foreign_net'] + df_selected['inst_net']
+        sector_base = df_selected[df_selected['category'] == 'VOLUME_TOP_60'].drop_duplicates(subset=['ticker']).copy()
+        sector_base['total_net'] = sector_base['foreign_net'] + sector_base['inst_net']
         
-        sector_grouped = df_selected.groupby('sector').agg(
+        sector_grouped = sector_base.groupby('sector').agg(
             total_net=('total_net', 'sum'),
             trading_value=('trading_value', 'sum'),
-            stock_count=('name', 'count'),
-            included_stocks=('name', lambda x: ', '.join(x))
+            stock_count=('ticker', 'nunique'),
+            included_stocks=('name', lambda x: ', '.join(dict.fromkeys(x.astype(str))))
         ).reset_index()
         
         sector_grouped = sector_grouped[sector_grouped['sector'] != '기타'].sort_values('trading_value', ascending=False).head(15)
