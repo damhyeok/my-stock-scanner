@@ -71,7 +71,7 @@ def display_session_name(session):
 def display_formatted_df(df, use_container_width=True, hidden_columns=None):
     """데이터프레임의 컬럼명을 한글로 변경하고 불필요한 열을 제거하여 출력합니다."""
     temp_df = format_amount_columns(df)
-    drop_columns = ['category']
+    drop_columns = ['category', 'collected_at_kst', 'data_source', 'scheduled_cron']
     if hidden_columns:
         drop_columns.extend(hidden_columns)
     existing_drop_columns = [col for col in drop_columns if col in temp_df.columns]
