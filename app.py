@@ -87,11 +87,11 @@ def to_csv_bytes(df):
 def safe_filename(value):
     return re.sub(r'[^0-9A-Za-z가-힣_-]+', '_', str(value)).strip('_')
 
-def display_sector_summary(df):
+def display_sector_summary(df, title="📊 업종별 종목 묶음 보기"):
     """해당 리스트의 업종별 요약과 포함된 종목 리스트를 아래에 출력합니다."""
     if 'sector' in df.columns and not df.empty:
         st.write("---")
-        st.subheader("📊 업종별 종목 묶음 보기")
+        st.subheader(title)
         sector_df = df.drop_duplicates(subset=['ticker']).copy()
         
         # 업종별로 그룹화하여 종목 수 카운트 및 종목명 결합
@@ -234,6 +234,29 @@ else:
         df_vol = df_vol.sort_values(by='trading_value', ascending=False)
         display_formatted_df(df_vol, hidden_columns=['date', 'session', 'ticker', 'volume', 'theme'])
         display_sector_summary(df_vol)
+
+        rising_df = df_vol[pd.to_numeric(df_vol['fluctuation_rate'], errors='coerce') > 0].copy()
+        if rising_df.empty:
+            st.write("---")
+            st.subheader("📈 상승 종목 업종별 묶음 보기")
+            st.info("등락률이 양수인 거래대금 Top 60 종목이 없습니다.")
+        else:
+            display_sector_summary(rising_df, title="📈 상승 종목 업종별 묶음 보기")
+
+        both_buy_df = df_vol[
+            (pd.to_numeric(df_vol['foreign_net'], errors='coerce') > 0) &
+            (pd.to_numeric(df_vol['inst_net'], errors='coerce') > 0)
+        ].copy()
+        st.write("---")
+        st.subheader("🤝 외인·기관 동시 순매수 종목")
+        if both_buy_df.empty:
+            st.info("외인과 기관이 모두 순매수한 거래대금 Top 60 종목이 없습니다.")
+        else:
+            both_buy_df = both_buy_df.sort_values(
+                by=['foreign_net', 'inst_net', 'trading_value'],
+                ascending=False
+            )
+            display_formatted_df(both_buy_df, hidden_columns=['date', 'session', 'ticker', 'volume', 'theme'])
 
     with tab3:
         st.header(f"🟢 외국인 순매수 Top 30 ({selected_session_label})")
