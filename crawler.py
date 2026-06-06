@@ -23,6 +23,7 @@ class StockCrawler:
         self.kis_app_secret = os.environ.get("KIS_APP_SECRET", "")
         self.kis_base_url = "https://openapi.koreainvestment.com:9443" # 실전투자 도메인
         self.access_token = None
+        self.collected_at_kst = datetime.now(self.kst).strftime("%Y-%m-%d %H:%M:%S")
         
         self.target_date = self._resolve_target_date()
             
@@ -82,10 +83,22 @@ class StockCrawler:
                 inst_net INTEGER,
                 sector TEXT,
                 theme TEXT,
+                collected_at_kst TEXT,
+                data_source TEXT,
+                scheduled_cron TEXT,
                 category TEXT,
                 PRIMARY KEY (date, session, ticker, category)
             )
         ''')
+        existing_columns = {row[1] for row in cursor.execute("PRAGMA table_info(daily_stocks)").fetchall()}
+        metadata_columns = {
+            "collected_at_kst": "TEXT",
+            "data_source": "TEXT",
+            "scheduled_cron": "TEXT",
+        }
+        for column_name, column_type in metadata_columns.items():
+            if column_name not in existing_columns:
+                cursor.execute(f"ALTER TABLE daily_stocks ADD COLUMN {column_name} {column_type}")
         conn.commit()
         conn.close()
 
@@ -391,12 +404,12 @@ class StockCrawler:
             "0 5 * * 1-5": "장중(14:00)",
             "30 5 * * 1-5": "장중(14:30)",
             "0 7 * * 1-5": "정규장(16:00)",
+            "10 7 * * 1-5": "정규장(16:00)",
+            "30 11 * * 1-5": "시간외(20:30)",
         }
 
         if self.scheduled_cron in scheduled_sessions:
             return scheduled_sessions[self.scheduled_cron]
-        if self.scheduled_cron == "30 11 * * 1-5" and (hour > 20 or (hour == 20 and minute >= 30)):
-            return "시간외(20:30)"
 
         if hour < 15 or (hour == 15 and minute < 30):
             return f"장중({hour:02d}:{minute:02d})"
@@ -571,8 +584,13 @@ class StockCrawler:
         conn = sqlite3.connect(self.db_path)
         
         session = self._get_session_name()
+        data_source = "NXT" if session == "시간외(20:30)" else "KIS"
         
         print(f"[{session}] 데이터를 DB에 저장 중...")
+        print(
+            f"[Metadata] collected_at_kst={self.collected_at_kst}, "
+            f"data_source={data_source}, scheduled_cron={self.scheduled_cron or 'manual'}"
+        )
         conn.execute(
             "DELETE FROM daily_stocks WHERE date = ? AND session = ? AND category = ?",
             (self.target_date, session, category)
@@ -606,15 +624,16 @@ class StockCrawler:
         for _, row in df.iterrows():
             conn.execute('''
                 INSERT OR REPLACE INTO daily_stocks 
-                (date, session, ticker, name, close, fluctuation_rate, market_cap, volume, trading_value, foreign_net, inst_net, sector, theme, category)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (date, session, ticker, name, close, fluctuation_rate, market_cap, volume, trading_value, foreign_net, inst_net, sector, theme, collected_at_kst, data_source, scheduled_cron, category)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 self.target_date, session, row['ticker'], row.get('name', ''), 
                 row.get('close', 0), row.get('fluctuation_rate', 0.0), 
                 row.get('market_cap', 0), row.get('volume', 0), 
                 row.get('trading_value', 0), row.get('foreign_net', 0), 
                 row.get('inst_net', 0), row.get('sector', ''), 
-                row.get('theme', ''), category
+                row.get('theme', ''), self.collected_at_kst, data_source,
+                self.scheduled_cron or 'manual', category
             ))
             
         conn.commit()
