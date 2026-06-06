@@ -35,7 +35,7 @@ class StockAnalyzer:
         """DB에 저장된 가장 최근 영업일 N개를 가져옵니다."""
         try:
             conn = sqlite3.connect(self.db_path)
-            query = "SELECT DISTINCT date FROM daily_stocks ORDER BY date DESC LIMIT ?"
+            query = "SELECT DISTINCT date FROM daily_stocks WHERE session NOT LIKE '%시간외%' ORDER BY date DESC LIMIT ?"
             dates_df = pd.read_sql(query, conn, params=(days,))
             conn.close()
             return dates_df['date'].tolist()
@@ -51,7 +51,7 @@ class StockAnalyzer:
             
         placeholders = ','.join('?' * len(dates))
         conn = sqlite3.connect(self.db_path)
-        query = f"SELECT * FROM daily_stocks WHERE date IN ({placeholders})"
+        query = f"SELECT * FROM daily_stocks WHERE date IN ({placeholders}) AND session NOT LIKE '%시간외%'"
         df = pd.read_sql(query, conn, params=dates)
         conn.close()
         return df

@@ -30,11 +30,9 @@ class StockCrawler:
         self._init_db()
 
     def _resolve_target_date(self):
-        """스케줄 지연으로 자정을 넘긴 시간외 실행은 직전 영업일 데이터로 저장합니다."""
+        """수집 대상 영업일을 한국 시간 기준으로 계산합니다."""
         now = datetime.now(self.kst)
         target_day = now
-        if self.scheduled_cron == "30 11 * * 1-5" and now.hour < 6:
-            target_day = now - pd.Timedelta(days=1)
 
         b_days = pd.bdate_range(end=target_day, periods=1)
         return b_days[0].strftime("%Y%m%d")
@@ -405,7 +403,6 @@ class StockCrawler:
             "30 5 * * 1-5": "장중(14:30)",
             "0 7 * * 1-5": "정규장(16:00)",
             "10 7 * * 1-5": "정규장(16:00)",
-            "30 11 * * 1-5": "시간외(20:30)",
         }
 
         if self.scheduled_cron in scheduled_sessions:
@@ -642,6 +639,10 @@ class StockCrawler:
     def run(self):
         print(f"========== {self.target_date} 데이터 크롤링 시작 ==========")
         session = self._get_session_name()
+        if "시간외" in session:
+            print(f"[Skip] {session} 데이터는 분석 대상에서 제외되어 수집하지 않습니다.")
+            return False
+
         is_nxt_afterhours = session == "시간외(20:30)"
         
         # 1. 기본 시장 데이터 & 수급 데이터 수집
@@ -764,6 +765,7 @@ class StockCrawler:
         self.save_to_db(df_inst_top, 'INST_TOP_30')
         
         print("========== 크롤링 및 DB 누적 저장 완료! ==========")
+        return True
 
 if __name__ == "__main__":
     crawler = StockCrawler()

@@ -115,7 +115,7 @@ def get_analyzed_data():
 def get_raw_data():
     try:
         conn = sqlite3.connect("stock_data.db")
-        df = pd.read_sql("SELECT * FROM daily_stocks ORDER BY date DESC", conn)
+        df = pd.read_sql("SELECT * FROM daily_stocks WHERE session NOT LIKE '%시간외%' ORDER BY date DESC", conn)
         conn.close()
         return df
     except:
@@ -192,15 +192,14 @@ else:
     st.divider()
 
     # 탭으로 분리
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "🏆 종합 추천종목", 
         "🔥 거래대금 Top", 
         "🟢 외인 순매수", 
         "🔴 기관 순매수",
         "📊 섹터별 자금",
         "📈 최근 섹터 흐름",
-        "⚡ 실시간 변화(직전 대비)",
-        "⚖️ 일일 총평(정규 vs 시간외)"
+        "⚡ 실시간 변화(직전 대비)"
     ])
     
     if 'session' in df_raw.columns:
@@ -315,39 +314,3 @@ else:
                     })
                     st.dataframe(merged_disp, use_container_width=True)
             else: st.info("비교할 이전 시간 데이터가 없습니다.")
-
-    # 탭 8: 정규장 vs 시간외 (일일 총평)
-    with tab8:
-        st.header(f"⚖️ {selected_date} 정규장 vs 시간외 일일 총평")
-        df_day = df_raw[df_raw['date'] == selected_date].copy()
-        
-        reg_sess = [s for s in day_sessions if "정규장" in s]
-        next_sess = [s for s in day_sessions if "시간외" in s]
-        
-        if reg_sess and next_sess:
-            st.markdown(f"**비교 대상:** `{reg_sess[0]}` (16:00) 🆚 `{next_sess[0]}` (20:30)")
-            df_reg = df_day[df_day['session'] == reg_sess[0]].drop_duplicates(['ticker', 'category'])
-            df_nxt = df_day[df_day['session'] == next_sess[0]].drop_duplicates(['ticker', 'category'])
-            
-            compare_df = pd.merge(
-                df_reg[['ticker', 'name', 'close', 'fluctuation_rate', 'sector']],
-                df_nxt[['ticker', 'close', 'fluctuation_rate']],
-                on='ticker', suffixes=('_정규', '_시간외')
-            ).drop_duplicates('ticker')
-            
-            compare_df['등락률 차이(P)'] = (compare_df['fluctuation_rate_시간외'] - compare_df['fluctuation_rate_정규']).round(2)
-            compare_df = compare_df.sort_values('등락률 차이(P)', ascending=False)
-            
-            compare_disp = compare_df.rename(columns={
-                'ticker': '종목코드', 'name': '종목명', 'sector': '업종',
-                'close_정규': '종가(정규)', 'fluctuation_rate_정규': '등락률(정규)',
-                'close_시간외': '종가(시간외)', 'fluctuation_rate_시간외': '등락률(시간외)'
-            })
-            
-            st.subheader("🚀 장 마감 후 시간외에서 더 뜨거워진 종목")
-            st.dataframe(compare_disp[compare_disp['등락률 차이(P)'] > 0].head(15), use_container_width=True)
-            
-            st.subheader("📉 장 마감 후 시간외에서 열기가 식은 종목")
-            st.dataframe(compare_disp[compare_disp['등락률 차이(P)'] < 0].sort_values('등락률 차이(P)').head(15), use_container_width=True)
-        else:
-            st.info("정규장(16:00)과 시간외(20:30) 데이터가 모두 있어야 비교가 가능합니다.")

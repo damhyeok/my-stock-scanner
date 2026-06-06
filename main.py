@@ -9,7 +9,9 @@ def main():
     # 1. 크롤링 및 DB 누적 저장
     print("\n[Step 1] 데이터 크롤링을 시작합니다.")
     crawler = StockCrawler()
-    crawler.run()
+    if crawler.run() is False:
+        print("[Skip] 시간외 데이터는 분석 대상에서 제외되어 이후 단계를 실행하지 않습니다.")
+        return
     
     # 2. 데이터 시계열 분석 및 스코어링 (엑셀/대시보드용 종합 분석)
     print("\n[Step 2] 데이터 스코어링 분석을 시작합니다.")
