@@ -13,7 +13,7 @@ COLUMN_MAP = {
     'session': '시간',
     'ticker': '종목코드',
     'name': '종목명',
-    'close': '종가',
+    'close': '현재가',
     'fluctuation_rate': '등락률(%)',
     'market_cap': '시가총액(억)',
     'volume': '거래량',
@@ -68,11 +68,15 @@ def display_session_name(session):
         return "NXT 시간외(20:30)"
     return session
 
-def display_formatted_df(df, use_container_width=True):
+def display_formatted_df(df, use_container_width=True, hidden_columns=None):
     """데이터프레임의 컬럼명을 한글로 변경하고 불필요한 열을 제거하여 출력합니다."""
     temp_df = format_amount_columns(df)
-    if 'category' in temp_df.columns:
-        temp_df = temp_df.drop(columns=['category'])
+    drop_columns = ['category']
+    if hidden_columns:
+        drop_columns.extend(hidden_columns)
+    existing_drop_columns = [col for col in drop_columns if col in temp_df.columns]
+    if existing_drop_columns:
+        temp_df = temp_df.drop(columns=existing_drop_columns)
     current_map = {k: v for k, v in COLUMN_MAP.items() if k in temp_df.columns}
     temp_df = temp_df.rename(columns=current_map)
     st.dataframe(temp_df, use_container_width=use_container_width)
@@ -227,21 +231,22 @@ else:
     with tab2:
         st.header(f"🔥 거래대금 Top 60 ({selected_session_label})")
         df_vol = df_selected[df_selected['category'] == 'VOLUME_TOP_60'].copy()
-        display_formatted_df(df_vol)
+        df_vol = df_vol.sort_values(by='trading_value', ascending=False)
+        display_formatted_df(df_vol, hidden_columns=['date', 'session', 'ticker', 'volume', 'theme'])
         display_sector_summary(df_vol)
 
     with tab3:
         st.header(f"🟢 외국인 순매수 Top 30 ({selected_session_label})")
         df_for = df_selected[df_selected['category'] == 'FOREIGN_TOP_30'].copy()
         df_for = df_for.sort_values(by='foreign_net', ascending=False)
-        display_formatted_df(df_for)
+        display_formatted_df(df_for, hidden_columns=['date', 'session', 'ticker', 'volume', 'theme'])
         display_sector_summary(df_for)
 
     with tab4:
         st.header(f"🔴 기관 순매수 Top 30 ({selected_session_label})")
         df_inst = df_selected[df_selected['category'] == 'INST_TOP_30'].copy()
         df_inst = df_inst.sort_values(by='inst_net', ascending=False)
-        display_formatted_df(df_inst)
+        display_formatted_df(df_inst, hidden_columns=['date', 'session', 'ticker', 'volume', 'theme'])
         display_sector_summary(df_inst)
         
     # 탭 5: 섹터 요약
