@@ -125,10 +125,21 @@ def get_raw_data():
     except:
         return pd.DataFrame()
 
+@st.cache_data(ttl=600)
+def get_news_data():
+    try:
+        conn = sqlite3.connect("stock_data.db")
+        df = pd.read_sql("SELECT * FROM stock_news ORDER BY date DESC, published_at DESC", conn)
+        conn.close()
+        return df
+    except:
+        return pd.DataFrame()
+
 # 데이터 로드
 with st.spinner("데이터를 불러오고 있습니다..."):
     df_analyzed = get_analyzed_data()
     df_raw = get_raw_data()
+    df_news = get_news_data()
 
 if df_analyzed is None or df_raw.empty:
     st.warning("⚠️ 분석할 데이터가 없습니다. 먼저 `crawler.py`를 실행하여 데이터를 수집해주세요.")
@@ -196,14 +207,15 @@ else:
     st.divider()
 
     # 탭으로 분리
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "🏆 종합 추천종목", 
         "🔥 거래대금 Top", 
         "🟢 외인 순매수", 
         "🔴 기관 순매수",
         "📊 섹터별 자금",
         "📈 최근 섹터 흐름",
-        "⚡ 실시간 변화(직전 대비)"
+        "⚡ 실시간 변화(직전 대비)",
+        "📰 뉴스 이슈 종목"
     ])
     
     if 'session' in df_raw.columns:
@@ -342,3 +354,67 @@ else:
                     })
                     st.dataframe(merged_disp, use_container_width=True)
             else: st.info("비교할 이전 시간 데이터가 없습니다.")
+
+    with tab8:
+        st.header(f"📰 뉴스 이슈 종목 ({selected_session_label})")
+        if df_news.empty:
+            st.info("수집된 뉴스 이슈 데이터가 없습니다. 다음 자동 실행 이후 표시됩니다.")
+        else:
+            news_selected = df_news[
+                (df_news['date'] == selected_date) &
+                (df_news['session'] == selected_session)
+            ].copy()
+
+            if news_selected.empty:
+                st.info("선택한 날짜/시간에 수집된 뉴스 이슈 데이터가 없습니다.")
+            else:
+                summary = news_selected.groupby(['ticker', 'name', 'sector']).agg(
+                    news_score=('sentiment_score', 'sum'),
+                    positive_count=('sentiment', lambda x: int((x == '긍정').sum())),
+                    negative_count=('sentiment', lambda x: int((x == '부정').sum())),
+                    neutral_count=('sentiment', lambda x: int((x == '중립').sum())),
+                    latest_news=('title', 'first'),
+                    keywords=('keywords', lambda x: ', '.join(dict.fromkeys(
+                        keyword.strip()
+                        for value in x.dropna().astype(str)
+                        for keyword in value.split(',')
+                        if keyword.strip()
+                    )))
+                ).reset_index()
+
+                summary = summary.sort_values(
+                    by=['news_score', 'positive_count', 'negative_count'],
+                    ascending=[False, False, True]
+                )
+                summary_disp = summary.rename(columns={
+                    'ticker': '종목코드',
+                    'name': '종목명',
+                    'sector': '업종',
+                    'news_score': '뉴스 점수',
+                    'positive_count': '긍정',
+                    'negative_count': '부정',
+                    'neutral_count': '중립',
+                    'keywords': '주요 키워드',
+                    'latest_news': '최신 뉴스'
+                })
+                st.dataframe(summary_disp.drop(columns=['종목코드']), use_container_width=True)
+
+                st.write("---")
+                st.subheader("종목별 뉴스 펼쳐보기")
+                for _, row in summary.iterrows():
+                    stock_news = news_selected[news_selected['ticker'] == row['ticker']].head(5)
+                    label = (
+                        f"{row['name']} | 점수 {row['news_score']} | "
+                        f"긍정 {row['positive_count']} / 부정 {row['negative_count']} / 중립 {row['neutral_count']}"
+                    )
+                    with st.expander(label):
+                        for _, news in stock_news.iterrows():
+                            published_at = news.get('published_at', '')
+                            source = news.get('source', '')
+                            sentiment = news.get('sentiment', '중립')
+                            title = news.get('title', '')
+                            link = news.get('link', '')
+                            st.markdown(
+                                f"- **[{sentiment}]** [{title}]({link}) "
+                                f"`{source}` `{published_at}`"
+                            )

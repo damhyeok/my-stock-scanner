@@ -2,6 +2,7 @@ from crawler import StockCrawler
 from analyzer import StockAnalyzer
 from excel_manager import ExcelManager
 from telegram_bot import TelegramNotifier
+from news_collector import NewsCollector
 
 def main():
     print("=== 주식 분석 자동화 시스템 시작 ===")
@@ -12,6 +13,13 @@ def main():
     if crawler.run() is False:
         print("[Skip] 시간외 데이터는 분석 대상에서 제외되어 이후 단계를 실행하지 않습니다.")
         return
+
+    print("\n[Step 1-1] 뉴스 이슈 데이터를 수집합니다.")
+    try:
+        news_collector = NewsCollector()
+        news_collector.run()
+    except Exception as e:
+        print(f"[News Warning] 뉴스 수집 중 오류가 발생했지만 주가 분석은 계속 진행합니다: {e}")
     
     # 2. 데이터 시계열 분석 및 스코어링 (엑셀/대시보드용 종합 분석)
     print("\n[Step 2] 데이터 스코어링 분석을 시작합니다.")
