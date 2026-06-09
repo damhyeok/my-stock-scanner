@@ -87,17 +87,25 @@ def to_csv_bytes(df):
 def safe_filename(value):
     return re.sub(r'[^0-9A-Za-z가-힣_-]+', '_', str(value)).strip('_')
 
-def display_sector_summary(df, title="📊 업종별 종목 묶음 보기"):
+def display_sector_summary(df, title="📊 업종별 종목 묶음 보기", show_rate=False):
     """해당 리스트의 업종별 요약과 포함된 종목 리스트를 아래에 출력합니다."""
     if 'sector' in df.columns and not df.empty:
         st.write("---")
         st.subheader(title)
         sector_df = df.drop_duplicates(subset=['ticker']).copy()
+        if show_rate and 'fluctuation_rate' in sector_df.columns:
+            rates = pd.to_numeric(sector_df['fluctuation_rate'], errors='coerce')
+            sector_df['summary_name'] = sector_df['name'].astype(str) + rates.map(
+                lambda x: f" ({x:+.2f}%)" if pd.notna(x) else ""
+            )
+            name_column = 'summary_name'
+        else:
+            name_column = 'name'
         
         # 업종별로 그룹화하여 종목 수 카운트 및 종목명 결합
         summary = sector_df.groupby('sector').agg({
             'ticker': 'nunique',
-            'name': lambda x: ', '.join(dict.fromkeys(x.astype(str)))
+            name_column: lambda x: ', '.join(dict.fromkeys(x.astype(str)))
         }).reset_index()
         
         # 멀티인덱스 컬럼 정리
@@ -253,7 +261,7 @@ else:
             st.subheader("📈 상승 종목 업종별 묶음 보기")
             st.info("등락률이 양수인 거래대금 Top 60 종목이 없습니다.")
         else:
-            display_sector_summary(rising_df, title="📈 상승 종목 업종별 묶음 보기")
+            display_sector_summary(rising_df, title="📈 상승 종목 업종별 묶음 보기", show_rate=True)
 
         both_buy_df = df_vol[
             (pd.to_numeric(df_vol['foreign_net'], errors='coerce') > 0) &
