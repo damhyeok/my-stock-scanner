@@ -3,6 +3,7 @@ import pandas as pd
 import sqlite3
 import re
 import os
+import tempfile
 import requests
 from analyzer import StockAnalyzer
 
@@ -94,6 +95,29 @@ def get_config_value(key, default=""):
         return st.secrets.get(key, os.environ.get(key, default))
     except Exception:
         return os.environ.get(key, default)
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_database_path():
+    repo = get_config_value("GITHUB_REPOSITORY", "damhyeok/my-stock-scanner")
+    branch = get_config_value("GITHUB_BRANCH", "main")
+    db_url = get_config_value(
+        "STOCK_DB_URL",
+        f"https://raw.githubusercontent.com/{repo}/{branch}/stock_data.db"
+    )
+    local_db_path = "stock_data.db"
+
+    try:
+        response = requests.get(db_url, timeout=20)
+        response.raise_for_status()
+        if not response.content.startswith(b"SQLite format 3"):
+            raise ValueError("Downloaded file is not a SQLite database.")
+
+        remote_db_path = os.path.join(tempfile.gettempdir(), "stock_data_latest.db")
+        with open(remote_db_path, "wb") as db_file:
+            db_file.write(response.content)
+        return remote_db_path, "GitHub 최신 DB"
+    except Exception:
+        return local_db_path, "로컬 DB"
 
 def trigger_github_workflow():
     token = get_config_value("GITHUB_ACTIONS_TOKEN")
@@ -206,25 +230,28 @@ st.title("📈 일일 주식 수급 & 눌림목 분석 대시보드")
 st.markdown("매일 장 마감 후 자동으로 수집된 데이터를 바탕으로 주도 섹터와 추천 종목을 시각화합니다.")
 
 # 데이터 로딩 함수 (캐싱 적용)
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=60)
 def get_analyzed_data():
-    analyzer = StockAnalyzer()
+    db_path, _ = get_database_path()
+    analyzer = StockAnalyzer(db_path=db_path)
     return analyzer.run_analysis()
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=60)
 def get_raw_data():
     try:
-        conn = sqlite3.connect("stock_data.db")
+        db_path, _ = get_database_path()
+        conn = sqlite3.connect(db_path)
         df = pd.read_sql("SELECT * FROM daily_stocks WHERE session NOT LIKE '%시간외%' ORDER BY date DESC", conn)
         conn.close()
         return df
     except:
         return pd.DataFrame()
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=60)
 def get_news_data():
     try:
-        conn = sqlite3.connect("stock_data.db")
+        db_path, _ = get_database_path()
+        conn = sqlite3.connect(db_path)
         df = pd.read_sql("SELECT * FROM stock_news ORDER BY date DESC, published_at DESC", conn)
         conn.close()
         return df

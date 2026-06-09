@@ -1,3 +1,12 @@
+## [2026-06-10 01:04] 웹 대시보드 최신 원격 DB 우선 로딩
+- **작업 목적:** Streamlit 배포본이 오래된 로컬 `stock_data.db` 또는 캐시를 읽어 최신 날짜가 웹페이지에 보이지 않는 문제를 줄이기 위해 최신 GitHub DB를 우선 읽도록 개선했습니다.
+- **영향을 받은 파일:** `app.py`, `ai_changelog.md`
+- **주요 변경 사항:**
+  - `get_database_path`: GitHub raw `stock_data.db`를 임시 파일로 내려받아 SQLite DB로 사용하는 공통 로딩 함수 추가
+  - `get_analyzed_data`, `get_raw_data`, `get_news_data`: 모두 같은 최신 DB 경로를 사용하도록 변경
+  - 데이터 캐시 TTL을 10분에서 1분으로 줄여 수동 실행 후 최신 데이터 반영 지연을 완화
+---
+
 ## [2026-06-10 00:58] 수동 분석 실행 상태 표시 추가
 - **작업 목적:** 웹페이지에서 `지금 분석 실행` 버튼을 누른 뒤 GitHub Actions 실행이 대기중/실행중/완료인지 확인할 수 있도록 개선했습니다.
 - **영향을 받은 파일:** `app.py`, `ai_changelog.md`
