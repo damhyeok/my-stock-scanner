@@ -120,6 +120,61 @@ def trigger_github_workflow():
         return True, "GitHub Actions 실행을 요청했습니다. 완료 후 새로고침하면 최신 데이터가 보입니다."
     return False, f"GitHub Actions 실행 요청 실패: {response.status_code} {response.text}"
 
+def get_latest_workflow_run():
+    token = get_config_value("GITHUB_ACTIONS_TOKEN")
+    repo = get_config_value("GITHUB_REPOSITORY", "damhyeok/my-stock-scanner")
+    workflow_file = get_config_value("GITHUB_WORKFLOW_FILE", "main.yml")
+    branch = get_config_value("GITHUB_BRANCH", "main")
+
+    if not token:
+        return None, "웹페이지에서 실행 상태를 확인하려면 `GITHUB_ACTIONS_TOKEN` 설정이 필요합니다."
+
+    url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow_file}/runs"
+    response = requests.get(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+        params={"branch": branch, "per_page": 1},
+        timeout=15,
+    )
+
+    if response.status_code != 200:
+        return None, f"GitHub Actions 상태 확인 실패: {response.status_code} {response.text}"
+
+    runs = response.json().get("workflow_runs", [])
+    if not runs:
+        return None, "최근 실행 내역이 없습니다."
+    return runs[0], ""
+
+def display_workflow_run_status(container):
+    run, error = get_latest_workflow_run()
+    if error:
+        container.info(error)
+        return
+
+    status = run.get("status", "")
+    conclusion = run.get("conclusion") or ""
+    run_number = run.get("run_number", "-")
+    html_url = run.get("html_url", "")
+    updated_at = run.get("updated_at", "")
+
+    status_map = {
+        "queued": ("대기중", 10),
+        "in_progress": ("실행중", 60),
+        "completed": ("완료", 100),
+    }
+    label, progress = status_map.get(status, (status or "확인중", 30))
+    if status == "completed" and conclusion and conclusion != "success":
+        label = f"완료({conclusion})"
+
+    container.progress(progress)
+    container.caption(f"최근 실행 #{run_number}: {label} · 마지막 갱신 {updated_at}")
+    if html_url:
+        container.markdown(f"[GitHub Actions에서 자세히 보기]({html_url})")
+
 def display_sector_summary(df, title="📊 업종별 종목 묶음 보기", show_rate=False):
     """해당 리스트의 업종별 요약과 포함된 종목 리스트를 아래에 출력합니다."""
     if 'sector' in df.columns and not df.empty:
@@ -242,6 +297,8 @@ else:
             st.sidebar.success(message)
         else:
             st.sidebar.error(message)
+    st.sidebar.caption("완료 여부는 아래 최근 실행 상태에서 확인할 수 있습니다.")
+    display_workflow_run_status(st.sidebar)
 
     st.sidebar.divider()
     if st.sidebar.button("🔄 데이터 새로고침"):
