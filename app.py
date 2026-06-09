@@ -378,10 +378,10 @@ else:
             else:
                 summary = news_selected.groupby(['ticker', 'name', 'sector']).agg(
                     news_score=('sentiment_score', 'sum'),
+                    news_count=('title', 'count'),
                     positive_count=('sentiment', lambda x: int((x == '긍정').sum())),
                     negative_count=('sentiment', lambda x: int((x == '부정').sum())),
                     neutral_count=('sentiment', lambda x: int((x == '중립').sum())),
-                    latest_news=('title', 'first'),
                     keywords=('keywords', lambda x: ', '.join(dict.fromkeys(
                         keyword.strip()
                         for value in x.dropna().astype(str)
@@ -399,11 +399,11 @@ else:
                     'name': '종목명',
                     'sector': '업종',
                     'news_score': '뉴스 점수',
+                    'news_count': '뉴스 수',
                     'positive_count': '긍정',
                     'negative_count': '부정',
                     'neutral_count': '중립',
-                    'keywords': '주요 키워드',
-                    'latest_news': '최신 뉴스'
+                    'keywords': '주요 키워드'
                 })
                 st.dataframe(summary_disp.drop(columns=['종목코드']), use_container_width=True)
 
@@ -416,13 +416,14 @@ else:
                         f"긍정 {row['positive_count']} / 부정 {row['negative_count']} / 중립 {row['neutral_count']}"
                     )
                     with st.expander(label):
-                        for _, news in stock_news.iterrows():
+                        for idx, (_, news) in enumerate(stock_news.iterrows(), start=1):
                             published_at = news.get('published_at', '')
                             source = news.get('source', '')
                             sentiment = news.get('sentiment', '중립')
                             title = news.get('title', '')
                             link = news.get('link', '')
-                            st.markdown(
-                                f"- **[{sentiment}]** [{title}]({link}) "
-                                f"`{source}` `{published_at}`"
-                            )
+                            if link:
+                                st.markdown(f"**{idx}. [{title}]({link})**")
+                            else:
+                                st.markdown(f"**{idx}. {title}**")
+                            st.caption(f"{sentiment} | {source} | {published_at}")
