@@ -1,3 +1,12 @@
+## [2026-06-10 00:04] 웹페이지 수동 분석 실행 버튼 추가
+- **작업 목적:** GitHub Actions 예약 실행이 지연될 때 사용자가 웹페이지에서 직접 현재 시각 기준 분석 실행을 요청할 수 있도록 버튼을 추가했습니다.
+- **영향을 받은 파일:** `app.py`, `ai_changelog.md`
+- **주요 변경 사항:**
+  - `trigger_github_workflow`: GitHub REST API의 workflow dispatch 엔드포인트를 호출해 `main.yml` 자동화를 수동 실행하는 함수 추가
+  - 사이드바에 `지금 분석 실행` 버튼을 추가하고, 실행 요청 성공/실패 메시지를 표시하도록 구성
+  - 웹 배포 환경의 `GITHUB_ACTIONS_TOKEN`, `GITHUB_REPOSITORY`, `GITHUB_WORKFLOW_FILE`, `GITHUB_BRANCH` 설정을 읽어 실행 대상 저장소/워크플로를 지정할 수 있도록 처리
+---
+
 ## [2026-06-09 23:51] 뉴스 이슈 탭 제목 표시 개선
 - **작업 목적:** 뉴스 이슈 종목 탭에서 긴 뉴스 제목이 표 안에서 한 줄로 붙어 보여 가독성이 떨어지는 문제를 개선했습니다.
 - **영향을 받은 파일:** `app.py`, `ai_changelog.md`

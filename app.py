@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 import re
+import os
+import requests
 from analyzer import StockAnalyzer
 
 # 페이지 기본 설정
@@ -86,6 +88,37 @@ def to_csv_bytes(df):
 
 def safe_filename(value):
     return re.sub(r'[^0-9A-Za-z가-힣_-]+', '_', str(value)).strip('_')
+
+def get_config_value(key, default=""):
+    try:
+        return st.secrets.get(key, os.environ.get(key, default))
+    except Exception:
+        return os.environ.get(key, default)
+
+def trigger_github_workflow():
+    token = get_config_value("GITHUB_ACTIONS_TOKEN")
+    repo = get_config_value("GITHUB_REPOSITORY", "damhyeok/my-stock-scanner")
+    workflow_file = get_config_value("GITHUB_WORKFLOW_FILE", "main.yml")
+    branch = get_config_value("GITHUB_BRANCH", "main")
+
+    if not token:
+        return False, "웹페이지에서 실행하려면 `GITHUB_ACTIONS_TOKEN` 설정이 필요합니다."
+
+    url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow_file}/dispatches"
+    response = requests.post(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+        json={"ref": branch},
+        timeout=15,
+    )
+
+    if response.status_code == 204:
+        return True, "GitHub Actions 실행을 요청했습니다. 완료 후 새로고침하면 최신 데이터가 보입니다."
+    return False, f"GitHub Actions 실행 요청 실패: {response.status_code} {response.text}"
 
 def display_sector_summary(df, title="📊 업종별 종목 묶음 보기", show_rate=False):
     """해당 리스트의 업종별 요약과 포함된 종목 리스트를 아래에 출력합니다."""
@@ -199,6 +232,17 @@ else:
     st.sidebar.subheader("📈 트렌드 분석 설정")
     trend_count = st.sidebar.slider("추적할 섹터 수 (상위 N개):", min_value=3, max_value=15, value=5)
     
+    st.sidebar.divider()
+    st.sidebar.subheader("🚀 수동 분석 실행")
+    st.sidebar.caption("현재 시각 기준으로 GitHub Actions 자동화를 실행합니다.")
+    if st.sidebar.button("지금 분석 실행"):
+        with st.sidebar.spinner("GitHub Actions 실행 요청 중..."):
+            ok, message = trigger_github_workflow()
+        if ok:
+            st.sidebar.success(message)
+        else:
+            st.sidebar.error(message)
+
     st.sidebar.divider()
     if st.sidebar.button("🔄 데이터 새로고침"):
         st.cache_data.clear()
