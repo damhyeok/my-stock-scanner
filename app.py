@@ -4,6 +4,7 @@ import sqlite3
 import re
 import os
 import tempfile
+import html
 import requests
 from analyzer import StockAnalyzer
 
@@ -83,6 +84,37 @@ def display_formatted_df(df, use_container_width=True, hidden_columns=None):
     current_map = {k: v for k, v in COLUMN_MAP.items() if k in temp_df.columns}
     temp_df = temp_df.rename(columns=current_map)
     st.dataframe(temp_df, use_container_width=use_container_width)
+
+def display_wrapped_table(df):
+    escaped_df = df.copy()
+    for col in escaped_df.columns:
+        escaped_df[col] = escaped_df[col].map(lambda value: html.escape(str(value)))
+    table_html = escaped_df.to_html(index=False, escape=False)
+    st.markdown(
+        """
+        <style>
+        .wrapped-table table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.92rem;
+        }
+        .wrapped-table th, .wrapped-table td {
+            border: 1px solid rgba(128, 128, 128, 0.28);
+            padding: 0.45rem 0.55rem;
+            vertical-align: top;
+            white-space: normal;
+            word-break: keep-all;
+            overflow-wrap: anywhere;
+        }
+        .wrapped-table th {
+            font-weight: 700;
+            background: rgba(128, 128, 128, 0.10);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(f'<div class="wrapped-table">{table_html}</div>', unsafe_allow_html=True)
 
 def to_csv_bytes(df):
     return df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
@@ -235,7 +267,7 @@ def display_sector_summary(df, title="📊 업종별 종목 묶음 보기", show
         summary.columns = ['업종', '종목 수', '포함된 종목들']
         summary = summary.sort_values(by='종목 수', ascending=False)
         
-        st.dataframe(summary, use_container_width=True)
+        display_wrapped_table(summary)
 
 st.title("📈 일일 주식 수급 & 눌림목 분석 대시보드")
 st.markdown("매일 장 마감 후 자동으로 수집된 데이터를 바탕으로 주도 섹터와 추천 종목을 시각화합니다.")
