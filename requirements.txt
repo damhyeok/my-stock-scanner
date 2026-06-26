@@ -1,6 +1,7 @@
 pykrx
 pandas
 streamlit
+altair
 openpyxl
 python-telegram-bot
 requests

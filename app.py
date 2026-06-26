@@ -6,8 +6,9 @@ import os
 import tempfile
 import html
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+import altair as alt
 from analyzer import StockAnalyzer
 
 # 페이지 기본 설정
@@ -44,6 +45,10 @@ def session_sort_key(session):
         return -1
     hour, minute = map(int, match.groups())
     return hour * 60 + minute
+
+def week_start_yyyymmdd(date_value):
+    selected = datetime.strptime(str(date_value), "%Y%m%d")
+    return (selected - timedelta(days=selected.weekday())).strftime("%Y%m%d")
 
 def format_won_to_eok(value):
     """원 단위 금액을 억 단위 정수로 변환합니다."""
@@ -504,7 +509,31 @@ else:
         ).reset_index()
         
         sector_grouped = sector_grouped[sector_grouped['sector'] != '기타'].sort_values('trading_value', ascending=False).head(15)
-        st.bar_chart(data=sector_grouped, x='sector', y='trading_value', use_container_width=True)
+        sector_chart = sector_grouped.copy()
+        sector_chart['trading_value_eok'] = sector_chart['trading_value'].apply(format_won_to_eok)
+        sector_chart['total_net_eok'] = sector_chart['total_net'].apply(format_kis_flow_to_eok)
+        sector_chart['flow_type'] = sector_chart['total_net_eok'].apply(lambda value: '순매수' if value >= 0 else '순매도')
+        sector_bar = alt.Chart(sector_chart).mark_bar(cornerRadiusEnd=3).encode(
+            y=alt.Y('sector:N', sort='-x', title='업종'),
+            x=alt.X(
+                'trading_value_eok:Q',
+                title='합산 거래대금(억, 압축 스케일)',
+                scale=alt.Scale(type='sqrt')
+            ),
+            color=alt.Color(
+                'flow_type:N',
+                title='수급',
+                scale=alt.Scale(domain=['순매수', '순매도'], range=['#2f80ed', '#eb5757'])
+            ),
+            tooltip=[
+                alt.Tooltip('sector:N', title='업종'),
+                alt.Tooltip('trading_value_eok:Q', title='거래대금(억)', format=',.0f'),
+                alt.Tooltip('total_net_eok:Q', title='합산 순매수(억)', format=',.0f'),
+                alt.Tooltip('stock_count:Q', title='종목 수'),
+            ],
+        ).properties(height=420)
+        st.altair_chart(sector_bar, use_container_width=True)
+        st.caption("거래대금 차이가 너무 큰 섹터 때문에 다른 섹터가 눌려 보이지 않도록 그래프 축만 압축해서 표시합니다. 정확한 금액은 아래 표에서 확인할 수 있습니다.")
         sector_disp = sector_grouped.rename(columns={'sector': '업종', 'total_net': '합산 순매수', 'trading_value': '합산 거래대금', 'stock_count': '종목 수', 'included_stocks': '포함된 종목들'})
         sector_disp['합산 순매수'] = sector_disp['합산 순매수'].apply(format_kis_flow_to_eok)
         sector_disp['합산 거래대금'] = sector_disp['합산 거래대금'].apply(format_won_to_eok)
@@ -517,16 +546,68 @@ else:
     # 탭 6: 트렌드
     with tab6:
         st.header(f"📈 최근 섹터 흐름 (상위 {trend_count}개)")
-        df_trend = df_raw.copy()
-        df_trend['total_net'] = df_trend['foreign_net'] + df_trend['inst_net']
-        recent_top_sectors = df_trend[(df_trend['date'] == selected_date) & (df_trend['session'] == selected_session)]
-        recent_top_sectors = recent_top_sectors.groupby('sector')['total_net'].sum().sort_values(ascending=False)
-        recent_top_sectors = recent_top_sectors[recent_top_sectors.index != '기타'].head(trend_count).index.tolist()
-        if recent_top_sectors:
-            df_filtered = df_trend[df_trend['sector'].isin(recent_top_sectors)]
-            df_filtered['date_session'] = df_filtered['date'] + " " + df_filtered['session']
-            trend_pivot = df_filtered.groupby(['date_session', 'sector'])['total_net'].sum().reset_index().pivot(index='date_session', columns='sector', values='total_net').fillna(0)
-            st.line_chart(trend_pivot, use_container_width=True)
+        week_start = week_start_yyyymmdd(selected_date)
+        df_trend = df_raw[
+            (df_raw['date'] >= week_start) &
+            (df_raw['date'] <= selected_date) &
+            (df_raw['session'] == '정규장(16:00)') &
+            (df_raw['category'] == 'VOLUME_TOP_60')
+        ].drop_duplicates(subset=['date', 'session', 'ticker']).copy()
+        if df_trend.empty:
+            st.info("이번주 정규장 섹터 흐름 데이터가 없습니다.")
+        else:
+            df_trend['total_net'] = pd.to_numeric(df_trend['foreign_net'], errors='coerce').fillna(0) + pd.to_numeric(df_trend['inst_net'], errors='coerce').fillna(0)
+            df_trend['trading_value'] = pd.to_numeric(df_trend['trading_value'], errors='coerce').fillna(0)
+            weekly_sector_rank = (
+                df_trend[df_trend['sector'] != '기타']
+                .groupby('sector')['trading_value']
+                .sum()
+                .sort_values(ascending=False)
+                .head(5)
+                .index
+                .tolist()
+            )
+            if not weekly_sector_rank:
+                st.info("이번주 정규장 기준으로 표시할 섹터가 없습니다.")
+            else:
+                trend_grouped = (
+                    df_trend[df_trend['sector'].isin(weekly_sector_rank)]
+                    .groupby(['date', 'sector'])
+                    .agg(
+                        total_net=('total_net', 'sum'),
+                        trading_value=('trading_value', 'sum'),
+                        stock_count=('ticker', 'nunique'),
+                    )
+                    .reset_index()
+                )
+                trend_grouped['total_net_eok'] = trend_grouped['total_net'].apply(format_kis_flow_to_eok)
+                trend_grouped['trading_value_eok'] = trend_grouped['trading_value'].apply(format_won_to_eok)
+                trend_grouped['date_label'] = pd.to_datetime(trend_grouped['date'], format='%Y%m%d').dt.strftime('%m/%d')
+
+                st.caption(f"{week_start}부터 {selected_date}까지의 정규장(16:00) 거래대금 누적 상위 5개 섹터를 고정해서 흐름을 표시합니다.")
+                trend_line = alt.Chart(trend_grouped).mark_line(point=True).encode(
+                    x=alt.X('date_label:N', title='날짜'),
+                    y=alt.Y('total_net_eok:Q', title='외인+기관 순매수(억)'),
+                    color=alt.Color('sector:N', title='업종'),
+                    tooltip=[
+                        alt.Tooltip('date_label:N', title='날짜'),
+                        alt.Tooltip('sector:N', title='업종'),
+                        alt.Tooltip('total_net_eok:Q', title='순매수(억)', format=',.0f'),
+                        alt.Tooltip('trading_value_eok:Q', title='거래대금(억)', format=',.0f'),
+                        alt.Tooltip('stock_count:Q', title='종목 수'),
+                    ],
+                ).properties(height=420)
+                st.altair_chart(trend_line, use_container_width=True)
+
+                latest_flow = trend_grouped[trend_grouped['date'] == trend_grouped['date'].max()].copy()
+                latest_flow = latest_flow.sort_values('trading_value', ascending=False)
+                latest_flow_disp = latest_flow[['sector', 'total_net_eok', 'trading_value_eok', 'stock_count']].rename(columns={
+                    'sector': '업종',
+                    'total_net_eok': '순매수(억)',
+                    'trading_value_eok': '거래대금(억)',
+                    'stock_count': '종목 수',
+                })
+                st.dataframe(latest_flow_disp, use_container_width=True)
 
     # 탭 7: 직전 시간 대비 변화
     with tab7:
