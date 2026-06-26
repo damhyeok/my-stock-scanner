@@ -285,76 +285,69 @@ class StockCrawler:
         print(f"[NXT] 거래대금 상위종목 {len(df_nxt)}건을 수집했습니다.")
         return df_nxt
 
-    def get_investor_data(self):
-        """KIS API에서 외국인 및 기관 순매수 상위 종목을 조회합니다."""
-        print(f"[{self.target_date}] 외국인/기관 수급 데이터 수집 중 (한국투자증권 API)...")
+    def get_investor_data(self, tickers=None, names=None):
+        """KIS API에서 종목별 외국인 및 기관 순매수 금액을 조회합니다."""
+        print(f"[{self.target_date}] 종목별 외국인/기관 수급 데이터 수집 중 (한국투자증권 API)...")
 
         empty_investor_df = pd.DataFrame(columns=['ticker', 'foreign_net', 'inst_net'])
         
         try:
             token = self._get_kis_access_token()
-            url = f"{self.kis_base_url}/uapi/domestic-stock/v1/quotations/foreign-institution-total"
+            if tickers is None:
+                print("[Warning] 종목별 수급 조회 대상이 없어 수급 금액을 0으로 대체합니다.")
+                return empty_investor_df
+
+            ticker_list = [str(t).zfill(6) for t in pd.Series(tickers).dropna().astype(str).unique() if str(t).strip()]
+            name_map = names or {}
+            url = f"{self.kis_base_url}/uapi/domestic-stock/v1/quotations/inquire-investor"
             headers = {
                 "content-type": "application/json; charset=utf-8",
                 "authorization": f"Bearer {token}",
                 "appkey": self.kis_app_key,
                 "appsecret": self.kis_app_secret,
-                "tr_id": "FHPTJ04400000",
+                "tr_id": "FHKST01010900",
                 "custtype": "P"
             }
-            
-            def fetch_investor_rank(etc_cls_code, value_column):
+
+            investor_rows = []
+            for ticker in ticker_list:
                 params = {
-                    "FID_COND_MRKT_DIV_CODE": "V",
-                    "FID_COND_SCR_DIV_CODE": "16449",
-                    "FID_INPUT_ISCD": "0000",
-                    "FID_DIV_CLS_CODE": "1",
-                    "FID_RANK_SORT_CLS_CODE": "0",
-                    "FID_ETC_CLS_CODE": etc_cls_code,
+                    "FID_COND_MRKT_DIV_CODE": "J",
+                    "FID_INPUT_ISCD": ticker,
                 }
-                res = requests.get(url, headers=headers, params=params)
+                res = requests.get(url, headers=headers, params=params, timeout=10)
                 if res.status_code != 200 or res.json().get('rt_cd') != '0':
-                    print(f"[Warning] KIS 수급 API 호출 실패(etc_cls_code={etc_cls_code}): {res.text}")
-                    return pd.DataFrame(columns=['ticker', 'name', value_column])
+                    print(f"[Warning] KIS 종목별 수급 API 호출 실패(ticker={ticker}): {res.text}")
+                    continue
 
                 rows = res.json().get('output', [])
-                df = pd.DataFrame(rows)
-                if df.empty:
-                    return pd.DataFrame(columns=['ticker', 'name', value_column])
+                if not rows:
+                    investor_rows.append({
+                        'ticker': ticker,
+                        'name': name_map.get(ticker, ''),
+                        'foreign_net': 0,
+                        'inst_net': 0,
+                    })
+                    continue
 
-                df = df.rename(columns={
-                    'mksc_shrn_iscd': 'ticker',
-                    'hts_kor_isnm': 'name',
-                    value_column: value_column
+                row = next((item for item in rows if item.get('stck_bsop_date') == self.target_date), rows[0])
+                investor_rows.append({
+                    'ticker': ticker,
+                    'name': name_map.get(ticker, ''),
+                    'foreign_net': row.get('frgn_ntby_tr_pbmn', 0),
+                    'inst_net': row.get('orgn_ntby_tr_pbmn', 0),
                 })
-                df[value_column] = pd.to_numeric(df[value_column], errors='coerce').fillna(0).astype(int)
-                return df[['ticker', 'name', value_column]]
+                time.sleep(0.05)
 
-            df_for = fetch_investor_rank("1", "frgn_ntby_tr_pbmn")
-            df_for = df_for.rename(columns={'frgn_ntby_tr_pbmn': 'foreign_net'})
-
-            df_inst = fetch_investor_rank("2", "orgn_ntby_tr_pbmn")
-            df_inst = df_inst.rename(columns={'orgn_ntby_tr_pbmn': 'inst_net'})
-            
-            # 병합
-            if df_for.empty and df_inst.empty:
-                print("[Warning] KIS 수급 데이터가 없습니다. 수급 금액을 0으로 대체하고 계속 진행합니다.")
+            df_investor = pd.DataFrame(investor_rows)
+            if df_investor.empty:
+                print("[Warning] KIS 종목별 수급 데이터가 없습니다. 수급 금액을 0으로 대체하고 계속 진행합니다.")
                 return empty_investor_df
-                
-            df_investor = pd.merge(df_for, df_inst, on='ticker', how='outer', suffixes=('_foreign', '_inst'))
-            if 'name_foreign' in df_investor.columns or 'name_inst' in df_investor.columns:
-                foreign_names = df_investor.get('name_foreign', pd.Series('', index=df_investor.index)).fillna('')
-                inst_names = df_investor.get('name_inst', pd.Series('', index=df_investor.index)).fillna('')
-                df_investor['name'] = foreign_names.where(foreign_names != '', inst_names)
-                df_investor = df_investor.drop(columns=[c for c in ['name_foreign', 'name_inst'] if c in df_investor.columns])
-            if 'foreign_net' not in df_investor.columns:
-                df_investor['foreign_net'] = 0
-            if 'inst_net' not in df_investor.columns:
-                df_investor['inst_net'] = 0
+
             df_investor['foreign_net'] = pd.to_numeric(df_investor['foreign_net'], errors='coerce').fillna(0).astype(int)
             df_investor['inst_net'] = pd.to_numeric(df_investor['inst_net'], errors='coerce').fillna(0).astype(int)
-            if 'name' in df_investor.columns:
-                df_investor['name'] = df_investor['name'].fillna('')
+            df_investor['name'] = df_investor['name'].fillna('')
+            print(f"[Investor] 종목별 수급 {len(df_investor)}건 조회 완료")
             return df_investor
             
         except Exception as e:
@@ -822,7 +815,8 @@ class StockCrawler:
             df_all = self.get_nxt_aftermarket_data()
         else:
             df_market = self.get_market_data()
-            df_investor = self.get_investor_data()
+            market_names = dict(zip(df_market['ticker'].astype(str).str.zfill(6), df_market['name'].fillna('')))
+            df_investor = self.get_investor_data(df_market['ticker'], market_names)
         
             # 데이터 병합 (how='outer'로 변경하여 수급 상위 종목이 누락되지 않도록 함)
             df_all = pd.merge(df_market, df_investor, on='ticker', how='outer')

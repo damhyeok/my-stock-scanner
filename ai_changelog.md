@@ -385,3 +385,11 @@
   - `requirements.txt` 기준 패키지 설치 상태를 확인하고, Python 3.11용 바이너리가 남아 있던 주요 패키지(`numpy`, `pandas`, `pyarrow`, `matplotlib` 등)를 Python 3.10용으로 강제 재설치했습니다.
   - 핵심 패키지 import, 주요 Python 파일 문법 검사, `StockAnalyzer.run_analysis()` 실행, Streamlit 버전 확인으로 로컬 실행 환경을 검증했습니다.
 ---
+## [2026-06-27 02:14] 외인/기관 순매수 종목별 조회로 전환
+- **작업 목적:** 거래대금 표의 외국인/기관 순매수 값이 MTS와 다르게 보이는 문제를 줄이기 위해, 기존 순매수 랭킹 API 대신 종목별 투자자 순매수 API 값을 사용하도록 변경했습니다.
+- **영향을 받은 파일:** `crawler.py`, `stock_data.db`, `ai_changelog.md`
+- **주요 변경 사항:**
+  - `StockCrawler.get_investor_data`: KIS `foreign-institution-total` 랭킹 조회 대신 `inquire-investor` 종목별 조회를 사용해 `frgn_ntby_tr_pbmn`, `orgn_ntby_tr_pbmn` 값을 수집
+  - `StockCrawler.run`: 거래대금 상위로 수집된 종목 목록을 기준으로 각 종목의 외국인/기관 순매수 금액을 병합하도록 변경
+  - `stock_data.db`: 최신 `20260626 정규장(16:00)` 데이터의 외국인/기관 순매수 값을 종목별 KIS 조회 값으로 갱신
+---
