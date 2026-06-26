@@ -396,13 +396,8 @@ class StockCrawler:
         now = datetime.now(self.kst)
         hour, minute = now.hour, now.minute
         scheduled_sessions = {
-            "5 0 * * 1-5": "장중(09:05)",
-            "20 0 * * 1-5": "장중(09:20)",
-            "0 1 * * 1-5": "장중(10:00)",
-            "0 5 * * 1-5": "장중(14:00)",
-            "30 5 * * 1-5": "장중(14:30)",
+            "0 3 * * 1-5": "장중(12:00)",
             "0 7 * * 1-5": "정규장(16:00)",
-            "10 7 * * 1-5": "정규장(16:00)",
         }
 
         if self.scheduled_cron in scheduled_sessions:
