@@ -1,6 +1,6 @@
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -12,9 +12,10 @@ load_dotenv()
 
 
 class MarketStrengthAnalyzer:
-    SNAPSHOT_TIMES = ["14:30", "15:00", "15:20", "15:30"]
+    MORNING_SNAPSHOT_TIMES = ["09:15", "09:30", "09:45"]
+    CLOSING_SNAPSHOT_TIMES = ["14:30", "15:00", "15:20", "15:30"]
 
-    def __init__(self, db_path="stock_data.db"):
+    def __init__(self, db_path="stock_data.db", analysis_type=None, snapshot_times=None, requested_at_kst=None):
         self.db_path = db_path
         self.kst = ZoneInfo("Asia/Seoul")
         self.kis_app_key = os.environ.get("KIS_APP_KEY", "")
@@ -23,19 +24,74 @@ class MarketStrengthAnalyzer:
         self.access_token = None
         self.collected_at_kst = datetime.now(self.kst).strftime("%Y-%m-%d %H:%M:%S")
         self.target_date = self._resolve_target_date()
+        self.requested_at_kst = self._parse_requested_at(requested_at_kst)
+        self.analysis_type = analysis_type or self._resolve_analysis_type()
+        self.snapshot_times = snapshot_times or self._resolve_snapshot_times()
         self._init_db()
+
+    @classmethod
+    def from_environment(cls, db_path="stock_data.db"):
+        mode = os.environ.get("MARKET_STRENGTH_MODE", "").strip() or None
+        requested_at = os.environ.get("MARKET_STRENGTH_REQUESTED_AT_KST", "").strip() or None
+        return cls(db_path=db_path, analysis_type=mode, requested_at_kst=requested_at)
 
     def _resolve_target_date(self):
         now = datetime.now(self.kst)
         b_days = pd.bdate_range(end=now, periods=1)
         return b_days[0].strftime("%Y%m%d")
 
+    def _parse_requested_at(self, value):
+        if not value:
+            return datetime.now(self.kst)
+        try:
+            parsed = datetime.fromisoformat(value)
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=self.kst)
+            return parsed.astimezone(self.kst)
+        except ValueError:
+            return datetime.now(self.kst)
+
+    def _resolve_analysis_type(self):
+        now = self.requested_at_kst
+        if now.hour < 12:
+            return "morning"
+        if now.hour >= 15:
+            return "closing"
+        return "morning"
+
+    def _resolve_snapshot_times(self):
+        if self.analysis_type == "manual":
+            base = self.requested_at_kst.replace(second=0, microsecond=0)
+            times = sorted({(base - timedelta(minutes=offset)).strftime("%H:%M") for offset in [30, 15, 0]})
+            return times
+        if self.analysis_type == "morning":
+            return self.MORNING_SNAPSHOT_TIMES
+        return self.CLOSING_SNAPSHOT_TIMES
+
+    def _analysis_label(self):
+        labels = {
+            "morning": "오전 흐름",
+            "closing": "종가 흐름",
+            "manual": "수동 흐름",
+        }
+        if self.analysis_type == "manual":
+            return f"{labels['manual']} ({self.requested_at_kst.strftime('%H:%M')} 기준)"
+        return labels.get(self.analysis_type, self.analysis_type)
+
     def _init_db(self):
         conn = sqlite3.connect(self.db_path)
+        existing_columns = [
+            row[1]
+            for row in conn.execute("PRAGMA table_info(market_strength_snapshots)").fetchall()
+        ]
+        if existing_columns and "analysis_type" not in existing_columns:
+            conn.execute("ALTER TABLE market_strength_snapshots RENAME TO market_strength_snapshots_legacy")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS market_strength_snapshots (
                 trade_date TEXT,
+                analysis_type TEXT DEFAULT 'closing',
+                analysis_label TEXT,
                 snapshot_time TEXT,
                 foreign_futures_net REAL,
                 basis REAL,
@@ -53,10 +109,35 @@ class MarketStrengthAnalyzer:
                 futures_trend_score INTEGER,
                 interpretation_text TEXT,
                 collected_at_kst TEXT,
-                PRIMARY KEY (trade_date, snapshot_time)
+                PRIMARY KEY (trade_date, analysis_type, snapshot_time)
             )
             """
         )
+        legacy_exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'market_strength_snapshots_legacy'"
+        ).fetchone()
+        if legacy_exists:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO market_strength_snapshots (
+                    trade_date, analysis_type, analysis_label, snapshot_time, foreign_futures_net,
+                    basis, program_net, arbitrage_net, non_arbitrage_net,
+                    kospi200_futures_price, futures_day_high, futures_day_low,
+                    futures_vwap, market_strength_score, foreign_futures_score,
+                    basis_score, program_score, futures_trend_score,
+                    interpretation_text, collected_at_kst
+                )
+                SELECT
+                    trade_date, 'closing', '종가 흐름', snapshot_time, foreign_futures_net,
+                    basis, program_net, arbitrage_net, non_arbitrage_net,
+                    kospi200_futures_price, futures_day_high, futures_day_low,
+                    futures_vwap, market_strength_score, foreign_futures_score,
+                    basis_score, program_score, futures_trend_score,
+                    interpretation_text, collected_at_kst
+                FROM market_strength_snapshots_legacy
+                """
+            )
+            conn.execute("DROP TABLE market_strength_snapshots_legacy")
         conn.commit()
         conn.close()
 
@@ -153,7 +234,7 @@ class MarketStrengthAnalyzer:
         )
         rows = data.get("output", []) or []
         snapshots = {}
-        for snapshot_time in self.SNAPSHOT_TIMES:
+        for snapshot_time in self.snapshot_times:
             row = self._nearest_row(rows, self._time_to_hhmmss(snapshot_time), "bsop_hour")
             snapshots[snapshot_time] = {
                 "program_net": self._to_float(row.get("whol_smtn_ntby_tr_pbmn")),
@@ -179,6 +260,7 @@ class MarketStrengthAnalyzer:
 
     def _fetch_futures_snapshots(self):
         futures_code = self._fetch_active_futures_code()
+        query_end_time = self._time_to_hhmmss(self.snapshot_times[-1])
         data = self._kis_get(
             "/uapi/domestic-futureoption/v1/quotations/inquire-time-fuopchartprice",
             "FHKIF03020200",
@@ -189,7 +271,7 @@ class MarketStrengthAnalyzer:
                 "FID_PW_DATA_INCU_YN": "Y",
                 "FID_FAKE_TICK_INCU_YN": "N",
                 "FID_INPUT_DATE_1": self.target_date,
-                "FID_INPUT_HOUR_1": "154000",
+                "FID_INPUT_HOUR_1": query_end_time,
             },
         )
         current_info = data.get("output1", {}) or {}
@@ -200,7 +282,7 @@ class MarketStrengthAnalyzer:
         basis_now = self._to_float(current_info.get("basis"))
 
         snapshots = {}
-        for snapshot_time in self.SNAPSHOT_TIMES:
+        for snapshot_time in self.snapshot_times:
             row = self._nearest_row(rows, self._time_to_hhmmss(snapshot_time), "stck_cntg_hour")
             price = self._to_float(row.get("futs_prpr"))
             amount = self._to_float(row.get("acml_tr_pbmn"))
@@ -238,6 +320,7 @@ class MarketStrengthAnalyzer:
 
     def _fetch_index_snapshots(self):
         # KIS 업종 분봉조회는 환경별 코드 표기가 다를 수 있어 KOSPI200 후보를 순차 시도합니다.
+        query_end_time = self._time_to_hhmmss(self.snapshot_times[-1])
         for index_code in ["2001", "0002", "0001"]:
             try:
                 data = self._kis_get(
@@ -247,25 +330,25 @@ class MarketStrengthAnalyzer:
                         "FID_COND_MRKT_DIV_CODE": "U",
                         "FID_ETC_CLS_CODE": "0",
                         "FID_INPUT_ISCD": index_code,
-                        "FID_INPUT_HOUR_1": "153000",
+                        "FID_INPUT_HOUR_1": query_end_time,
                         "FID_PW_DATA_INCU_YN": "Y",
                     },
                 )
                 rows = data.get("output2", []) or []
                 snapshots = {}
-                for snapshot_time in self.SNAPSHOT_TIMES:
+                for snapshot_time in self.snapshot_times:
                     row = self._nearest_row(rows, self._time_to_hhmmss(snapshot_time), "stck_cntg_hour")
                     price = self._extract_index_price(row)
                     if price:
                         snapshots[snapshot_time] = price
-                if len(snapshots) == len(self.SNAPSHOT_TIMES):
+                if len(snapshots) == len(self.snapshot_times):
                     return snapshots
             except Exception as e:
                 print(f"[Market Strength Warning] KOSPI200 지수 분봉 조회 실패(code={index_code}): {e}")
         return {}
 
     def _score_basis(self, snapshots):
-        values = [snapshots[t]["basis"] for t in self.SNAPSHOT_TIMES]
+        values = [snapshots[t]["basis"] for t in self.snapshot_times]
         delta = values[-1] - values[0]
         late_delta = values[-1] - values[-2]
         score = 18
@@ -284,8 +367,8 @@ class MarketStrengthAnalyzer:
         return max(0, min(35, int(round(score))))
 
     def _score_program(self, snapshots):
-        program = [snapshots[t]["program_net"] for t in self.SNAPSHOT_TIMES]
-        non_arbitrage = [snapshots[t]["non_arbitrage_net"] for t in self.SNAPSHOT_TIMES]
+        program = [snapshots[t]["program_net"] for t in self.snapshot_times]
+        non_arbitrage = [snapshots[t]["non_arbitrage_net"] for t in self.snapshot_times]
         score = 16
         if program[-1] > 0:
             score += 7
@@ -302,11 +385,11 @@ class MarketStrengthAnalyzer:
         return max(0, min(35, int(round(score))))
 
     def _score_futures_trend(self, snapshots):
-        prices = [snapshots[t]["kospi200_futures_price"] for t in self.SNAPSHOT_TIMES]
+        prices = [snapshots[t]["kospi200_futures_price"] for t in self.snapshot_times]
         last = prices[-1]
-        day_high = snapshots[self.SNAPSHOT_TIMES[-1]]["futures_day_high"]
-        day_low = snapshots[self.SNAPSHOT_TIMES[-1]]["futures_day_low"]
-        vwap = snapshots[self.SNAPSHOT_TIMES[-1]]["futures_vwap"]
+        day_high = snapshots[self.snapshot_times[-1]]["futures_day_high"]
+        day_low = snapshots[self.snapshot_times[-1]]["futures_day_low"]
+        vwap = snapshots[self.snapshot_times[-1]]["futures_vwap"]
         score = 12
         day_range = day_high - day_low
         if day_range > 0 and last >= day_low + day_range * 0.75:
@@ -322,11 +405,11 @@ class MarketStrengthAnalyzer:
         return max(0, min(30, int(round(score))))
 
     def _build_interpretation(self, score, basis_score, program_score, futures_score, snapshots):
-        basis_delta = snapshots[self.SNAPSHOT_TIMES[-1]]["basis"] - snapshots[self.SNAPSHOT_TIMES[0]]["basis"]
-        program_delta = snapshots[self.SNAPSHOT_TIMES[-1]]["program_net"] - snapshots[self.SNAPSHOT_TIMES[0]]["program_net"]
+        basis_delta = snapshots[self.snapshot_times[-1]]["basis"] - snapshots[self.snapshot_times[0]]["basis"]
+        program_delta = snapshots[self.snapshot_times[-1]]["program_net"] - snapshots[self.snapshot_times[0]]["program_net"]
         futures_delta = (
-            snapshots[self.SNAPSHOT_TIMES[-1]]["kospi200_futures_price"]
-            - snapshots[self.SNAPSHOT_TIMES[-2]]["kospi200_futures_price"]
+            snapshots[self.snapshot_times[-1]]["kospi200_futures_price"]
+            - snapshots[self.snapshot_times[-2]]["kospi200_futures_price"]
         )
 
         parts = []
@@ -347,7 +430,7 @@ class MarketStrengthAnalyzer:
 
     def _combine_snapshots(self, program_snapshots, futures_snapshots):
         snapshots = {}
-        for snapshot_time in self.SNAPSHOT_TIMES:
+        for snapshot_time in self.snapshot_times:
             snapshots[snapshot_time] = {
                 "foreign_futures_net": None,
                 **program_snapshots.get(snapshot_time, {}),
@@ -357,21 +440,27 @@ class MarketStrengthAnalyzer:
 
     def _save_snapshots(self, snapshots, scores, interpretation_text):
         conn = sqlite3.connect(self.db_path)
-        conn.execute("DELETE FROM market_strength_snapshots WHERE trade_date = ?", (self.target_date,))
-        for snapshot_time in self.SNAPSHOT_TIMES:
+        conn.execute(
+            "DELETE FROM market_strength_snapshots WHERE trade_date = ? AND analysis_type = ?",
+            (self.target_date, self.analysis_type),
+        )
+        for snapshot_time in self.snapshot_times:
             row = snapshots[snapshot_time]
             conn.execute(
                 """
                 INSERT OR REPLACE INTO market_strength_snapshots (
-                    trade_date, snapshot_time, foreign_futures_net, basis, program_net,
-                    arbitrage_net, non_arbitrage_net, kospi200_futures_price,
+                    trade_date, analysis_type, analysis_label, snapshot_time,
+                    foreign_futures_net, basis, program_net, arbitrage_net,
+                    non_arbitrage_net, kospi200_futures_price,
                     futures_day_high, futures_day_low, futures_vwap,
                     market_strength_score, foreign_futures_score, basis_score,
                     program_score, futures_trend_score, interpretation_text, collected_at_kst
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     self.target_date,
+                    self.analysis_type,
+                    self._analysis_label(),
                     snapshot_time,
                     row.get("foreign_futures_net"),
                     row.get("basis"),
@@ -397,8 +486,11 @@ class MarketStrengthAnalyzer:
     def run(self):
         print(f"[Market Strength] {self.target_date} 시장강도 분석 시작")
         now = datetime.now(self.kst)
-        if now.hour < 15 or (now.hour == 15 and now.minute < 35):
+        if self.analysis_type == "closing" and (now.hour < 15 or (now.hour == 15 and now.minute < 35)):
             print("[Market Strength] 15:35 이전에는 시장강도 분석을 건너뜁니다.")
+            return None
+        if self.analysis_type == "morning" and (now.hour < 9 or (now.hour == 9 and now.minute < 45)):
+            print("[Market Strength] Morning analysis is skipped before 09:45 KST.")
             return None
 
         program_snapshots = self._fetch_program_snapshots()

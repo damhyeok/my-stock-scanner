@@ -385,6 +385,16 @@
   - `requirements.txt` 기준 패키지 설치 상태를 확인하고, Python 3.11용 바이너리가 남아 있던 주요 패키지(`numpy`, `pandas`, `pyarrow`, `matplotlib` 등)를 Python 3.10용으로 강제 재설치했습니다.
   - 핵심 패키지 import, 주요 Python 파일 문법 검사, `StockAnalyzer.run_analysis()` 실행, Streamlit 버전 확인으로 로컬 실행 환경을 검증했습니다.
 ---
+## [2026-06-27 02:32] 시장강도 오전/수동 흐름 분석 추가
+- **작업 목적:** 오전 장 흐름과 사용자가 버튼을 누른 시점 기준의 시장강도 흐름을 확인할 수 있도록 시장강도 분석 시간대와 실행 방식을 확장했습니다.
+- **영향을 받은 파일:** `market_strength.py`, `main.py`, `app.py`, `.github/workflows/main.yml`, `stock_data.db`, `ai_changelog.md`
+- **주요 변경 사항:**
+  - `MarketStrengthAnalyzer`: 오전 흐름(09:15/09:30/09:45), 종가 흐름(14:30/15:00/15:20/15:30), 수동 흐름(기준시각/15분 전/30분 전)을 각각 저장할 수 있도록 분석 타입과 스냅샷 시간 목록을 분리
+  - `market_strength_snapshots`: `analysis_type`, `analysis_label` 컬럼과 복합 기본키를 추가해 오전/종가/수동 분석이 서로 덮어쓰지 않도록 DB 구조 변경
+  - `app.py`: 시장강도 탭에 `지금 기준 시장강도 분석 실행` 버튼과 흐름 선택 UI를 추가하고, 버튼 클릭 시 기준시각을 GitHub Actions에 전달
+  - `.github/workflows/main.yml`: KST 09:50 오전 시장강도 자동 실행을 추가하고, 수동 실행 입력값을 `main.py`로 전달
+---
+
 ## [2026-06-27 02:14] 외인/기관 순매수 종목별 조회로 전환
 - **작업 목적:** 거래대금 표의 외국인/기관 순매수 값이 MTS와 다르게 보이는 문제를 줄이기 위해, 기존 순매수 랭킹 API 대신 종목별 투자자 순매수 API 값을 사용하도록 변경했습니다.
 - **영향을 받은 파일:** `crawler.py`, `stock_data.db`, `ai_changelog.md`

@@ -6,6 +6,8 @@ import os
 import tempfile
 import html
 import requests
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from analyzer import StockAnalyzer
 
 # 페이지 기본 설정
@@ -151,7 +153,7 @@ def get_database_path():
     except Exception:
         return local_db_path, "로컬 DB"
 
-def trigger_github_workflow():
+def trigger_github_workflow(market_strength_mode="manual", requested_at_kst=None):
     token = get_config_value("GITHUB_ACTIONS_TOKEN")
     repo = get_config_value("GITHUB_REPOSITORY", "damhyeok/my-stock-scanner")
     workflow_file = get_config_value("GITHUB_WORKFLOW_FILE", "main.yml")
@@ -161,6 +163,10 @@ def trigger_github_workflow():
         return False, "웹페이지에서 실행하려면 `GITHUB_ACTIONS_TOKEN` 설정이 필요합니다."
 
     url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow_file}/dispatches"
+    inputs = {
+        "market_strength_mode": market_strength_mode,
+        "requested_at_kst": requested_at_kst or datetime.now(ZoneInfo("Asia/Seoul")).isoformat(timespec="minutes"),
+    }
     response = requests.post(
         url,
         headers={
@@ -168,7 +174,7 @@ def trigger_github_workflow():
             "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28",
         },
-        json={"ref": branch},
+        json={"ref": branch, "inputs": inputs},
         timeout=15,
     )
 
@@ -308,6 +314,14 @@ def get_market_strength_data():
         conn = sqlite3.connect(db_path)
         df = pd.read_sql("SELECT * FROM market_strength_snapshots ORDER BY trade_date DESC, snapshot_time ASC", conn)
         conn.close()
+        if 'analysis_type' not in df.columns:
+            df['analysis_type'] = 'closing'
+        if 'analysis_label' not in df.columns:
+            df['analysis_label'] = df['analysis_type'].map({
+                'morning': '오전 흐름',
+                'closing': '종가 흐름',
+                'manual': '수동 흐름',
+            }).fillna(df['analysis_type'])
         return df
     except:
         return pd.DataFrame()
@@ -614,6 +628,19 @@ else:
 
     with tab9:
         st.header(f"🌡️ 시장 강도 분석 ({selected_date})")
+        manual_col, refresh_col = st.columns([1, 3])
+        if manual_col.button("지금 기준 시장강도 분석 실행"):
+            requested_at = datetime.now(ZoneInfo("Asia/Seoul")).isoformat(timespec="minutes")
+            with st.spinner("GitHub Actions 시장강도 분석 요청 중..."):
+                ok, message = trigger_github_workflow(
+                    market_strength_mode="manual",
+                    requested_at_kst=requested_at,
+                )
+            if ok:
+                st.success(f"{message} 기준시각: {requested_at}")
+            else:
+                st.error(message)
+        refresh_col.caption("수동 실행은 버튼을 누른 시각, 15분 전, 30분 전의 시장강도 흐름을 저장합니다.")
         if df_market_strength.empty:
             st.info("시장강도 분석 데이터가 없습니다. 15:40 이후 자동 실행 또는 수동 실행 후 표시됩니다.")
         else:
@@ -621,6 +648,25 @@ else:
             if strength_selected.empty:
                 st.info("선택한 날짜의 시장강도 분석 데이터가 없습니다.")
             else:
+                group_options = (
+                    strength_selected[['analysis_type', 'analysis_label']]
+                    .drop_duplicates()
+                )
+                group_order = {'morning': 1, 'closing': 2, 'manual': 3}
+                group_options['group_order'] = group_options['analysis_type'].map(group_order).fillna(99)
+                group_options = group_options.sort_values('group_order')
+                selected_group_label = st.selectbox(
+                    "시장강도 흐름 선택",
+                    group_options['analysis_label'].tolist(),
+                    index=len(group_options) - 1,
+                )
+                selected_group_type = group_options.loc[
+                    group_options['analysis_label'] == selected_group_label,
+                    'analysis_type'
+                ].iloc[0]
+                strength_selected = strength_selected[
+                    strength_selected['analysis_type'] == selected_group_type
+                ].copy()
                 strength_selected = strength_selected.sort_values('snapshot_time')
                 latest_row = strength_selected.iloc[-1]
                 total_score = pd.to_numeric(latest_row.get('market_strength_score'), errors='coerce')

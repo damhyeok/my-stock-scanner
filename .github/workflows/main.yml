@@ -2,11 +2,22 @@ name: Daily Stock Analysis Automation
 
 on:
   schedule:
+    # KST 09:50 (morning market strength flow) -> UTC 00:50
+    - cron: '50 0 * * 1-5'
     # KST 12:00 (오전장 중간 점검) -> UTC 03:00
     - cron: '0 3 * * 1-5'
     # KST 16:00 (정규장 마감 요약 및 시장강도 분석) -> UTC 07:00
     - cron: '0 7 * * 1-5'
   workflow_dispatch: # 깃허브 웹사이트에서 수동 실행 버튼 허용
+    inputs:
+      market_strength_mode:
+        description: 'Market strength mode'
+        required: false
+        default: 'manual'
+      requested_at_kst:
+        description: 'Requested KST timestamp for manual market strength'
+        required: false
+        default: ''
 
 jobs:
   build-and-run:
@@ -35,6 +46,8 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          MARKET_STRENGTH_MODE: ${{ github.event.inputs.market_strength_mode }}
+          MARKET_STRENGTH_REQUESTED_AT_KST: ${{ github.event.inputs.requested_at_kst }}
         run: |
           for attempt in 1 2 3; do
             echo "Run attempt ${attempt}/3"

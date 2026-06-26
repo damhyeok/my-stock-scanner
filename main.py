@@ -24,7 +24,7 @@ def main():
 
     print("\n[Step 1-2] 시장강도 데이터를 수집합니다.")
     try:
-        market_strength = MarketStrengthAnalyzer()
+        market_strength = MarketStrengthAnalyzer.from_environment()
         market_strength.run()
     except Exception as e:
         print(f"[Market Strength Warning] 시장강도 분석 중 오류가 발생했지만 주가 분석은 계속 진행합니다: {e}")
