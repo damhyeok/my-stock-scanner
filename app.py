@@ -199,6 +199,17 @@ def display_workflow_run_status(container):
     if html_url:
         container.markdown(f"[GitHub Actions에서 자세히 보기]({html_url})")
 
+def market_strength_status(score):
+    if pd.isna(score):
+        return "데이터 없음"
+    if score >= 85:
+        return "매우 좋음"
+    if score >= 70:
+        return "좋음"
+    if score >= 55:
+        return "보통"
+    return "위험"
+
 def display_sector_summary(df, title="📊 업종별 종목 묶음 보기", show_rate=False):
     """해당 리스트의 업종별 요약과 포함된 종목 리스트를 아래에 출력합니다."""
     if 'sector' in df.columns and not df.empty:
@@ -258,11 +269,23 @@ def get_news_data():
     except:
         return pd.DataFrame()
 
+@st.cache_data(ttl=60)
+def get_market_strength_data():
+    try:
+        db_path, _ = get_database_path()
+        conn = sqlite3.connect(db_path)
+        df = pd.read_sql("SELECT * FROM market_strength_snapshots ORDER BY trade_date DESC, snapshot_time ASC", conn)
+        conn.close()
+        return df
+    except:
+        return pd.DataFrame()
+
 # 데이터 로드
 with st.spinner("데이터를 불러오고 있습니다..."):
     df_analyzed = get_analyzed_data()
     df_raw = get_raw_data()
     df_news = get_news_data()
+    df_market_strength = get_market_strength_data()
 
 if df_analyzed is None or df_raw.empty:
     st.warning("⚠️ 분석할 데이터가 없습니다. 먼저 `crawler.py`를 실행하여 데이터를 수집해주세요.")
@@ -343,7 +366,7 @@ else:
     st.divider()
 
     # 탭으로 분리
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
         "🏆 종합 추천종목", 
         "🔥 거래대금 Top", 
         "🟢 외인 순매수", 
@@ -351,7 +374,8 @@ else:
         "📊 섹터별 자금",
         "📈 최근 섹터 흐름",
         "⚡ 실시간 변화(직전 대비)",
-        "📰 뉴스 이슈 종목"
+        "📰 뉴스 이슈 종목",
+        "🌡️ 시장 강도 분석"
     ])
     
     if 'session' in df_raw.columns:
@@ -555,3 +579,76 @@ else:
                             else:
                                 st.markdown(f"**{idx}. {title}**")
                             st.caption(f"{sentiment} | {source} | {published_at}")
+
+    with tab9:
+        st.header(f"🌡️ 시장 강도 분석 ({selected_date})")
+        if df_market_strength.empty:
+            st.info("시장강도 분석 데이터가 없습니다. 15:40 이후 자동 실행 또는 수동 실행 후 표시됩니다.")
+        else:
+            strength_selected = df_market_strength[df_market_strength['trade_date'] == selected_date].copy()
+            if strength_selected.empty:
+                st.info("선택한 날짜의 시장강도 분석 데이터가 없습니다.")
+            else:
+                strength_selected = strength_selected.sort_values('snapshot_time')
+                latest_row = strength_selected.iloc[-1]
+                total_score = pd.to_numeric(latest_row.get('market_strength_score'), errors='coerce')
+                status_text = market_strength_status(total_score)
+
+                score_col, status_col = st.columns(2)
+                score_col.metric("시장강도", f"{int(total_score)}점" if pd.notna(total_score) else "-")
+                status_col.metric("상태", status_text)
+
+                interpretation = latest_row.get('interpretation_text', '')
+                if interpretation:
+                    st.info(interpretation)
+
+                card1, card2, card3 = st.columns(3)
+                card1.metric("베이시스 점수", f"{int(latest_row.get('basis_score', 0))} / 35")
+                card2.metric("프로그램매매 점수", f"{int(latest_row.get('program_score', 0))} / 35")
+                card3.metric("코스피200 선물 추세 점수", f"{int(latest_row.get('futures_trend_score', 0))} / 30")
+
+                table_df = strength_selected.copy()
+                table_df['변화 방향'] = ''
+                for idx in range(len(table_df)):
+                    if idx == 0:
+                        table_df.iloc[idx, table_df.columns.get_loc('변화 방향')] = '기준'
+                    else:
+                        prev = table_df.iloc[idx - 1]
+                        curr = table_df.iloc[idx]
+                        directions = []
+                        if pd.to_numeric(curr['basis'], errors='coerce') > pd.to_numeric(prev['basis'], errors='coerce'):
+                            directions.append('베이시스 확대')
+                        elif pd.to_numeric(curr['basis'], errors='coerce') < pd.to_numeric(prev['basis'], errors='coerce'):
+                            directions.append('베이시스 축소')
+                        if pd.to_numeric(curr['program_net'], errors='coerce') > pd.to_numeric(prev['program_net'], errors='coerce'):
+                            directions.append('프로그램 개선')
+                        elif pd.to_numeric(curr['program_net'], errors='coerce') < pd.to_numeric(prev['program_net'], errors='coerce'):
+                            directions.append('프로그램 약화')
+                        if pd.to_numeric(curr['kospi200_futures_price'], errors='coerce') > pd.to_numeric(prev['kospi200_futures_price'], errors='coerce'):
+                            directions.append('선물 상승')
+                        elif pd.to_numeric(curr['kospi200_futures_price'], errors='coerce') < pd.to_numeric(prev['kospi200_futures_price'], errors='coerce'):
+                            directions.append('선물 하락')
+                        table_df.iloc[idx, table_df.columns.get_loc('변화 방향')] = ', '.join(directions) if directions else '보합'
+
+                display_df = table_df[[
+                    'snapshot_time',
+                    'basis',
+                    'program_net',
+                    'arbitrage_net',
+                    'non_arbitrage_net',
+                    'kospi200_futures_price',
+                    '변화 방향'
+                ]].rename(columns={
+                    'snapshot_time': '시간',
+                    'basis': '베이시스',
+                    'program_net': '프로그램 순매수',
+                    'arbitrage_net': '차익 순매수',
+                    'non_arbitrage_net': '비차익 순매수',
+                    'kospi200_futures_price': '코스피200 선물'
+                })
+                for col in ['프로그램 순매수', '차익 순매수', '비차익 순매수']:
+                    display_df[col] = pd.to_numeric(display_df[col], errors='coerce').round(0).astype('Int64')
+                for col in ['베이시스', '코스피200 선물']:
+                    display_df[col] = pd.to_numeric(display_df[col], errors='coerce').round(2)
+                st.subheader("시간별 시장강도 흐름")
+                st.dataframe(display_df, use_container_width=True)
