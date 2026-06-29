@@ -392,15 +392,25 @@ else:
     st.sidebar.divider()
     st.sidebar.subheader("🚀 수동 분석 실행")
     st.sidebar.caption("GitHub Actions가 실제 시작된 시각을 기준으로 전체 분석을 실행합니다.")
+    st.sidebar.caption("장 운영시간 외에는 최신 정규장 DB를 기준으로 뉴스·시장강도·종합분석을 다시 실행합니다.")
     if st.sidebar.button("지금 분석 실행"):
         with st.sidebar.spinner("GitHub Actions 실행 요청 중..."):
             ok, message = trigger_github_workflow(run_mode="full")
         if ok:
-            st.sidebar.success(message)
+            st.session_state["manual_analysis_notice"] = ("success", message)
         else:
-            st.sidebar.error(message)
+            st.session_state["manual_analysis_notice"] = ("error", message)
+    notice = st.session_state.get("manual_analysis_notice")
+    if notice:
+        notice_type, notice_message = notice
+        if notice_type == "success":
+            st.sidebar.success(notice_message)
+        else:
+            st.sidebar.error(notice_message)
     st.sidebar.caption("완료 여부는 아래 최근 실행 상태에서 확인할 수 있습니다.")
     display_workflow_run_status(st.sidebar)
+    if st.sidebar.button("실행 상태 새로고침"):
+        st.rerun()
 
     st.sidebar.divider()
     if st.sidebar.button("🔄 데이터 새로고침"):

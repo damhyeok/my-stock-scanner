@@ -35,16 +35,28 @@ def main():
         print(f"\n=== {analysis_label} 시장강도 분석이 완료되었습니다! ===")
         return
 
+    use_latest_regular_data = False
     if run_mode == "full":
         analysis_started_at = datetime.now(ZoneInfo("Asia/Seoul")).replace(second=0, microsecond=0)
-        os.environ["MARKET_STRENGTH_MODE"] = "manual"
-        os.environ["MARKET_STRENGTH_REQUESTED_AT_KST"] = analysis_started_at.isoformat(timespec="minutes")
+        is_live_market_window = (
+            analysis_started_at.weekday() < 5
+            and 9 <= analysis_started_at.hour < 18
+        )
+        use_latest_regular_data = not is_live_market_window
+        if use_latest_regular_data:
+            os.environ["MARKET_STRENGTH_MODE"] = "closing"
+            os.environ["MARKET_STRENGTH_REQUESTED_AT_KST"] = ""
+        else:
+            os.environ["MARKET_STRENGTH_MODE"] = "manual"
+            os.environ["MARKET_STRENGTH_REQUESTED_AT_KST"] = analysis_started_at.isoformat(timespec="minutes")
         print(f"[Manual Analysis] 전체 분석 기준시각(KST): {analysis_started_at:%Y-%m-%d %H:%M}")
     
     # 1. 크롤링 및 DB 누적 저장
     print("\n[Step 1] 데이터 크롤링을 시작합니다.")
     crawler = StockCrawler()
-    if crawler.run() is False:
+    if use_latest_regular_data:
+        print("[Manual Analysis] 장 운영시간이 아니므로 최신 정규장 DB를 기준으로 후속 분석을 실행합니다.")
+    elif crawler.run() is False:
         print("[Skip] 시간외 데이터는 분석 대상에서 제외되어 이후 단계를 실행하지 않습니다.")
         return
 
