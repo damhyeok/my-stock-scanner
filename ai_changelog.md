@@ -1,3 +1,14 @@
+## [2026-06-29 23:47] 무료 클라우드 WebSocket 장중 수집기 추가
+- **작업 목적:** GitHub Actions 예약 지연 없이 프로그램·차익·비차익 순매수를 목표 시각에 저장하고, 개인 PC가 꺼져 있어도 시장강도와 전체 분석을 자동 실행할 수 있는 무료 VM 구성을 추가했습니다.
+- **영향을 받은 파일:** `program_ws_collector.py`, `cloud_job.py`, `market_strength.py`, `requirements.txt`, `deploy/oracle-cloud/*`, `ai_changelog.md`
+- **주요 변경 사항:**
+  - KIS 국내지수 실시간 프로그램매매 WebSocket(`H0UPPGM0`)을 연결해 오전 09:15/09:30/09:45 및 종가 14:30/15:00/15:20/15:30 스냅샷 저장
+  - WebSocket 원시값을 VM 전용 `program_snapshots.db`에 분리하고 시장강도 계산 시 완전한 스냅샷을 REST 값보다 우선 사용
+  - Oracle Cloud Always Free VM에서 `systemd timer`로 09:30/16:00 전체 분석, 오전/종가 수집 및 시장강도 계산을 직접 실행하는 작업기와 설치 스크립트 추가
+  - 각 클라우드 작업의 DB 변경을 직렬화하고 완료 후 GitHub 저장소에 자동 커밋·푸시하도록 구성
+  - Google Cloud 무료 VM은 외부 IPv4가 별도 과금되어 제외하고, Oracle 무료 인스턴스의 유휴 자원 회수 가능성을 설치 문서에 명시
+---
+
 ## [2026-06-29 23:05] 수동 분석 장외 실행 및 상태 표시 수정
 - **작업 목적:** 장 종료 후 `지금 분석 실행` 요청이 시간외 제외 규칙으로 즉시 끝나 웹에 아무 변화가 없던 문제와 변경 없는 DB 커밋 단계의 실패를 해결했습니다.
 - **영향을 받은 파일:** `main.py`, `app.py`, `.github/workflows/main.yml`, `ai_changelog.md`

@@ -1,0 +1,10 @@
+[Unit]
+Description=Collect morning KIS program trading data
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 09:10:00 Asia/Seoul
+Unit=stock-scanner@morning-collector.service
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

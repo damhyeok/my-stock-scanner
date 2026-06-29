@@ -1,0 +1,15 @@
+[Unit]
+Description=Stock scanner cloud job (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=__USER__
+WorkingDirectory=__PROJECT_DIR__
+Environment=PYTHONUNBUFFERED=1
+Environment=PROGRAM_SNAPSHOT_DB=__PROJECT_DIR__/program_snapshots.db
+ExecStart=__PROJECT_DIR__/.venv/bin/python __PROJECT_DIR__/cloud_job.py %i
+
+[Install]
+WantedBy=multi-user.target

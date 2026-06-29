@@ -1,0 +1,10 @@
+[Unit]
+Description=Calculate closing market strength
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 15:40:00 Asia/Seoul
+Unit=stock-scanner@closing-strength.service
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

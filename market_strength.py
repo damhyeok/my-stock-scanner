@@ -113,6 +113,21 @@ class MarketStrengthAnalyzer:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS market_program_snapshots (
+                trade_date TEXT,
+                analysis_type TEXT,
+                snapshot_time TEXT,
+                program_net REAL,
+                arbitrage_net REAL,
+                non_arbitrage_net REAL,
+                source TEXT,
+                collected_at_kst TEXT,
+                PRIMARY KEY (trade_date, analysis_type, snapshot_time)
+            )
+            """
+        )
         legacy_exists = conn.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'market_strength_snapshots_legacy'"
         ).fetchone()
@@ -220,6 +235,35 @@ class MarketStrengthAnalyzer:
         return min(valid_rows, key=lambda item: abs(item[0] - target))[1]
 
     def _fetch_program_snapshots(self):
+        program_db_path = os.environ.get("PROGRAM_SNAPSHOT_DB", "").strip() or self.db_path
+        rows = []
+        if os.path.exists(program_db_path):
+            try:
+                conn = sqlite3.connect(program_db_path)
+                rows = conn.execute(
+                    """
+                    SELECT snapshot_time, program_net, arbitrage_net, non_arbitrage_net
+                    FROM market_program_snapshots
+                    WHERE trade_date = ? AND analysis_type = ?
+                    """,
+                    (self.target_date, self.analysis_type),
+                ).fetchall()
+                conn.close()
+            except sqlite3.OperationalError:
+                rows = []
+        collected = {
+            row[0]: {
+                "program_net": self._to_float(row[1]),
+                "arbitrage_net": self._to_float(row[2]),
+                "non_arbitrage_net": self._to_float(row[3]),
+            }
+            for row in rows
+        }
+        if all(snapshot_time in collected for snapshot_time in self.snapshot_times):
+            print(f"[Market Strength] WebSocket 프로그램 수급 {len(self.snapshot_times)}개 시점을 사용합니다.")
+            return {snapshot_time: collected[snapshot_time] for snapshot_time in self.snapshot_times}
+
+        print("[Market Strength Warning] WebSocket 프로그램 수급이 완전하지 않아 KIS REST 값을 사용합니다.")
         data = self._kis_get(
             "/uapi/domestic-stock/v1/quotations/comp-program-trade-today",
             "FHPPG04600101",
