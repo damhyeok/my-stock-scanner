@@ -1,4 +1,6 @@
 import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from crawler import StockCrawler
 from analyzer import StockAnalyzer
@@ -23,11 +25,21 @@ def report_market_strength_error(error):
 def main():
     print("=== 주식 분석 자동화 시스템 시작 ===")
 
-    if os.environ.get("GITHUB_EVENT_SCHEDULE", "").strip() == "50 0 * * 1-5":
-        print("\n[Market Strength Only] 오전 시장강도 데이터를 수집합니다.")
+    scheduled_cron = os.environ.get("GITHUB_EVENT_SCHEDULE", "").strip()
+    run_mode = os.environ.get("ANALYSIS_RUN_MODE", "").strip()
+
+    if scheduled_cron == "50 0 * * 1-5" or run_mode == "market_strength_only":
+        analysis_label = "오전" if scheduled_cron == "50 0 * * 1-5" else "수동"
+        print(f"\n[Market Strength Only] {analysis_label} 시장강도 데이터를 수집합니다.")
         run_market_strength()
-        print("\n=== 오전 시장강도 분석이 완료되었습니다! ===")
+        print(f"\n=== {analysis_label} 시장강도 분석이 완료되었습니다! ===")
         return
+
+    if run_mode == "full":
+        analysis_started_at = datetime.now(ZoneInfo("Asia/Seoul")).replace(second=0, microsecond=0)
+        os.environ["MARKET_STRENGTH_MODE"] = "manual"
+        os.environ["MARKET_STRENGTH_REQUESTED_AT_KST"] = analysis_started_at.isoformat(timespec="minutes")
+        print(f"[Manual Analysis] 전체 분석 기준시각(KST): {analysis_started_at:%Y-%m-%d %H:%M}")
     
     # 1. 크롤링 및 DB 누적 저장
     print("\n[Step 1] 데이터 크롤링을 시작합니다.")

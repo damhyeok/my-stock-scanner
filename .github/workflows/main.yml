@@ -10,6 +10,10 @@ on:
     - cron: '0 7 * * 1-5'
   workflow_dispatch: # 깃허브 웹사이트에서 수동 실행 버튼 허용
     inputs:
+      run_mode:
+        description: 'Analysis run mode'
+        required: false
+        default: 'full'
       market_strength_mode:
         description: 'Market strength mode'
         required: false
@@ -46,6 +50,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
+          ANALYSIS_RUN_MODE: ${{ github.event.inputs.run_mode }}
           MARKET_STRENGTH_MODE: ${{ github.event.inputs.market_strength_mode }}
           MARKET_STRENGTH_REQUESTED_AT_KST: ${{ github.event.inputs.requested_at_kst }}
         run: |

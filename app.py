@@ -158,7 +158,7 @@ def get_database_path():
     except Exception:
         return local_db_path, "로컬 DB"
 
-def trigger_github_workflow(market_strength_mode="manual", requested_at_kst=None):
+def trigger_github_workflow(run_mode="full", market_strength_mode="manual", requested_at_kst=None):
     token = get_config_value("GITHUB_ACTIONS_TOKEN")
     repo = get_config_value("GITHUB_REPOSITORY", "damhyeok/my-stock-scanner")
     workflow_file = get_config_value("GITHUB_WORKFLOW_FILE", "main.yml")
@@ -169,8 +169,9 @@ def trigger_github_workflow(market_strength_mode="manual", requested_at_kst=None
 
     url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow_file}/dispatches"
     inputs = {
+        "run_mode": run_mode,
         "market_strength_mode": market_strength_mode,
-        "requested_at_kst": requested_at_kst or datetime.now(ZoneInfo("Asia/Seoul")).isoformat(timespec="minutes"),
+        "requested_at_kst": requested_at_kst or "",
     }
     response = requests.post(
         url,
@@ -184,7 +185,7 @@ def trigger_github_workflow(market_strength_mode="manual", requested_at_kst=None
     )
 
     if response.status_code == 204:
-        return True, "GitHub Actions 실행을 요청했습니다. 완료 후 새로고침하면 최신 데이터가 보입니다."
+        return True, "GitHub Actions 실행을 요청했습니다. 실제 시작시각 기준으로 분석하며, 완료 후 새로고침하면 최신 데이터가 보입니다."
     return False, f"GitHub Actions 실행 요청 실패: {response.status_code} {response.text}"
 
 def get_latest_workflow_run():
@@ -390,10 +391,10 @@ else:
     
     st.sidebar.divider()
     st.sidebar.subheader("🚀 수동 분석 실행")
-    st.sidebar.caption("현재 시각 기준으로 GitHub Actions 자동화를 실행합니다.")
+    st.sidebar.caption("GitHub Actions가 실제 시작된 시각을 기준으로 전체 분석을 실행합니다.")
     if st.sidebar.button("지금 분석 실행"):
         with st.sidebar.spinner("GitHub Actions 실행 요청 중..."):
-            ok, message = trigger_github_workflow()
+            ok, message = trigger_github_workflow(run_mode="full")
         if ok:
             st.sidebar.success(message)
         else:
@@ -714,6 +715,7 @@ else:
             requested_at = datetime.now(ZoneInfo("Asia/Seoul")).isoformat(timespec="minutes")
             with st.spinner("GitHub Actions 시장강도 분석 요청 중..."):
                 ok, message = trigger_github_workflow(
+                    run_mode="market_strength_only",
                     market_strength_mode="manual",
                     requested_at_kst=requested_at,
                 )
