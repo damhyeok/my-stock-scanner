@@ -7,13 +7,25 @@ from telegram_bot import TelegramNotifier
 from news_collector import NewsCollector
 from market_strength import MarketStrengthAnalyzer
 
+
+def run_market_strength(access_token=None):
+    market_strength = MarketStrengthAnalyzer.from_environment()
+    if access_token:
+        market_strength.access_token = access_token
+    return market_strength.run()
+
+
+def report_market_strength_error(error):
+    message = str(error).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+    print(f"::error title=Market Strength Analysis Failed::{message}")
+
+
 def main():
     print("=== 주식 분석 자동화 시스템 시작 ===")
 
     if os.environ.get("GITHUB_EVENT_SCHEDULE", "").strip() == "50 0 * * 1-5":
         print("\n[Market Strength Only] 오전 시장강도 데이터를 수집합니다.")
-        market_strength = MarketStrengthAnalyzer.from_environment()
-        market_strength.run()
+        run_market_strength()
         print("\n=== 오전 시장강도 분석이 완료되었습니다! ===")
         return
     
@@ -33,9 +45,9 @@ def main():
 
     print("\n[Step 1-2] 시장강도 데이터를 수집합니다.")
     try:
-        market_strength = MarketStrengthAnalyzer.from_environment()
-        market_strength.run()
+        run_market_strength(access_token=crawler.access_token)
     except Exception as e:
+        report_market_strength_error(e)
         print(f"[Market Strength Warning] 시장강도 분석 중 오류가 발생했지만 주가 분석은 계속 진행합니다: {e}")
     
     # 2. 데이터 시계열 분석 및 스코어링 (엑셀/대시보드용 종합 분석)
