@@ -101,7 +101,7 @@ class StockCrawler:
         conn.close()
 
     def get_market_data(self):
-        """전체 종목의 시세, 거래대금, 시가총액, 등락률 데이터를 가져옵니다."""
+        """KIS 거래대금 순위를 연속 조회해 주식 상위 60종목을 가져옵니다."""
         print(f"[{self.target_date}] 시장 데이터(OHLCV, 시가총액) 수집 중 (한국투자증권 API)...")
         
         try:
@@ -126,7 +126,7 @@ class StockCrawler:
                     "FID_COND_MRKT_DIV_CODE": m_code,
                     "FID_COND_SCR_DIV_CODE": "20171",
                     "FID_INPUT_ISCD": "0000",
-                    "FID_DIV_CLS_CODE": "1",
+                    "FID_DIV_CLS_CODE": "0",
                     "FID_BLNG_CLS_CODE": "3",
                     "FID_TRGT_CLS_CODE": "111111111",
                     "FID_TRGT_EXLS_CLS_CODE": "000000",
@@ -136,13 +136,42 @@ class StockCrawler:
                     "FID_INPUT_DATE_1": ""
                 }
                 
-                res = requests.get(url, headers=headers, params=params)
-                
-                if res.status_code == 200 and res.json().get('rt_cd') == '0':
+                tr_cont = ""
+                seen_pages = set()
+                for page_number in range(1, 11):
+                    request_headers = headers.copy()
+                    if tr_cont:
+                        request_headers["tr_cont"] = "N"
+
+                    res = requests.get(
+                        url,
+                        headers=request_headers,
+                        params=params,
+                        timeout=10
+                    )
+
+                    if res.status_code != 200 or res.json().get('rt_cd') != '0':
+                        raise Exception(f"KIS API {m_code} 호출 실패: {res.text}")
+
                     output = res.json().get('output', [])
+                    if not output:
+                        break
+
+                    page_signature = tuple(item.get('mksc_shrn_iscd', '') for item in output)
+                    if page_signature in seen_pages:
+                        print("[Warning] KIS 거래대금 순위에서 동일 페이지가 반복되어 연속 조회를 중단합니다.")
+                        break
+                    seen_pages.add(page_signature)
                     all_data.extend(output)
-                else:
-                    print(f"[Warning] KIS API {m_code} 호출 실패: {res.text}")
+
+                    tr_cont = res.headers.get('tr_cont', '').strip().upper()
+                    print(
+                        f"[Market Rank] page={page_number}, rows={len(output)}, "
+                        f"total={len(all_data)}, tr_cont={tr_cont or '-'}"
+                    )
+                    if tr_cont != 'M':
+                        break
+                    time.sleep(0.1)
             
             if not all_data:
                 raise Exception("조회된 데이터가 없습니다.")
@@ -167,6 +196,19 @@ class StockCrawler:
             df_merged['listed_shares'] = pd.to_numeric(df_merged.get('listed_shares', 0), errors='coerce').fillna(0)
             df_merged['market_cap'] = (df_merged['close'].fillna(0) * df_merged['listed_shares']).astype('int64')
             df_merged = df_merged.drop(columns=['listed_shares'])
+
+            df_merged['ticker'] = df_merged['ticker'].astype(str).str.zfill(6)
+            df_merged = df_merged.drop_duplicates(subset=['ticker'], keep='first')
+            df_merged = self._exclude_exchange_traded_products(df_merged)
+            df_merged = df_merged.sort_values('trading_value', ascending=False).head(60).copy()
+
+            if len(df_merged) != 60:
+                raise Exception(
+                    f"거래대금 상위 주식 60종목을 확보하지 못했습니다 "
+                    f"(수집 결과: {len(df_merged)}종목). 불완전한 데이터는 저장하지 않습니다."
+                )
+
+            print("[Market Rank] 거래대금 기준 주식 TOP 60 확정")
             
             return df_merged
             
@@ -389,7 +431,7 @@ class StockCrawler:
         now = datetime.now(self.kst)
         hour, minute = now.hour, now.minute
         scheduled_sessions = {
-            "0 3 * * 1-5": "장중(12:00)",
+            "30 0 * * 1-5": "장중(09:30)",
             "0 7 * * 1-5": "정규장(16:00)",
         }
 

@@ -1,3 +1,5 @@
+import os
+
 from crawler import StockCrawler
 from analyzer import StockAnalyzer
 from excel_manager import ExcelManager
@@ -7,6 +9,13 @@ from market_strength import MarketStrengthAnalyzer
 
 def main():
     print("=== 주식 분석 자동화 시스템 시작 ===")
+
+    if os.environ.get("GITHUB_EVENT_SCHEDULE", "").strip() == "50 0 * * 1-5":
+        print("\n[Market Strength Only] 오전 시장강도 데이터를 수집합니다.")
+        market_strength = MarketStrengthAnalyzer.from_environment()
+        market_strength.run()
+        print("\n=== 오전 시장강도 분석이 완료되었습니다! ===")
+        return
     
     # 1. 크롤링 및 DB 누적 저장
     print("\n[Step 1] 데이터 크롤링을 시작합니다.")

@@ -4,8 +4,8 @@ on:
   schedule:
     # KST 09:50 (morning market strength flow) -> UTC 00:50
     - cron: '50 0 * * 1-5'
-    # KST 12:00 (오전장 중간 점검) -> UTC 03:00
-    - cron: '0 3 * * 1-5'
+    # KST 09:30 (오전장 점검) -> UTC 00:30
+    - cron: '30 0 * * 1-5'
     # KST 16:00 (정규장 마감 요약 및 시장강도 분석) -> UTC 07:00
     - cron: '0 7 * * 1-5'
   workflow_dispatch: # 깃허브 웹사이트에서 수동 실행 버튼 허용
