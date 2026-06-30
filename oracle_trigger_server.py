@@ -127,7 +127,7 @@ def start_analysis():
         log_file.write(f"\n[{now_iso()}] manual run {run_id}\n")
         log_file.flush()
         process = subprocess.Popen(
-            [sys.executable, str(PROJECT_DIR / "cloud_job.py"), "full-analysis"],
+            [sys.executable, str(PROJECT_DIR / "cloud_job.py"), "manual-analysis"],
             cwd=PROJECT_DIR,
             stdout=log_file,
             stderr=subprocess.STDOUT,

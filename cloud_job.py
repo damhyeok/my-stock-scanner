@@ -74,13 +74,16 @@ def push_outputs(task_name):
         run_command(["git", "push", "origin", "main"])
 
 
-def run_full_analysis():
+def run_full_analysis(manual=False):
     now = datetime.now(KST)
     env = os.environ.copy()
     env.pop("ANALYSIS_RUN_MODE", None)
     env.pop("MARKET_STRENGTH_MODE", None)
     env.pop("MARKET_STRENGTH_REQUESTED_AT_KST", None)
-    if now.hour < 12:
+    env.pop("GITHUB_EVENT_SCHEDULE", None)
+    if manual:
+        env["ANALYSIS_RUN_MODE"] = "full"
+    elif now.hour < 12:
         env["GITHUB_EVENT_SCHEDULE"] = "30 0 * * 1-5"
     else:
         env["GITHUB_EVENT_SCHEDULE"] = "0 7 * * 1-5"
@@ -107,6 +110,7 @@ def main():
         "task",
         choices=[
             "full-analysis",
+            "manual-analysis",
             "morning-collector",
             "morning-strength",
             "closing-collector",
@@ -124,8 +128,8 @@ def main():
     else:
         with file_lock(".cloud_data.lock"):
             pull_latest()
-            if args.task == "full-analysis":
-                run_full_analysis()
+            if args.task in ("full-analysis", "manual-analysis"):
+                run_full_analysis(manual=args.task == "manual-analysis")
             elif args.task == "morning-strength":
                 run_market_strength("morning")
             elif args.task == "closing-strength":
