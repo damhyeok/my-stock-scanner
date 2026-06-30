@@ -1,7 +1,6 @@
 import sqlite3
 import pandas as pd
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone
 import requests
 from bs4 import BeautifulSoup
 import time
@@ -15,7 +14,7 @@ load_dotenv()
 class StockCrawler:
     def __init__(self, db_path="stock_data.db"):
         self.db_path = db_path
-        self.kst = ZoneInfo("Asia/Seoul")
+        self.kst = timezone(timedelta(hours=9))
         self.scheduled_cron = os.environ.get("GITHUB_EVENT_SCHEDULE", "").strip()
         
         # 한국투자증권(KIS) API 키 세팅

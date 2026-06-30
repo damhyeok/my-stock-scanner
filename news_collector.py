@@ -1,19 +1,18 @@
 import sqlite3
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote_plus
 import xml.etree.ElementTree as ET
 
 import pandas as pd
 import requests
-from zoneinfo import ZoneInfo
 
 
 class NewsCollector:
     def __init__(self, db_path="stock_data.db"):
         self.db_path = db_path
-        self.kst = ZoneInfo("Asia/Seoul")
+        self.kst = timezone(timedelta(hours=9))
         self.collected_at_kst = datetime.now(self.kst).strftime("%Y-%m-%d %H:%M:%S")
         self.positive_keywords = [
             "수주", "공급", "계약", "실적", "호조", "흑자", "상향", "증가", "성장",

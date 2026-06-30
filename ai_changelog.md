@@ -1,3 +1,12 @@
+## [2026-07-01 00:41] Oracle 수집·뉴스 모듈 Python 3.8 호환성 보완
+- **작업 목적:** Oracle 수동 분석에서 `crawler.py` import 시 남아 있던 `zoneinfo` 오류로 실제 분석이 중단되는 문제를 해결했습니다.
+- **영향을 받은 파일:** `crawler.py`, `news_collector.py`, `ai_changelog.md`
+- **주요 변경 사항:**
+  - 전체 루트 Python 파일을 재검사해 남아 있던 `crawler.py`와 `news_collector.py`의 `ZoneInfo` 사용 확인
+  - 두 모듈의 KST 표현만 Python 3.8 표준 라이브러리에서 지원하는 UTC+9 고정 시간대로 교체
+  - 주가 수집과 뉴스 분석 로직은 변경하지 않음
+---
+
 ## [2026-07-01 00:24] Oracle Python 3.8 시간대 호환성 수정
 - **작업 목적:** Ubuntu 20.04의 Python 3.8에서 `zoneinfo` 모듈을 찾지 못해 수동 실행 API와 예약 분석이 시작되지 않는 문제를 해결했습니다.
 - **영향을 받은 파일:** `oracle_trigger_server.py`, `cloud_job.py`, `program_ws_collector.py`, `market_strength.py`, `main.py`, `app.py`, `ai_changelog.md`
