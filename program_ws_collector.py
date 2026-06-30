@@ -3,8 +3,7 @@ import asyncio
 import json
 import os
 import sqlite3
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone
 
 import requests
 import websockets
@@ -15,7 +14,7 @@ load_dotenv()
 
 
 class ProgramTradeCollector:
-    KST = ZoneInfo("Asia/Seoul")
+    KST = timezone(timedelta(hours=9))
     WS_URL = "ws://ops.koreainvestment.com:21000/tryitout"
     TR_ID = "H0UPPGM0"
     INDEX_CODE = "0001"

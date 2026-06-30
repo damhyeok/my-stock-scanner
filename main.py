@@ -1,6 +1,5 @@
 import os
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone
 
 from crawler import StockCrawler
 from analyzer import StockAnalyzer
@@ -37,7 +36,7 @@ def main():
 
     use_latest_regular_data = False
     if run_mode == "full":
-        analysis_started_at = datetime.now(ZoneInfo("Asia/Seoul")).replace(second=0, microsecond=0)
+        analysis_started_at = datetime.now(timezone(timedelta(hours=9))).replace(second=0, microsecond=0)
         is_live_market_window = (
             analysis_started_at.weekday() < 5
             and 9 <= analysis_started_at.hour < 18

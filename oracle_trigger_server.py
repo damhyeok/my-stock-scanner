@@ -7,16 +7,15 @@ import sys
 import threading
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
-KST = ZoneInfo("Asia/Seoul")
+KST = timezone(timedelta(hours=9))
 STATUS_PATH = Path(os.environ.get("ORACLE_TRIGGER_STATUS_FILE", "/tmp/stock-scanner-trigger-status.json"))
 LOG_PATH = Path(os.environ.get("ORACLE_TRIGGER_LOG_FILE", "/tmp/stock-scanner-trigger.log"))
 MAX_CLOCK_SKEW_SECONDS = 300

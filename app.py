@@ -10,8 +10,7 @@ import hashlib
 import hmac
 import time
 import uuid
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone
 import altair as alt
 from analyzer import StockAnalyzer
 
@@ -796,7 +795,7 @@ else:
         st.header(f"🌡️ 시장 강도 분석 ({selected_date})")
         manual_col, refresh_col = st.columns([1, 3])
         if manual_col.button("지금 기준 시장강도 분석 실행"):
-            requested_at = datetime.now(ZoneInfo("Asia/Seoul")).isoformat(timespec="minutes")
+            requested_at = datetime.now(timezone(timedelta(hours=9))).isoformat(timespec="minutes")
             with st.spinner("GitHub Actions 시장강도 분석 요청 중..."):
                 ok, message = trigger_github_workflow(
                     run_mode="market_strength_only",

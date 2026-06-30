@@ -1,3 +1,12 @@
+## [2026-07-01 00:24] Oracle Python 3.8 시간대 호환성 수정
+- **작업 목적:** Ubuntu 20.04의 Python 3.8에서 `zoneinfo` 모듈을 찾지 못해 수동 실행 API와 예약 분석이 시작되지 않는 문제를 해결했습니다.
+- **영향을 받은 파일:** `oracle_trigger_server.py`, `cloud_job.py`, `program_ws_collector.py`, `market_strength.py`, `main.py`, `app.py`, `ai_changelog.md`
+- **주요 변경 사항:**
+  - Python 3.9부터 제공되는 `zoneinfo.ZoneInfo`를 Python 3.8 표준 라이브러리의 UTC+9 고정 시간대로 교체
+  - 수동 API뿐 아니라 Oracle VM에서 실행되는 전체 분석·시장강도·WebSocket 예약 작업의 동일 오류를 함께 방지
+  - 데이터 수집, 분석, 점수 계산 로직은 변경하지 않음
+---
+
 ## [2026-07-01 00:15] 웹 버튼 Oracle 즉시 분석 연결
 - **작업 목적:** 웹페이지의 `지금 분석 실행` 버튼이 GitHub Actions 대기열을 거치지 않고 Oracle VM에서 버튼 요청 시각 기준 전체 분석을 즉시 시작하도록 연결했습니다.
 - **영향을 받은 파일:** `app.py`, `oracle_trigger_server.py`, `.gitignore`, `deploy/oracle-cloud/stock-trigger.service`, `deploy/oracle-cloud/setup.sh`, `deploy/oracle-cloud/README.md`, `ai_changelog.md`

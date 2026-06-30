@@ -1,7 +1,6 @@
 import os
 import sqlite3
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import requests
@@ -17,7 +16,7 @@ class MarketStrengthAnalyzer:
 
     def __init__(self, db_path="stock_data.db", analysis_type=None, snapshot_times=None, requested_at_kst=None):
         self.db_path = db_path
-        self.kst = ZoneInfo("Asia/Seoul")
+        self.kst = timezone(timedelta(hours=9))
         self.kis_app_key = os.environ.get("KIS_APP_KEY", "")
         self.kis_app_secret = os.environ.get("KIS_APP_SECRET", "")
         self.kis_base_url = "https://openapi.koreainvestment.com:9443"

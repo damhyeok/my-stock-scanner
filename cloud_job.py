@@ -4,9 +4,8 @@ import os
 import subprocess
 import sys
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
@@ -15,7 +14,7 @@ from program_ws_collector import ProgramTradeCollector
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
-KST = ZoneInfo("Asia/Seoul")
+KST = timezone(timedelta(hours=9))
 load_dotenv(PROJECT_DIR / ".env")
 
 
