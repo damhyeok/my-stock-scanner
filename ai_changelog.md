@@ -1,3 +1,14 @@
+## [2026-07-01 00:15] 웹 버튼 Oracle 즉시 분석 연결
+- **작업 목적:** 웹페이지의 `지금 분석 실행` 버튼이 GitHub Actions 대기열을 거치지 않고 Oracle VM에서 버튼 요청 시각 기준 전체 분석을 즉시 시작하도록 연결했습니다.
+- **영향을 받은 파일:** `app.py`, `oracle_trigger_server.py`, `.gitignore`, `deploy/oracle-cloud/stock-trigger.service`, `deploy/oracle-cloud/setup.sh`, `deploy/oracle-cloud/README.md`, `ai_changelog.md`
+- **주요 변경 사항:**
+  - Oracle VM에 수동 분석 요청과 실행 상태 조회를 처리하는 상시 HTTP 서비스 추가
+  - HMAC 서명, 5분 시각 제한, 일회용 nonce로 요청을 검증해 비밀 토큰을 직접 전송하지 않도록 구성
+  - 동시에 여러 분석이 실행되지 않도록 차단하고 실행 중·완료·실패 상태 및 진행률을 웹 사이드바에 표시
+  - 웹의 전체 분석 버튼을 Oracle 직접 실행으로 교체하고 기존 GitHub Actions 시장강도 전용 실행은 유지
+  - Oracle 설치 스크립트에서 수동 실행 서비스를 자동 설치·활성화하도록 구성
+---
+
 ## [2026-06-29 23:47] 무료 클라우드 WebSocket 장중 수집기 추가
 - **작업 목적:** GitHub Actions 예약 지연 없이 프로그램·차익·비차익 순매수를 목표 시각에 저장하고, 개인 PC가 꺼져 있어도 시장강도와 전체 분석을 자동 실행할 수 있는 무료 VM 구성을 추가했습니다.
 - **영향을 받은 파일:** `program_ws_collector.py`, `cloud_job.py`, `market_strength.py`, `requirements.txt`, `deploy/oracle-cloud/*`, `ai_changelog.md`

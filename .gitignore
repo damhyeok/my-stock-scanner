@@ -5,6 +5,8 @@ __pycache__/
 .env
 stock_data.db
 reports/*.xlsx
+manual_run_status.json
+manual_trigger.log
 
 venv/
 .venv/

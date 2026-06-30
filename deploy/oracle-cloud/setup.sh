@@ -40,12 +40,14 @@ render_unit() {
 }
 
 render_unit "$UNIT_SOURCE/stock-scanner@.service"
+render_unit "$UNIT_SOURCE/stock-trigger.service"
 for timer_file in "$UNIT_SOURCE"/*.timer; do
   render_unit "$timer_file"
 done
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now \
+  stock-trigger.service \
   morning-program.timer \
   morning-strength.timer \
   closing-program.timer \

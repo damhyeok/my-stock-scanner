@@ -1,0 +1,17 @@
+[Unit]
+Description=Stock scanner manual trigger API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__PROJECT_DIR__
+EnvironmentFile=__PROJECT_DIR__/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=__PROJECT_DIR__/.venv/bin/python __PROJECT_DIR__/oracle_trigger_server.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

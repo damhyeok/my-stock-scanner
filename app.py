@@ -6,6 +6,10 @@ import os
 import tempfile
 import html
 import requests
+import hashlib
+import hmac
+import time
+import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import altair as alt
@@ -187,6 +191,75 @@ def trigger_github_workflow(run_mode="full", market_strength_mode="manual", requ
     if response.status_code == 204:
         return True, "GitHub Actions 실행을 요청했습니다. 실제 시작시각 기준으로 분석하며, 완료 후 새로고침하면 최신 데이터가 보입니다."
     return False, f"GitHub Actions 실행 요청 실패: {response.status_code} {response.text}"
+
+def oracle_request(method, path):
+    base_url = get_config_value("ORACLE_TRIGGER_URL", "http://161.33.27.132:8765").rstrip("/")
+    secret = get_config_value("ORACLE_TRIGGER_SECRET")
+    if not secret:
+        return None, "웹페이지에 `ORACLE_TRIGGER_SECRET` 설정이 필요합니다."
+
+    timestamp = str(int(time.time()))
+    nonce = uuid.uuid4().hex
+    body = b"{}" if method == "POST" else b""
+    body_hash = hashlib.sha256(body).hexdigest()
+    payload = f"{method}\n{path}\n{timestamp}\n{nonce}\n{body_hash}".encode("utf-8")
+    signature = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+    headers = {
+        "X-Trigger-Timestamp": timestamp,
+        "X-Trigger-Nonce": nonce,
+        "X-Trigger-Signature": signature,
+        "Content-Type": "application/json",
+    }
+    try:
+        response = requests.request(
+            method,
+            f"{base_url}{path}",
+            data=body if method == "POST" else None,
+            headers=headers,
+            timeout=15,
+        )
+    except requests.RequestException as exc:
+        return None, f"Oracle 서버 연결 실패: {exc}"
+
+    try:
+        result = response.json()
+    except requests.JSONDecodeError:
+        result = {}
+    if response.status_code not in (200, 202, 409):
+        return None, f"Oracle 서버 요청 실패: HTTP {response.status_code}"
+    return result, ""
+
+def trigger_oracle_analysis():
+    status, error = oracle_request("POST", "/run")
+    if error:
+        return False, error, None
+    if status.get("state") == "running":
+        return True, status.get("message", "Oracle 서버에서 분석을 시작했습니다."), status
+    return False, "현재 실행 상태를 확인할 수 없습니다.", status
+
+def display_oracle_run_status(container):
+    status, error = oracle_request("GET", "/status")
+    if error:
+        container.info(error)
+        return
+
+    state = status.get("state", "idle")
+    progress = int(status.get("progress", 0))
+    labels = {
+        "idle": "대기 중",
+        "running": "실행 중",
+        "success": "완료",
+        "failed": "실패",
+    }
+    container.progress(max(0, min(progress, 100)))
+    container.caption(
+        f"Oracle 실행 상태: {labels.get(state, state)} · {status.get('message', '')} "
+        f"· 마지막 갱신 {status.get('updated_at', '-')}"
+    )
+    if state == "success":
+        container.success("최신 DB가 GitHub에 반영되었습니다. 아래 데이터 새로고침을 눌러 확인하세요.")
+    elif state == "failed":
+        container.error("Oracle 분석이 실패했습니다. 서버 로그를 확인해야 합니다.")
 
 def get_latest_workflow_run():
     token = get_config_value("GITHUB_ACTIONS_TOKEN")
@@ -391,13 +464,14 @@ else:
     
     st.sidebar.divider()
     st.sidebar.subheader("🚀 수동 분석 실행")
-    st.sidebar.caption("GitHub Actions가 실제 시작된 시각을 기준으로 전체 분석을 실행합니다.")
+    st.sidebar.caption("Oracle 서버가 버튼을 누른 현재 시각 기준으로 전체 분석을 즉시 시작합니다.")
     st.sidebar.caption("장 운영시간 외에는 최신 정규장 DB를 기준으로 뉴스·시장강도·종합분석을 다시 실행합니다.")
     if st.sidebar.button("지금 분석 실행"):
-        with st.sidebar.spinner("GitHub Actions 실행 요청 중..."):
-            ok, message = trigger_github_workflow(run_mode="full")
+        with st.sidebar.spinner("Oracle 서버에 실행 요청 중..."):
+            ok, message, status = trigger_oracle_analysis()
         if ok:
             st.session_state["manual_analysis_notice"] = ("success", message)
+            st.session_state["oracle_manual_run_id"] = status.get("run_id") if status else None
         else:
             st.session_state["manual_analysis_notice"] = ("error", message)
     notice = st.session_state.get("manual_analysis_notice")
@@ -407,8 +481,8 @@ else:
             st.sidebar.success(notice_message)
         else:
             st.sidebar.error(notice_message)
-    st.sidebar.caption("완료 여부는 아래 최근 실행 상태에서 확인할 수 있습니다.")
-    display_workflow_run_status(st.sidebar)
+    st.sidebar.caption("완료 여부는 아래 Oracle 실행 상태에서 확인할 수 있습니다.")
+    display_oracle_run_status(st.sidebar)
     if st.sidebar.button("실행 상태 새로고침"):
         st.rerun()
 

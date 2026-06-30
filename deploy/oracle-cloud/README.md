@@ -35,6 +35,7 @@ KIS_APP_KEY=...
 KIS_APP_SECRET=...
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_CHAT_ID=...
+ORACLE_TRIGGER_SECRET=충분히_긴_무작위_문자열
 ```
 
 ## 4. 무료 VM 타이머 설치
@@ -44,6 +45,16 @@ cd ~/my-stock-scanner
 chmod +x deploy/oracle-cloud/setup.sh
 ./deploy/oracle-cloud/setup.sh
 ```
+
+웹 대시보드에는 VM과 동일한 `ORACLE_TRIGGER_SECRET`과 아래 주소를 설정합니다.
+
+```toml
+ORACLE_TRIGGER_URL = "http://161.33.27.132:8765"
+ORACLE_TRIGGER_SECRET = "VM과_동일한_값"
+```
+
+Oracle VCN 보안 목록의 수신 규칙에서 TCP `8765` 포트를 허용해야 합니다. 요청은 HMAC 서명,
+5분 시각 제한, 일회용 nonce로 검증되며 비밀값 자체는 네트워크로 전송하지 않습니다.
 
 설치 스크립트는 메모리 1GB인 E2 Micro에서도 Python 패키지 설치와 분석이 안정적으로 진행되도록 2GB swap 파일을 함께 구성합니다.
 
