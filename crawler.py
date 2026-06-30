@@ -116,25 +116,25 @@ class StockCrawler:
                 "custtype": "P"
             }
             
-            # 거래량 순위 API의 J 코드는 KRX 주식 시장 기준입니다. V는 해당 API에서 유효하지 않습니다.
-            market_codes = ['J']
             all_data = []
-            
-            for m_code in market_codes:
+
+            def fetch_rank_range(min_price, max_price):
                 params = {
-                    "FID_COND_MRKT_DIV_CODE": m_code,
+                    "FID_COND_MRKT_DIV_CODE": "J",
                     "FID_COND_SCR_DIV_CODE": "20171",
                     "FID_INPUT_ISCD": "0000",
                     "FID_DIV_CLS_CODE": "0",
                     "FID_BLNG_CLS_CODE": "3",
                     "FID_TRGT_CLS_CODE": "111111111",
-                    "FID_TRGT_EXLS_CLS_CODE": "000000",
-                    "FID_INPUT_PRICE_1": "",
-                    "FID_INPUT_PRICE_2": "",
+                    # 투자위험/관리/우선주/거래정지/ETF/ETN/신용불가/SPAC 중 ETF·ETN·SPAC 제외
+                    "FID_TRGT_EXLS_CLS_CODE": "0000001101",
+                    "FID_INPUT_PRICE_1": str(min_price),
+                    "FID_INPUT_PRICE_2": str(max_price),
                     "FID_VOL_CNT": "",
                     "FID_INPUT_DATE_1": ""
                 }
-                
+
+                range_data = []
                 tr_cont = ""
                 seen_pages = set()
                 for page_number in range(1, 11):
@@ -150,7 +150,9 @@ class StockCrawler:
                     )
 
                     if res.status_code != 200 or res.json().get('rt_cd') != '0':
-                        raise Exception(f"KIS API {m_code} 호출 실패: {res.text}")
+                        raise Exception(
+                            f"KIS API 가격구간 {min_price:,}~{max_price:,}원 호출 실패: {res.text}"
+                        )
 
                     output = res.json().get('output', [])
                     if not output:
@@ -161,17 +163,68 @@ class StockCrawler:
                         print("[Warning] KIS 거래대금 순위에서 동일 페이지가 반복되어 연속 조회를 중단합니다.")
                         break
                     seen_pages.add(page_signature)
-                    all_data.extend(output)
+                    range_data.extend(output)
 
                     tr_cont = res.headers.get('tr_cont', '').strip().upper()
                     print(
-                        f"[Market Rank] page={page_number}, rows={len(output)}, "
-                        f"total={len(all_data)}, tr_cont={tr_cont or '-'}"
+                        f"[Market Rank] price={min_price:,}~{max_price:,}, "
+                        f"page={page_number}, rows={len(output)}, "
+                        f"range_total={len(range_data)}, tr_cont={tr_cont or '-'}"
                     )
                     if tr_cont != 'M':
                         break
                     time.sleep(0.1)
-            
+
+                return range_data
+
+            def current_top60_floor():
+                values_by_ticker = {}
+                for item in all_data:
+                    ticker = item.get('mksc_shrn_iscd', '')
+                    trading_value = pd.to_numeric(item.get('acml_tr_pbmn'), errors='coerce')
+                    if ticker and pd.notna(trading_value):
+                        values_by_ticker[ticker] = max(values_by_ticker.get(ticker, 0), trading_value)
+                ranked_values = sorted(values_by_ticker.values(), reverse=True)
+                return ranked_values[59] if len(ranked_values) >= 60 else 0
+
+            # 비중복 가격 구간별 후보를 모은 뒤 전체 거래대금으로 다시 정렬해 TOP60을 확정합니다.
+            price_ranges = [
+                (0, 4_999),
+                (5_000, 9_999),
+                (10_000, 19_999),
+                (20_000, 49_999),
+                (50_000, 99_999),
+                (100_000, 199_999),
+                (200_000, 499_999),
+                (500_000, 999_999),
+                (1_000_000, 10_000_000),
+            ]
+            saturated_ranges = []
+            for min_price, max_price in price_ranges:
+                range_data = fetch_rank_range(min_price, max_price)
+                all_data.extend(range_data)
+                if len(range_data) == 30:
+                    saturated_ranges.append((min_price, max_price, 0, range_data))
+                time.sleep(0.1)
+
+            # 숨겨진 31위가 현재 전체 60위보다 클 수 있는 구간만 재분할합니다.
+            while saturated_ranges:
+                min_price, max_price, depth, range_data = saturated_ranges.pop(0)
+                range_floor = min(
+                    pd.to_numeric(item.get('acml_tr_pbmn'), errors='coerce') or 0
+                    for item in range_data
+                )
+                if range_floor < current_top60_floor() or min_price >= max_price or depth >= 14:
+                    continue
+
+                midpoint = (min_price + max_price) // 2
+                for child_min, child_max in ((min_price, midpoint), (midpoint + 1, max_price)):
+                    child_data = fetch_rank_range(child_min, child_max)
+                    all_data.extend(child_data)
+                    if len(child_data) == 30:
+                        saturated_ranges.append((child_min, child_max, depth + 1, child_data))
+                    time.sleep(0.1)
+
             if not all_data:
                 raise Exception("조회된 데이터가 없습니다.")
                 
