@@ -720,15 +720,6 @@ else:
                         rising_trend['name'].astype(str)
                         + rising_trend['fluctuation_rate'].map(lambda rate: f" ({rate:+.2f}%)")
                     )
-                    weekly_rising_sectors = (
-                        rising_trend[rising_trend['sector'] != '기타']
-                        .groupby('sector')['trading_value']
-                        .sum()
-                        .sort_values(ascending=False)
-                        .head(trend_count)
-                        .index
-                        .tolist()
-                    )
                     daily_rising_rank = (
                         rising_trend[rising_trend['sector'] != '기타']
                         .groupby(['date', 'sector'])
@@ -744,17 +735,22 @@ else:
                         .rank(method='min', ascending=False)
                         .astype(int)
                     )
-                    rising_grouped = daily_rising_rank[
-                        daily_rising_rank['sector'].isin(weekly_rising_sectors)
-                    ].copy()
-                    rising_grouped['trading_value_eok'] = rising_grouped['trading_value'].apply(format_won_to_eok)
-                    rising_grouped['date_label'] = pd.to_datetime(
-                        rising_grouped['date'], format='%Y%m%d'
+                    daily_rising_rank['trading_value_eok'] = daily_rising_rank['trading_value'].apply(format_won_to_eok)
+                    daily_rising_rank['date_label'] = pd.to_datetime(
+                        daily_rising_rank['date'], format='%Y%m%d'
                     ).dt.strftime('%m/%d')
+                    latest_rising_date = daily_rising_rank['date'].max()
+                    latest_rising = daily_rising_rank[
+                        daily_rising_rank['date'] == latest_rising_date
+                    ].sort_values('trading_rank')
+                    latest_rising_sectors = latest_rising.head(trend_count)['sector'].tolist()
+                    rising_grouped = daily_rising_rank[
+                        daily_rising_rank['sector'].isin(latest_rising_sectors)
+                    ].copy()
 
                     st.caption(
                         f"{week_start}부터 {selected_date}까지 매일 상승한 TOP60 종목만 업종별로 합산하고, "
-                        f"누적 상승 거래대금 상위 {trend_count}개 업종의 일별 순위를 표시합니다."
+                        f"최신 정규장({latest_rising_date}) 상승 거래대금 상위 {trend_count}개 업종의 과거 순위를 표시합니다."
                     )
                     rising_line = alt.Chart(rising_grouped).mark_line(point=True).encode(
                         x=alt.X('date_label:N', title='날짜'),
@@ -775,9 +771,6 @@ else:
                     ).properties(height=420)
                     st.altair_chart(rising_line, use_container_width=True)
 
-                    latest_rising = rising_grouped[
-                        rising_grouped['date'] == rising_grouped['date'].max()
-                    ].sort_values('trading_rank')
                     latest_rising_disp = latest_rising[
                         ['sector', 'trading_rank', 'trading_value_eok', 'stock_count', 'included_stocks']
                     ].rename(columns={
