@@ -16,6 +16,7 @@ class StockCrawler:
         self.db_path = db_path
         self.kst = timezone(timedelta(hours=9))
         self.scheduled_cron = os.environ.get("GITHUB_EVENT_SCHEDULE", "").strip()
+        self.run_mode = os.environ.get("ANALYSIS_RUN_MODE", "").strip()
         
         # 한국투자증권(KIS) API 키 세팅
         self.kis_app_key = os.environ.get("KIS_APP_KEY", "")
@@ -489,6 +490,9 @@ class StockCrawler:
 
         if self.scheduled_cron in scheduled_sessions:
             return scheduled_sessions[self.scheduled_cron]
+
+        if self.run_mode == "full":
+            return f"수동({hour:02d}:{minute:02d})"
 
         if hour < 15 or (hour == 15 and minute < 30):
             return f"장중({hour:02d}:{minute:02d})"
