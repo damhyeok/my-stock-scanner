@@ -501,7 +501,7 @@ else:
     st.divider()
 
     # 탭으로 분리
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
         "🏆 종합 추천종목", 
         "🔥 거래대금 Top", 
         "🟢 외인 순매수", 
@@ -510,7 +510,8 @@ else:
         "📈 최근 섹터 흐름",
         "⚡ 실시간 변화(직전 대비)",
         "📰 뉴스 이슈 종목",
-        "🌡️ 시장 강도 분석"
+        "🌡️ 시장 강도 분석",
+        "🧭 오늘 섹터 흐름"
     ])
     
     if 'session' in df_raw.columns:
@@ -990,3 +991,160 @@ else:
                     display_df[col] = pd.to_numeric(display_df[col], errors='coerce').round(2)
                 st.subheader("시간별 시장강도 흐름")
                 st.dataframe(display_df, use_container_width=True)
+
+    with tab10:
+        st.header(f"🧭 오늘 섹터 자금 이동 ({selected_date})")
+        intraday = df_raw[
+            (df_raw['date'] == selected_date) &
+            (df_raw['category'] == 'VOLUME_TOP_60') &
+            (~df_raw['session'].astype(str).str.contains('시간외', na=False))
+        ].drop_duplicates(subset=['session', 'ticker']).copy()
+        intraday_sessions = sorted(
+            intraday['session'].dropna().unique().tolist(),
+            key=session_sort_key,
+        )
+
+        if len(intraday_sessions) < 2:
+            st.info("같은 날 비교 가능한 스냅샷이 2개 이상 필요합니다. 현재 자동 데이터만으로는 09:30과 16:00 이후부터 확인할 수 있습니다.")
+        else:
+            interval_rows = []
+            for interval_order, (previous_session, current_session) in enumerate(
+                zip(intraday_sessions, intraday_sessions[1:])
+            ):
+                previous = intraday[intraday['session'] == previous_session][
+                    ['ticker', 'trading_value']
+                ].rename(columns={'trading_value': 'previous_trading_value'})
+                current = intraday[intraday['session'] == current_session][
+                    ['ticker', 'name', 'sector', 'trading_value', 'fluctuation_rate']
+                ].rename(columns={'trading_value': 'current_trading_value'})
+                common = current.merge(previous, on='ticker', how='inner')
+                if common.empty:
+                    continue
+
+                common['current_trading_value'] = pd.to_numeric(
+                    common['current_trading_value'], errors='coerce'
+                ).fillna(0)
+                common['previous_trading_value'] = pd.to_numeric(
+                    common['previous_trading_value'], errors='coerce'
+                ).fillna(0)
+                common['fluctuation_rate'] = pd.to_numeric(
+                    common['fluctuation_rate'], errors='coerce'
+                ).fillna(0)
+                common['interval_value'] = (
+                    common['current_trading_value'] - common['previous_trading_value']
+                ).clip(lower=0)
+                common = common[(common['interval_value'] > 0) & (common['sector'] != '기타')]
+                if common.empty:
+                    continue
+
+                common = common.sort_values('interval_value', ascending=False)
+                common['representative_label'] = (
+                    common['name'].astype(str)
+                    + common['fluctuation_rate'].map(lambda rate: f" ({rate:+.2f}%)")
+                )
+                sector_interval = (
+                    common.groupby('sector')
+                    .agg(
+                        interval_value=('interval_value', 'sum'),
+                        stock_count=('ticker', 'nunique'),
+                        rising_count=('fluctuation_rate', lambda rates: int((rates > 0).sum())),
+                        representative_stocks=(
+                            'representative_label',
+                            lambda labels: ', '.join(list(dict.fromkeys(labels.astype(str)))[:3]),
+                        ),
+                    )
+                    .reset_index()
+                )
+                total_interval_value = sector_interval['interval_value'].sum()
+                sector_interval['market_share'] = (
+                    sector_interval['interval_value'] / total_interval_value * 100
+                    if total_interval_value > 0 else 0
+                )
+                sector_interval['rising_ratio'] = (
+                    sector_interval['rising_count'] / sector_interval['stock_count'] * 100
+                )
+                sector_interval['raw_flow_score'] = sector_interval['market_share'] * (
+                    0.5 + 0.5 * sector_interval['rising_ratio'] / 100
+                )
+                max_score = sector_interval['raw_flow_score'].max()
+                sector_interval['flow_score'] = (
+                    sector_interval['raw_flow_score'] / max_score * 100
+                    if max_score > 0 else 0
+                )
+                sector_interval['interval_label'] = (
+                    f"{display_session_name(previous_session)} → {display_session_name(current_session)}"
+                )
+                sector_interval['interval_order'] = interval_order
+                sector_interval['interval_value_eok'] = sector_interval['interval_value'].apply(format_won_to_eok)
+                sector_interval['interval_rank'] = sector_interval['interval_value'].rank(
+                    method='min', ascending=False
+                ).astype(int)
+                interval_rows.append(sector_interval)
+
+            if not interval_rows:
+                st.info("비교 가능한 공통 종목의 거래대금 증가분이 없습니다.")
+            else:
+                flow_df = pd.concat(interval_rows, ignore_index=True)
+                top_flow_sectors = (
+                    flow_df.groupby('sector')['interval_value']
+                    .sum()
+                    .sort_values(ascending=False)
+                    .head(10)
+                    .index
+                    .tolist()
+                )
+                heatmap_df = flow_df[flow_df['sector'].isin(top_flow_sectors)].copy()
+                interval_labels = (
+                    flow_df.sort_values('interval_order')['interval_label']
+                    .drop_duplicates()
+                    .tolist()
+                )
+                heatmap = alt.Chart(heatmap_df).mark_rect(cornerRadius=2).encode(
+                    x=alt.X('interval_label:N', title='비교 구간', sort=interval_labels),
+                    y=alt.Y('sector:N', title='업종', sort=top_flow_sectors),
+                    color=alt.Color(
+                        'flow_score:Q',
+                        title='자금 흐름 강도',
+                        scale=alt.Scale(scheme='viridis', domain=[0, 100]),
+                    ),
+                    tooltip=[
+                        alt.Tooltip('interval_label:N', title='구간'),
+                        alt.Tooltip('sector:N', title='업종'),
+                        alt.Tooltip('interval_rank:Q', title='구간 순위', format='.0f'),
+                        alt.Tooltip('interval_value_eok:Q', title='신규 거래대금(억)', format=',.0f'),
+                        alt.Tooltip('market_share:Q', title='구간 점유율(%)', format='.1f'),
+                        alt.Tooltip('rising_ratio:Q', title='상승 종목 비율(%)', format='.0f'),
+                    ],
+                ).properties(height=max(320, len(top_flow_sectors) * 34))
+                st.altair_chart(heatmap, use_container_width=True)
+
+                leaders = (
+                    flow_df.sort_values(['interval_order', 'interval_rank'])
+                    .groupby(['interval_order', 'interval_label'], sort=False)
+                    .first()
+                    .reset_index()
+                )
+                transition_text = ' → '.join(
+                    f"{row['interval_label']} {row['sector']}"
+                    for _, row in leaders.iterrows()
+                )
+                st.info(transition_text)
+
+                detail = flow_df[flow_df['interval_rank'] <= 3].sort_values(
+                    ['interval_order', 'interval_rank']
+                ).copy()
+                detail_disp = detail[[
+                    'interval_label', 'interval_rank', 'sector', 'interval_value_eok',
+                    'market_share', 'rising_ratio', 'representative_stocks'
+                ]].rename(columns={
+                    'interval_label': '구간',
+                    'interval_rank': '순위',
+                    'sector': '업종',
+                    'interval_value_eok': '신규 거래대금(억)',
+                    'market_share': '구간 점유율(%)',
+                    'rising_ratio': '상승 종목 비율(%)',
+                    'representative_stocks': '대표 종목',
+                })
+                detail_disp['구간 점유율(%)'] = detail_disp['구간 점유율(%)'].round(1)
+                detail_disp['상승 종목 비율(%)'] = detail_disp['상승 종목 비율(%)'].round(0).astype(int)
+                display_wrapped_table(detail_disp)
