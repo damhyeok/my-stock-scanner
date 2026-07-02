@@ -629,7 +629,7 @@ else:
 
     # 탭 6: 트렌드
     with tab6:
-        st.header(f"📈 최근 섹터 흐름 (상위 {trend_count}개)")
+        st.header(f"📈 최근 섹터 거래대금 순위 흐름 (상위 {trend_count}개)")
         week_start = week_start_yyyymmdd(selected_date)
         df_trend = df_raw[
             (df_raw['date'] >= week_start) &
@@ -640,43 +640,53 @@ else:
         if df_trend.empty:
             st.info("이번주 정규장 섹터 흐름 데이터가 없습니다.")
         else:
-            df_trend['total_net'] = pd.to_numeric(df_trend['foreign_net'], errors='coerce').fillna(0) + pd.to_numeric(df_trend['inst_net'], errors='coerce').fillna(0)
             df_trend['trading_value'] = pd.to_numeric(df_trend['trading_value'], errors='coerce').fillna(0)
             weekly_sector_rank = (
                 df_trend[df_trend['sector'] != '기타']
                 .groupby('sector')['trading_value']
                 .sum()
                 .sort_values(ascending=False)
-                .head(5)
+                .head(trend_count)
                 .index
                 .tolist()
             )
             if not weekly_sector_rank:
                 st.info("이번주 정규장 기준으로 표시할 섹터가 없습니다.")
             else:
-                trend_grouped = (
-                    df_trend[df_trend['sector'].isin(weekly_sector_rank)]
+                daily_sector_rank = (
+                    df_trend[df_trend['sector'] != '기타']
                     .groupby(['date', 'sector'])
                     .agg(
-                        total_net=('total_net', 'sum'),
                         trading_value=('trading_value', 'sum'),
                         stock_count=('ticker', 'nunique'),
                     )
                     .reset_index()
                 )
-                trend_grouped['total_net_eok'] = trend_grouped['total_net'].apply(format_kis_flow_to_eok)
+                daily_sector_rank['trading_rank'] = (
+                    daily_sector_rank.groupby('date')['trading_value']
+                    .rank(method='min', ascending=False)
+                    .astype(int)
+                )
+                trend_grouped = daily_sector_rank[
+                    daily_sector_rank['sector'].isin(weekly_sector_rank)
+                ].copy()
                 trend_grouped['trading_value_eok'] = trend_grouped['trading_value'].apply(format_won_to_eok)
                 trend_grouped['date_label'] = pd.to_datetime(trend_grouped['date'], format='%Y%m%d').dt.strftime('%m/%d')
 
-                st.caption(f"{week_start}부터 {selected_date}까지의 정규장(16:00) 거래대금 누적 상위 5개 섹터를 고정해서 흐름을 표시합니다.")
+                st.caption(f"{week_start}부터 {selected_date}까지의 정규장(16:00) 누적 거래대금 상위 {trend_count}개 섹터를 고정하고, 각 날짜의 전체 섹터 거래대금 순위를 표시합니다.")
                 trend_line = alt.Chart(trend_grouped).mark_line(point=True).encode(
                     x=alt.X('date_label:N', title='날짜'),
-                    y=alt.Y('total_net_eok:Q', title='외인+기관 순매수(억)'),
+                    y=alt.Y(
+                        'trading_rank:Q',
+                        title='거래대금 순위',
+                        scale=alt.Scale(reverse=True, zero=False),
+                        axis=alt.Axis(tickMinStep=1),
+                    ),
                     color=alt.Color('sector:N', title='업종'),
                     tooltip=[
                         alt.Tooltip('date_label:N', title='날짜'),
                         alt.Tooltip('sector:N', title='업종'),
-                        alt.Tooltip('total_net_eok:Q', title='순매수(억)', format=',.0f'),
+                        alt.Tooltip('trading_rank:Q', title='거래대금 순위', format='.0f'),
                         alt.Tooltip('trading_value_eok:Q', title='거래대금(억)', format=',.0f'),
                         alt.Tooltip('stock_count:Q', title='종목 수'),
                     ],
@@ -684,10 +694,10 @@ else:
                 st.altair_chart(trend_line, use_container_width=True)
 
                 latest_flow = trend_grouped[trend_grouped['date'] == trend_grouped['date'].max()].copy()
-                latest_flow = latest_flow.sort_values('trading_value', ascending=False)
-                latest_flow_disp = latest_flow[['sector', 'total_net_eok', 'trading_value_eok', 'stock_count']].rename(columns={
+                latest_flow = latest_flow.sort_values('trading_rank')
+                latest_flow_disp = latest_flow[['sector', 'trading_rank', 'trading_value_eok', 'stock_count']].rename(columns={
                     'sector': '업종',
-                    'total_net_eok': '순매수(억)',
+                    'trading_rank': '거래대금 순위',
                     'trading_value_eok': '거래대금(억)',
                     'stock_count': '종목 수',
                 })
