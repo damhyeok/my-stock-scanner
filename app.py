@@ -1007,6 +1007,34 @@ else:
         if len(intraday_sessions) < 2:
             st.info("같은 날 비교 가능한 스냅샷이 2개 이상 필요합니다. 현재 자동 데이터만으로는 09:30과 16:00 이후부터 확인할 수 있습니다.")
         else:
+            intraday['trading_value'] = pd.to_numeric(intraday['trading_value'], errors='coerce').fillna(0)
+            intraday['fluctuation_rate'] = pd.to_numeric(intraday['fluctuation_rate'], errors='coerce').fillna(0)
+            strength_source = intraday[
+                (intraday['sector'] != '기타') & (intraday['trading_value'] > 0)
+            ].copy()
+            strength_source['weighted_return_value'] = (
+                strength_source['fluctuation_rate'] * strength_source['trading_value']
+            )
+            snapshot_strength = (
+                strength_source.groupby(['session', 'sector'])
+                .agg(
+                    weighted_return_value=('weighted_return_value', 'sum'),
+                    trading_value=('trading_value', 'sum'),
+                    stock_count=('ticker', 'nunique'),
+                    rising_count=('fluctuation_rate', lambda rates: int((rates > 0).sum())),
+                )
+                .reset_index()
+            )
+            snapshot_strength['sector_strength'] = (
+                snapshot_strength['weighted_return_value'] / snapshot_strength['trading_value']
+            )
+            snapshot_strength['rising_ratio'] = (
+                snapshot_strength['rising_count'] / snapshot_strength['stock_count'] * 100
+            )
+            session_order_map = {session: order for order, session in enumerate(intraday_sessions)}
+            snapshot_strength['session_order'] = snapshot_strength['session'].map(session_order_map)
+            snapshot_strength['session_label'] = snapshot_strength['session'].map(display_session_name)
+
             interval_rows = []
             for interval_order, (previous_session, current_session) in enumerate(
                 zip(intraday_sessions, intraday_sessions[1:])
@@ -1085,66 +1113,105 @@ else:
                 st.info("비교 가능한 공통 종목의 거래대금 증가분이 없습니다.")
             else:
                 flow_df = pd.concat(interval_rows, ignore_index=True)
-                top_flow_sectors = (
-                    flow_df.groupby('sector')['interval_value']
-                    .sum()
+                tracked_sectors = (
+                    snapshot_strength.groupby('sector')['sector_strength']
+                    .max()
                     .sort_values(ascending=False)
-                    .head(10)
+                    .head(trend_count)
                     .index
                     .tolist()
                 )
-                heatmap_df = flow_df[flow_df['sector'].isin(top_flow_sectors)].copy()
-                interval_labels = (
-                    flow_df.sort_values('interval_order')['interval_label']
-                    .drop_duplicates()
-                    .tolist()
-                )
-                heatmap = alt.Chart(heatmap_df).mark_rect(cornerRadius=2).encode(
+                strength_chart_data = snapshot_strength[
+                    snapshot_strength['sector'].isin(tracked_sectors)
+                ].copy()
+                session_labels = [display_session_name(session) for session in intraday_sessions]
+
+                st.subheader("섹터 상승 강도 변화")
+                strength_line = alt.Chart(strength_chart_data).mark_line(point=True).encode(
+                    x=alt.X('session_label:N', title='시간', sort=session_labels),
+                    y=alt.Y('sector_strength:Q', title='거래대금 가중 평균 등락률(%)'),
+                    color=alt.Color('sector:N', title='업종'),
+                    tooltip=[
+                        alt.Tooltip('session_label:N', title='시간'),
+                        alt.Tooltip('sector:N', title='업종'),
+                        alt.Tooltip('sector_strength:Q', title='상승 강도(%)', format='+.2f'),
+                        alt.Tooltip('rising_ratio:Q', title='상승 종목 비율(%)', format='.0f'),
+                    ],
+                ).properties(height=360)
+                zero_rule = alt.Chart(pd.DataFrame({'zero': [0]})).mark_rule(
+                    color='#777777', strokeDash=[4, 4]
+                ).encode(y='zero:Q')
+                st.altair_chart(strength_line + zero_rule, use_container_width=True)
+
+                st.subheader("구간 신규 거래대금 비중")
+                flow_chart_data = flow_df[flow_df['sector'].isin(tracked_sectors)].copy()
+                interval_labels = flow_df.sort_values('interval_order')['interval_label'].drop_duplicates().tolist()
+                flow_line = alt.Chart(flow_chart_data).mark_line(point=True).encode(
                     x=alt.X('interval_label:N', title='비교 구간', sort=interval_labels),
-                    y=alt.Y('sector:N', title='업종', sort=top_flow_sectors),
-                    color=alt.Color(
-                        'flow_score:Q',
-                        title='자금 흐름 강도',
-                        scale=alt.Scale(scheme='viridis', domain=[0, 100]),
-                    ),
+                    y=alt.Y('market_share:Q', title='구간 신규 거래대금 비중(%)'),
+                    color=alt.Color('sector:N', title='업종'),
                     tooltip=[
                         alt.Tooltip('interval_label:N', title='구간'),
                         alt.Tooltip('sector:N', title='업종'),
-                        alt.Tooltip('interval_rank:Q', title='구간 순위', format='.0f'),
+                        alt.Tooltip('market_share:Q', title='거래대금 비중(%)', format='.1f'),
                         alt.Tooltip('interval_value_eok:Q', title='신규 거래대금(억)', format=',.0f'),
-                        alt.Tooltip('market_share:Q', title='구간 점유율(%)', format='.1f'),
                         alt.Tooltip('rising_ratio:Q', title='상승 종목 비율(%)', format='.0f'),
                     ],
-                ).properties(height=max(320, len(top_flow_sectors) * 34))
-                st.altair_chart(heatmap, use_container_width=True)
+                ).properties(height=320)
+                st.altair_chart(flow_line, use_container_width=True)
 
-                leaders = (
-                    flow_df.sort_values(['interval_order', 'interval_rank'])
-                    .groupby(['interval_order', 'interval_label'], sort=False)
-                    .first()
-                    .reset_index()
-                )
-                transition_text = ' → '.join(
-                    f"{row['interval_label']} {row['sector']}"
-                    for _, row in leaders.iterrows()
-                )
-                st.info(transition_text)
+                rotation_rows = []
+                for interval_order, (previous_session, current_session) in enumerate(
+                    zip(intraday_sessions, intraday_sessions[1:])
+                ):
+                    previous_strength = snapshot_strength[
+                        snapshot_strength['session'] == previous_session
+                    ][['sector', 'sector_strength']].rename(columns={'sector_strength': 'previous_strength'})
+                    current_strength = snapshot_strength[
+                        snapshot_strength['session'] == current_session
+                    ][['sector', 'sector_strength']].rename(columns={'sector_strength': 'current_strength'})
+                    changes = current_strength.merge(previous_strength, on='sector', how='inner')
+                    if changes.empty:
+                        continue
+                    changes['strength_change'] = changes['current_strength'] - changes['previous_strength']
+                    interval_flow = flow_df[flow_df['interval_order'] == interval_order][
+                        ['sector', 'market_share']
+                    ]
+                    changes = changes.merge(interval_flow, on='sector', how='left').fillna({'market_share': 0})
+                    stronger = changes.sort_values('strength_change', ascending=False).iloc[0]
+                    weaker = changes.sort_values('strength_change').iloc[0]
+                    rotation_rows.append({
+                        '구간': f"{display_session_name(previous_session)} → {display_session_name(current_session)}",
+                        '강해진 섹터': (
+                            f"{stronger['sector']} ({stronger['strength_change']:+.2f}%p, "
+                            f"거래비중 {stronger['market_share']:.1f}%)"
+                        ),
+                        '약해진 섹터': (
+                            f"{weaker['sector']} ({weaker['strength_change']:+.2f}%p, "
+                            f"거래비중 {weaker['market_share']:.1f}%)"
+                        ),
+                    })
 
-                detail = flow_df[flow_df['interval_rank'] <= 3].sort_values(
-                    ['interval_order', 'interval_rank']
-                ).copy()
-                detail_disp = detail[[
-                    'interval_label', 'interval_rank', 'sector', 'interval_value_eok',
-                    'market_share', 'rising_ratio', 'representative_stocks'
-                ]].rename(columns={
-                    'interval_label': '구간',
-                    'interval_rank': '순위',
+                st.subheader("순환매 변화 요약")
+                rotation_df = pd.DataFrame(rotation_rows)
+                if rotation_df.empty:
+                    st.info("비교 가능한 섹터 강도 변화가 없습니다.")
+                else:
+                    display_wrapped_table(rotation_df)
+
+                latest_session = intraday_sessions[-1]
+                latest_strength = snapshot_strength[
+                    snapshot_strength['session'] == latest_session
+                ].sort_values('sector_strength', ascending=False).head(trend_count).copy()
+                latest_strength['sector_strength'] = latest_strength['sector_strength'].round(2)
+                latest_strength['rising_ratio'] = latest_strength['rising_ratio'].round(0).astype(int)
+                latest_disp = latest_strength[
+                    ['sector', 'sector_strength', 'rising_ratio', 'stock_count']
+                ].rename(columns={
                     'sector': '업종',
-                    'interval_value_eok': '신규 거래대금(억)',
-                    'market_share': '구간 점유율(%)',
+                    'sector_strength': '현재 상승 강도(%)',
                     'rising_ratio': '상승 종목 비율(%)',
-                    'representative_stocks': '대표 종목',
+                    'stock_count': '종목 수',
                 })
-                detail_disp['구간 점유율(%)'] = detail_disp['구간 점유율(%)'].round(1)
-                detail_disp['상승 종목 비율(%)'] = detail_disp['상승 종목 비율(%)'].round(0).astype(int)
-                display_wrapped_table(detail_disp)
+                st.subheader(f"{display_session_name(latest_session)} 현재 강도")
+                display_wrapped_table(latest_disp)
