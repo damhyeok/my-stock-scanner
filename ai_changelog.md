@@ -1,3 +1,12 @@
+## [2026-07-02 19:15] GitHub Actions 중복 예약 실행 제거
+- **작업 목적:** Oracle 타이머 도입 후에도 남아 있던 GitHub Actions 예약이 수시간 지연 실행되며 KIS 토큰을 추가 발급하고 시장강도 결과를 덮어쓰는 문제를 차단했습니다.
+- **영향을 받은 파일:** `.github/workflows/main.yml`, `ai_changelog.md`
+- **주요 변경 사항:**
+  - GitHub Actions의 09:30·09:50·16:00 예약 cron 제거
+  - 시장강도 탭의 수동 실행에 필요한 `workflow_dispatch`는 유지
+  - Oracle VM의 기존 자동 실행 시간표와 분석 로직은 변경하지 않음
+---
+
 ## [2026-07-01 01:02] Oracle 웹 수동 실행 세션 분리
 - **작업 목적:** 웹버튼으로 자정에 실행한 분석이 자동 예약 실행으로 오인되어 `장중(09:30)` 세션에 저장된 문제를 해결했습니다.
 - **영향을 받은 파일:** `cloud_job.py`, `oracle_trigger_server.py`, `ai_changelog.md`
