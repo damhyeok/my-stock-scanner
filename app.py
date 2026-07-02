@@ -668,13 +668,20 @@ else:
                     .rank(method='min', ascending=False)
                     .astype(int)
                 )
+                daily_sector_rank['trading_value_eok'] = daily_sector_rank['trading_value'].apply(format_won_to_eok)
+                daily_sector_rank['date_label'] = pd.to_datetime(
+                    daily_sector_rank['date'], format='%Y%m%d'
+                ).dt.strftime('%m/%d')
+                latest_sector_date = daily_sector_rank['date'].max()
+                latest_flow = daily_sector_rank[
+                    daily_sector_rank['date'] == latest_sector_date
+                ].sort_values('trading_rank').head(trend_count)
+                latest_sector_names = latest_flow['sector'].tolist()
                 trend_grouped = daily_sector_rank[
-                    daily_sector_rank['sector'].isin(weekly_sector_rank)
+                    daily_sector_rank['sector'].isin(latest_sector_names)
                 ].copy()
-                trend_grouped['trading_value_eok'] = trend_grouped['trading_value'].apply(format_won_to_eok)
-                trend_grouped['date_label'] = pd.to_datetime(trend_grouped['date'], format='%Y%m%d').dt.strftime('%m/%d')
 
-                st.caption(f"{week_start}부터 {selected_date}까지의 정규장(16:00) 누적 거래대금 상위 {trend_count}개 섹터를 고정하고, 각 날짜의 전체 섹터 거래대금 순위를 표시합니다.")
+                st.caption(f"최신 정규장({latest_sector_date}) 거래대금 1~{len(latest_flow)}위 업종을 기준으로 {week_start}부터의 실제 순위 흐름을 표시합니다.")
                 trend_line = alt.Chart(trend_grouped).mark_line(point=True).encode(
                     x=alt.X('date_label:N', title='날짜'),
                     y=alt.Y(
@@ -694,8 +701,6 @@ else:
                 ).properties(height=420)
                 st.altair_chart(trend_line, use_container_width=True)
 
-                latest_flow = trend_grouped[trend_grouped['date'] == trend_grouped['date'].max()].copy()
-                latest_flow = latest_flow.sort_values('trading_rank')
                 latest_flow_disp = latest_flow[['sector', 'trading_rank', 'trading_value_eok', 'stock_count', 'included_stocks']].rename(columns={
                     'sector': '업종',
                     'trading_rank': '거래대금 순위',
@@ -771,7 +776,7 @@ else:
                     ).properties(height=420)
                     st.altair_chart(rising_line, use_container_width=True)
 
-                    latest_rising_disp = latest_rising[
+                    latest_rising_disp = latest_rising.head(trend_count)[
                         ['sector', 'trading_rank', 'trading_value_eok', 'stock_count', 'included_stocks']
                     ].rename(columns={
                         'sector': '업종',
