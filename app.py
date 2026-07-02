@@ -705,6 +705,90 @@ else:
                 })
                 display_wrapped_table(latest_flow_disp)
 
+                st.write("---")
+                st.subheader(f"상승 종목 주도 업종 거래대금 순위 흐름 (상위 {trend_count}개)")
+                rising_trend = df_trend[
+                    pd.to_numeric(df_trend['fluctuation_rate'], errors='coerce').fillna(0) > 0
+                ].copy()
+                if rising_trend.empty:
+                    st.info("이번주 정규장 TOP60에 상승 종목이 없습니다.")
+                else:
+                    rising_trend['fluctuation_rate'] = pd.to_numeric(
+                        rising_trend['fluctuation_rate'], errors='coerce'
+                    ).fillna(0)
+                    rising_trend['stock_label'] = (
+                        rising_trend['name'].astype(str)
+                        + rising_trend['fluctuation_rate'].map(lambda rate: f" ({rate:+.2f}%)")
+                    )
+                    weekly_rising_sectors = (
+                        rising_trend[rising_trend['sector'] != '기타']
+                        .groupby('sector')['trading_value']
+                        .sum()
+                        .sort_values(ascending=False)
+                        .head(trend_count)
+                        .index
+                        .tolist()
+                    )
+                    daily_rising_rank = (
+                        rising_trend[rising_trend['sector'] != '기타']
+                        .groupby(['date', 'sector'])
+                        .agg(
+                            trading_value=('trading_value', 'sum'),
+                            stock_count=('ticker', 'nunique'),
+                            included_stocks=('stock_label', lambda labels: ', '.join(dict.fromkeys(labels.astype(str)))),
+                        )
+                        .reset_index()
+                    )
+                    daily_rising_rank['trading_rank'] = (
+                        daily_rising_rank.groupby('date')['trading_value']
+                        .rank(method='min', ascending=False)
+                        .astype(int)
+                    )
+                    rising_grouped = daily_rising_rank[
+                        daily_rising_rank['sector'].isin(weekly_rising_sectors)
+                    ].copy()
+                    rising_grouped['trading_value_eok'] = rising_grouped['trading_value'].apply(format_won_to_eok)
+                    rising_grouped['date_label'] = pd.to_datetime(
+                        rising_grouped['date'], format='%Y%m%d'
+                    ).dt.strftime('%m/%d')
+
+                    st.caption(
+                        f"{week_start}부터 {selected_date}까지 매일 상승한 TOP60 종목만 업종별로 합산하고, "
+                        f"누적 상승 거래대금 상위 {trend_count}개 업종의 일별 순위를 표시합니다."
+                    )
+                    rising_line = alt.Chart(rising_grouped).mark_line(point=True).encode(
+                        x=alt.X('date_label:N', title='날짜'),
+                        y=alt.Y(
+                            'trading_rank:Q',
+                            title='상승 종목 거래대금 순위',
+                            scale=alt.Scale(reverse=True, zero=False),
+                            axis=alt.Axis(tickMinStep=1),
+                        ),
+                        color=alt.Color('sector:N', title='업종'),
+                        tooltip=[
+                            alt.Tooltip('date_label:N', title='날짜'),
+                            alt.Tooltip('sector:N', title='업종'),
+                            alt.Tooltip('trading_rank:Q', title='순위', format='.0f'),
+                            alt.Tooltip('trading_value_eok:Q', title='상승 거래대금(억)', format=',.0f'),
+                            alt.Tooltip('stock_count:Q', title='상승 종목 수'),
+                        ],
+                    ).properties(height=420)
+                    st.altair_chart(rising_line, use_container_width=True)
+
+                    latest_rising = rising_grouped[
+                        rising_grouped['date'] == rising_grouped['date'].max()
+                    ].sort_values('trading_rank')
+                    latest_rising_disp = latest_rising[
+                        ['sector', 'trading_rank', 'trading_value_eok', 'stock_count', 'included_stocks']
+                    ].rename(columns={
+                        'sector': '업종',
+                        'trading_rank': '순위',
+                        'trading_value_eok': '상승 거래대금(억)',
+                        'stock_count': '상승 종목 수',
+                        'included_stocks': '상승 종목',
+                    })
+                    display_wrapped_table(latest_rising_disp)
+
     # 탭 7: 직전 시간 대비 변화
     with tab7:
         st.header(f"⚡ {selected_session_label} 기준 직전 시간 대비 변화")
