@@ -659,6 +659,7 @@ else:
                     .agg(
                         trading_value=('trading_value', 'sum'),
                         stock_count=('ticker', 'nunique'),
+                        included_stocks=('name', lambda names: ', '.join(dict.fromkeys(names.astype(str)))),
                     )
                     .reset_index()
                 )
@@ -695,13 +696,14 @@ else:
 
                 latest_flow = trend_grouped[trend_grouped['date'] == trend_grouped['date'].max()].copy()
                 latest_flow = latest_flow.sort_values('trading_rank')
-                latest_flow_disp = latest_flow[['sector', 'trading_rank', 'trading_value_eok', 'stock_count']].rename(columns={
+                latest_flow_disp = latest_flow[['sector', 'trading_rank', 'trading_value_eok', 'stock_count', 'included_stocks']].rename(columns={
                     'sector': '업종',
                     'trading_rank': '거래대금 순위',
                     'trading_value_eok': '거래대금(억)',
                     'stock_count': '종목 수',
+                    'included_stocks': '포함 종목',
                 })
-                st.dataframe(latest_flow_disp, use_container_width=True)
+                display_wrapped_table(latest_flow_disp)
 
     # 탭 7: 직전 시간 대비 변화
     with tab7:
