@@ -29,6 +29,10 @@ class ProgramTradeCollector:
             "targets": ["09:15", "09:30", "09:45"],
             "stop_time": "09:46",
         },
+        "afternoon": {
+            "targets": ["13:30", "13:45", "14:00"],
+            "stop_time": "14:01",
+        },
         "closing": {
             "targets": ["14:30", "15:00", "15:20", "15:30"],
             "stop_time": "15:31",
@@ -253,7 +257,7 @@ class ProgramTradeCollector:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("analysis_type", choices=["morning", "closing"])
+    parser.add_argument("analysis_type", choices=list(ProgramTradeCollector.SESSION_CONFIG))
     parser.add_argument("--db-path", default="program_snapshots.db")
     args = parser.parse_args()
     collector = ProgramTradeCollector(args.analysis_type, db_path=args.db_path)

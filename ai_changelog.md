@@ -1,3 +1,14 @@
+## [2026-07-03 02:55] 장중 5회 분석 및 오전·오후·종가 시장강도 연결
+- **작업 목적:** 웹 조회 시간을 09:30·09:50·11:30·14:00·16:00으로 확대하고 선택 시간에 맞는 시장강도 결과를 표시하며 16시에는 하루 전체 시장강도를 비교할 수 있도록 개선했습니다.
+- **영향을 받은 파일:** `program_ws_collector.py`, `market_strength.py`, `crawler.py`, `main.py`, `cloud_job.py`, `app.py`, `deploy/oracle-cloud/afternoon-program.timer`, `deploy/oracle-cloud/afternoon-strength.timer`, `deploy/oracle-cloud/stock-analysis.timer`, `deploy/oracle-cloud/setup.sh`, `deploy/oracle-cloud/README.md`, `ai_changelog.md`
+- **주요 변경 사항:**
+  - TOP60 전체 분석을 09:30·09:50·11:30·14:00·16:00에 자동 실행하고 각 시각을 독립 세션으로 저장
+  - 09:50 전체 분석에서 09:15·09:30·09:45 오전 시장강도를 함께 계산하고 기존 중복 09:50 전용 타이머 비활성화
+  - 13:25 WebSocket 연결 후 13:30·13:45·14:00 프로그램 수급을 저장하고 14:01 오후 시장강도 계산
+  - 15:40 종가 시장강도는 기존 14:30·15:00·15:20·15:30 흐름을 유지하며 16시 전체 분석에서 재계산하지 않음
+  - 시장강도 탭은 선택 세션에 따라 오전·오후·종가 그룹을 자동 선택하고 16시에는 세 그룹 최종 점수 요약 표시
+---
+
 ## [2026-07-03 02:20] 2시간 분봉 기반 섹터 순환매 분석 구현
 - **작업 목적:** 대형 섹터의 절대 거래대금 착시를 제거하고 당일 2시간 단위로 가격 강도와 실제 방향성 거래대금 이동을 비교할 수 있도록 구현했습니다.
 - **영향을 받은 파일:** `sector_flow_collector.py`, `crawler.py`, `cloud_job.py`, `app.py`, `requirements.txt`, `.gitignore`, `deploy/oracle-cloud/sector-flow.timer`, `deploy/oracle-cloud/setup.sh`, `deploy/oracle-cloud/README.md`, `ai_changelog.md`

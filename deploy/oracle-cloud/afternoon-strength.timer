@@ -1,0 +1,10 @@
+[Unit]
+Description=Calculate afternoon market strength
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 14:01:00 Asia/Seoul
+Unit=stock-scanner@afternoon-strength.service
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

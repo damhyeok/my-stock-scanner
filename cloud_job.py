@@ -82,12 +82,22 @@ def run_full_analysis(manual=False):
     env.pop("MARKET_STRENGTH_MODE", None)
     env.pop("MARKET_STRENGTH_REQUESTED_AT_KST", None)
     env.pop("GITHUB_EVENT_SCHEDULE", None)
+    env.pop("SKIP_MARKET_STRENGTH", None)
     if manual:
         env["ANALYSIS_RUN_MODE"] = "full"
-    elif now.hour < 12:
-        env["GITHUB_EVENT_SCHEDULE"] = "30 0 * * 1-5"
     else:
-        env["GITHUB_EVENT_SCHEDULE"] = "0 7 * * 1-5"
+        current_minutes = now.hour * 60 + now.minute
+        schedule_slots = [
+            (9 * 60 + 30, "30 0 * * 1-5"),
+            (9 * 60 + 50, "50 0 * * 1-5"),
+            (11 * 60 + 30, "30 2 * * 1-5"),
+            (14 * 60, "0 5 * * 1-5"),
+            (16 * 60, "0 7 * * 1-5"),
+        ]
+        _, scheduled_cron = min(schedule_slots, key=lambda item: abs(item[0] - current_minutes))
+        env["GITHUB_EVENT_SCHEDULE"] = scheduled_cron
+        if scheduled_cron != "50 0 * * 1-5":
+            env["SKIP_MARKET_STRENGTH"] = "1"
     run_command([sys.executable, "main.py"], env=env)
 
 
@@ -118,6 +128,8 @@ def main():
             "manual-analysis",
             "morning-collector",
             "morning-strength",
+            "afternoon-collector",
+            "afternoon-strength",
             "closing-collector",
             "closing-strength",
             "sector-flow",
@@ -128,6 +140,9 @@ def main():
     if args.task == "morning-collector":
         pull_latest()
         run_collector("morning")
+    elif args.task == "afternoon-collector":
+        pull_latest()
+        run_collector("afternoon")
     elif args.task == "closing-collector":
         pull_latest()
         run_collector("closing")
@@ -138,6 +153,8 @@ def main():
                 run_full_analysis(manual=args.task == "manual-analysis")
             elif args.task == "morning-strength":
                 run_market_strength("morning")
+            elif args.task == "afternoon-strength":
+                run_market_strength("afternoon")
             elif args.task == "closing-strength":
                 run_market_strength("closing")
             elif args.task == "sector-flow":

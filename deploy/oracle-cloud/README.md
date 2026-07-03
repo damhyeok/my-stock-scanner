@@ -62,7 +62,11 @@ Oracle VCN 보안 목록의 수신 규칙에서 TCP `8765` 포트를 허용해�
 
 - 09:10: 오전 프로그램 매매 WebSocket 연결
 - 09:30: 전체 종목 분석
-- 09:50: 오전 시장강도 계산
+- 09:50: 전체 종목 분석 및 오전 시장강도 계산
+- 11:30: 전체 종목 분석
+- 13:25: 오후 프로그램 매매 WebSocket 연결
+- 14:00: 전체 종목 분석
+- 14:01: 오후 시장강도 계산
 - 14:20: 종가 프로그램 매매 WebSocket 연결
 - 15:40: 종가 시장강도 계산
 - 16:00: 정규장 전체 분석
@@ -73,8 +77,8 @@ Oracle VCN 보안 목록의 수신 규칙에서 TCP `8765` 포트를 허용해�
 ## 5. 상태 확인
 
 ```bash
-systemctl list-timers --all | grep -E 'morning-|closing-|sector-flow|stock-analysis'
+systemctl list-timers --all | grep -E 'morning-|afternoon-|closing-|sector-flow|stock-analysis'
 journalctl -u 'stock-scanner@*' --since today
 ```
 
-VM 수집이 정상 동작하는 것을 확인하기 전까지 GitHub Actions 예약 실행은 백업으로 유지합니다. 정상 확인 후 중복 분석을 막기 위해 기존 예약 실행을 비활성화합니다.
+자동 예약은 Oracle 타이머만 사용하며 GitHub Actions는 수동 실행용으로만 유지합니다.

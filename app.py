@@ -399,6 +399,7 @@ def get_market_strength_data():
         if 'analysis_label' not in df.columns:
             df['analysis_label'] = df['analysis_type'].map({
                 'morning': '오전 흐름',
+                'afternoon': '오후 흐름',
                 'closing': '종가 흐름',
                 'manual': '수동 흐름',
             }).fillna(df['analysis_type'])
@@ -926,17 +927,56 @@ else:
             if strength_selected.empty:
                 st.info("선택한 날짜의 시장강도 분석 데이터가 없습니다.")
             else:
+                all_strength_groups = strength_selected.copy()
                 group_options = (
                     strength_selected[['analysis_type', 'analysis_label']]
                     .drop_duplicates()
                 )
-                group_order = {'morning': 1, 'closing': 2, 'manual': 3}
+                group_order = {'morning': 1, 'afternoon': 2, 'closing': 3, 'manual': 4}
                 group_options['group_order'] = group_options['analysis_type'].map(group_order).fillna(99)
                 group_options = group_options.sort_values('group_order')
+
+                selected_minutes = session_sort_key(selected_session)
+                if selected_minutes >= 15 * 60 + 30:
+                    preferred_group_type = 'closing'
+                elif selected_minutes >= 12 * 60:
+                    preferred_group_type = 'afternoon'
+                else:
+                    preferred_group_type = 'morning'
+                preferred_rows = group_options[
+                    group_options['analysis_type'] == preferred_group_type
+                ]
+                preferred_label = (
+                    preferred_rows.iloc[0]['analysis_label']
+                    if not preferred_rows.empty else group_options.iloc[-1]['analysis_label']
+                )
+                label_options = group_options['analysis_label'].tolist()
+
+                if selected_session == '정규장(16:00)':
+                    st.subheader("오늘 시장강도 종합")
+                    summary_types = [
+                        ('morning', '오전'),
+                        ('afternoon', '오후'),
+                        ('closing', '종가'),
+                    ]
+                    summary_columns = st.columns(3)
+                    for column, (analysis_type, label) in zip(summary_columns, summary_types):
+                        rows = all_strength_groups[
+                            all_strength_groups['analysis_type'] == analysis_type
+                        ].sort_values('snapshot_time')
+                        if rows.empty:
+                            column.metric(label, "데이터 없음")
+                            continue
+                        score = pd.to_numeric(
+                            rows.iloc[-1].get('market_strength_score'), errors='coerce'
+                        )
+                        score_text = f"{int(score)}점" if pd.notna(score) else "-"
+                        column.metric(label, score_text, market_strength_status(score))
+
                 selected_group_label = st.selectbox(
                     "시장강도 흐름 선택",
-                    group_options['analysis_label'].tolist(),
-                    index=len(group_options) - 1,
+                    label_options,
+                    index=label_options.index(preferred_label),
                 )
                 selected_group_type = group_options.loc[
                     group_options['analysis_label'] == selected_group_label,

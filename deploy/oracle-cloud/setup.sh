@@ -46,14 +46,16 @@ for timer_file in "$UNIT_SOURCE"/*.timer; do
 done
 
 sudo systemctl daemon-reload
+sudo systemctl disable --now morning-strength.timer 2>/dev/null || true
 sudo systemctl enable --now \
   stock-trigger.service \
   morning-program.timer \
-  morning-strength.timer \
+  afternoon-program.timer \
+  afternoon-strength.timer \
   closing-program.timer \
   closing-strength.timer \
   sector-flow.timer \
   stock-analysis.timer
 
 echo "Installed timers:"
-systemctl list-timers --all | grep -E 'morning-|closing-|sector-flow|stock-analysis' || true
+systemctl list-timers --all | grep -E 'morning-|afternoon-|closing-|sector-flow|stock-analysis' || true

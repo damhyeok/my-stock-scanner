@@ -67,11 +67,14 @@ def main():
         print(f"[News Warning] 뉴스 수집 중 오류가 발생했지만 주가 분석은 계속 진행합니다: {e}")
 
     print("\n[Step 1-2] 시장강도 데이터를 수집합니다.")
-    try:
-        run_market_strength(access_token=crawler.access_token)
-    except Exception as e:
-        report_market_strength_error(e)
-        print(f"[Market Strength Warning] 시장강도 분석 중 오류가 발생했지만 주가 분석은 계속 진행합니다: {e}")
+    if os.environ.get("SKIP_MARKET_STRENGTH", "").strip() == "1":
+        print("[Market Strength] 이 전체 분석에서는 기존 확정 시장강도 결과를 사용합니다.")
+    else:
+        try:
+            run_market_strength(access_token=crawler.access_token)
+        except Exception as e:
+            report_market_strength_error(e)
+            print(f"[Market Strength Warning] 시장강도 분석 중 오류가 발생했지만 주가 분석은 계속 진행합니다: {e}")
     
     # 2. 데이터 시계열 분석 및 스코어링 (엑셀/대시보드용 종합 분석)
     print("\n[Step 2] 데이터 스코어링 분석을 시작합니다.")

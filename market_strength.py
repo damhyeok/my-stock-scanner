@@ -12,6 +12,7 @@ load_dotenv()
 
 class MarketStrengthAnalyzer:
     MORNING_SNAPSHOT_TIMES = ["09:15", "09:30", "09:45"]
+    AFTERNOON_SNAPSHOT_TIMES = ["13:30", "13:45", "14:00"]
     CLOSING_SNAPSHOT_TIMES = ["14:30", "15:00", "15:20", "15:30"]
 
     def __init__(self, db_path="stock_data.db", analysis_type=None, snapshot_times=None, requested_at_kst=None):
@@ -65,11 +66,14 @@ class MarketStrengthAnalyzer:
             return times
         if self.analysis_type == "morning":
             return self.MORNING_SNAPSHOT_TIMES
+        if self.analysis_type == "afternoon":
+            return self.AFTERNOON_SNAPSHOT_TIMES
         return self.CLOSING_SNAPSHOT_TIMES
 
     def _analysis_label(self):
         labels = {
             "morning": "오전 흐름",
+            "afternoon": "오후 흐름",
             "closing": "종가 흐름",
             "manual": "수동 흐름",
         }
@@ -534,6 +538,9 @@ class MarketStrengthAnalyzer:
             return None
         if self.analysis_type == "morning" and (now.hour < 9 or (now.hour == 9 and now.minute < 45)):
             print("[Market Strength] Morning analysis is skipped before 09:45 KST.")
+            return None
+        if self.analysis_type == "afternoon" and now.hour < 14:
+            print("[Market Strength] Afternoon analysis is skipped before 14:00 KST.")
             return None
 
         program_snapshots = self._fetch_program_snapshots()
