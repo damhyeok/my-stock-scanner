@@ -1,6 +1,8 @@
 import sqlite3
 import time
+import re
 from datetime import datetime, timedelta, timezone
+from difflib import SequenceMatcher
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote_plus
 import xml.etree.ElementTree as ET
@@ -125,6 +127,54 @@ class NewsCollector:
         keywords = ", ".join(dict.fromkeys(positive_hits + negative_hits))
         return sentiment, score, keywords
 
+    @staticmethod
+    def _normalize_title(title, source=""):
+        text = str(title or "").strip()
+        source_text = str(source or "").strip()
+        if source_text and text.endswith(f" - {source_text}"):
+            text = text[:-(len(source_text) + 3)]
+        text = re.sub(r"\[[^\]]+\]|\([^)]*속보[^)]*\)", " ", text)
+        text = re.sub(r"[^0-9A-Za-z가-힣]", "", text).lower()
+        return text
+
+    def _deduplicate_news(self, news_items, limit):
+        unique_items = []
+        seen_links = set()
+        for news in news_items:
+            link = str(news.get("link", "")).strip()
+            normalized_title = self._normalize_title(
+                news.get("title", ""), news.get("source", "")
+            )
+            if not normalized_title or (link and link in seen_links):
+                continue
+
+            sentiment, score, keywords = self._classify_news(news.get("title", ""))
+            is_duplicate = False
+            for saved in unique_items:
+                if saved["sentiment"] != sentiment:
+                    continue
+                similarity = SequenceMatcher(
+                    None, normalized_title, saved["normalized_title"]
+                ).ratio()
+                if similarity >= 0.88:
+                    is_duplicate = True
+                    break
+            if is_duplicate:
+                continue
+
+            unique_items.append({
+                **news,
+                "normalized_title": normalized_title,
+                "sentiment": sentiment,
+                "sentiment_score": score,
+                "keywords": keywords,
+            })
+            if link:
+                seen_links.add(link)
+            if len(unique_items) >= limit:
+                break
+        return unique_items
+
     def _fetch_google_news(self, name, max_items=5):
         query = quote_plus(f'"{name}" 주가 OR 실적 OR 수주 OR 투자 when:1d')
         url = f"https://news.google.com/rss/search?q={query}&hl=ko&gl=KR&ceid=KR:ko"
@@ -176,12 +226,12 @@ class NewsCollector:
                 print(f"[News Warning] {name} 뉴스 수집 실패: {e}")
                 continue
 
-            today_items = [
+            today_candidates = [
                 news for news in news_items
                 if news.get("published_at", "").startswith(target_news_date)
-            ][:per_stock_limit]
+            ]
+            today_items = self._deduplicate_news(today_candidates, per_stock_limit)
             for news in today_items:
-                sentiment, score, keywords = self._classify_news(news["title"])
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO stock_news
@@ -199,9 +249,9 @@ class NewsCollector:
                         news["link"],
                         news["source"],
                         news["published_at"],
-                        sentiment,
-                        score,
-                        keywords,
+                        news["sentiment"],
+                        news["sentiment_score"],
+                        news["keywords"],
                         self.collected_at_kst,
                     )
                 )
