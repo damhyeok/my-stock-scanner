@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .DS_Store
 .env
+.kis_token_cache.json
 stock_data.db
 reports/*.xlsx
 manual_run_status.json

@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 from market_strength import MarketStrengthAnalyzer
 from program_ws_collector import ProgramTradeCollector
+from sector_flow_collector import SectorFlowCollector
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -104,6 +105,10 @@ def run_collector(analysis_type):
     asyncio.run(collector.collect())
 
 
+def run_sector_flow():
+    SectorFlowCollector(db_path=str(PROJECT_DIR / "stock_data.db")).run()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -115,6 +120,7 @@ def main():
             "morning-strength",
             "closing-collector",
             "closing-strength",
+            "sector-flow",
         ],
     )
     args = parser.parse_args()
@@ -134,6 +140,8 @@ def main():
                 run_market_strength("morning")
             elif args.task == "closing-strength":
                 run_market_strength("closing")
+            elif args.task == "sector-flow":
+                run_sector_flow()
             push_outputs(args.task)
 
 

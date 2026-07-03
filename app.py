@@ -12,6 +12,8 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 import altair as alt
+import plotly.express as px
+import plotly.graph_objects as go
 from analyzer import StockAnalyzer
 
 # 페이지 기본 설정
@@ -404,12 +406,27 @@ def get_market_strength_data():
     except:
         return pd.DataFrame()
 
+@st.cache_data(ttl=60)
+def get_sector_flow_data():
+    try:
+        db_path, _ = get_database_path()
+        conn = sqlite3.connect(db_path)
+        df = pd.read_sql(
+            "SELECT * FROM sector_flow_windows ORDER BY trade_date DESC, window_key ASC",
+            conn,
+        )
+        conn.close()
+        return df
+    except Exception:
+        return pd.DataFrame()
+
 # 데이터 로드
 with st.spinner("데이터를 불러오고 있습니다..."):
     df_analyzed = get_analyzed_data()
     df_raw = get_raw_data()
     df_news = get_news_data()
     df_market_strength = get_market_strength_data()
+    df_sector_flow = get_sector_flow_data()
 
 if df_analyzed is None or df_raw.empty:
     st.warning("⚠️ 분석할 데이터가 없습니다. 먼저 `crawler.py`를 실행하여 데이터를 수집해주세요.")
@@ -994,6 +1011,138 @@ else:
 
     with tab10:
         st.header(f"🧭 오늘 섹터 자금 이동 ({selected_date})")
+        minute_flow = df_sector_flow[
+            df_sector_flow['trade_date'] == selected_date
+        ].copy() if not df_sector_flow.empty else pd.DataFrame()
+        if not minute_flow.empty:
+            minute_flow['signed_flow'] = pd.to_numeric(minute_flow['signed_flow'], errors='coerce').fillna(0)
+            minute_flow['gross_turnover'] = pd.to_numeric(minute_flow['gross_turnover'], errors='coerce').fillna(0)
+            minute_flow['signed_flow_per_minute'] = pd.to_numeric(
+                minute_flow.get('signed_flow_per_minute', minute_flow['signed_flow']), errors='coerce'
+            ).fillna(0)
+            minute_flow['gross_turnover_per_minute'] = pd.to_numeric(
+                minute_flow.get('gross_turnover_per_minute', minute_flow['gross_turnover']), errors='coerce'
+            ).fillna(0)
+            minute_flow['sector_return'] = pd.to_numeric(minute_flow['sector_return'], errors='coerce').fillna(0)
+            minute_flow['normalized_flow'] = pd.to_numeric(minute_flow['normalized_flow'], errors='coerce').fillna(0.5)
+            minute_flow['signed_flow_eok'] = minute_flow['signed_flow'].apply(format_won_to_eok)
+            minute_flow['window_label'] = minute_flow['window_start'] + '~' + minute_flow['window_end']
+            window_order = (
+                minute_flow[['window_key', 'window_label']]
+                .drop_duplicates()
+                .sort_values('window_key')['window_label']
+                .tolist()
+            )
+            heatmap_tab, crossover_tab = st.tabs([
+                "스케일 보정 자금 흐름 지도",
+                "섹터 모멘텀 크로스오버",
+            ])
+
+            with heatmap_tab:
+                heatmap_sector_order = (
+                    minute_flow.groupby('sector')['gross_turnover']
+                    .sum()
+                    .sort_values(ascending=False)
+                    .index
+                    .tolist()
+                )
+                normalized_pivot = minute_flow.pivot(
+                    index='sector', columns='window_label', values='normalized_flow'
+                ).reindex(index=heatmap_sector_order, columns=window_order)
+                signed_pivot = minute_flow.pivot(
+                    index='sector', columns='window_label', values='signed_flow_eok'
+                ).reindex(index=heatmap_sector_order, columns=window_order)
+                hover_text = []
+                for sector in normalized_pivot.index:
+                    row = []
+                    for window in normalized_pivot.columns:
+                        normalized_value = normalized_pivot.loc[sector, window]
+                        signed_value = signed_pivot.loc[sector, window]
+                        row.append(
+                            f"업종: {sector}<br>구간: {window}<br>자체 정규화: "
+                            f"{normalized_value:.2f}<br>순유입 거래대금: {signed_value:,.0f}억"
+                        )
+                    hover_text.append(row)
+                heatmap_figure = go.Figure(data=go.Heatmap(
+                    z=normalized_pivot.values,
+                    x=normalized_pivot.columns.tolist(),
+                    y=normalized_pivot.index.tolist(),
+                    zmin=0,
+                    zmax=1,
+                    colorscale=[
+                        [0.0, '#173b57'],
+                        [0.5, '#f3f4f4'],
+                        [1.0, '#c43d31'],
+                    ],
+                    text=hover_text,
+                    hovertemplate='%{text}<extra></extra>',
+                    colorbar={'title': '섹터 자체 강도'},
+                ))
+                heatmap_figure.update_layout(
+                    height=max(420, len(heatmap_sector_order) * 28),
+                    margin={'l': 20, 'r': 20, 't': 20, 'b': 20},
+                    xaxis_title='2시간 구간',
+                    yaxis_title='업종',
+                )
+                st.plotly_chart(heatmap_figure, use_container_width=True)
+
+            with crossover_tab:
+                minute_flow = minute_flow.sort_values(['sector', 'window_key'])
+                minute_flow['inflow_change'] = minute_flow.groupby('sector')['signed_flow_per_minute'].diff()
+                change_std = minute_flow.groupby('sector')['inflow_change'].transform('std').replace(0, pd.NA)
+                minute_flow['inflow_change_z'] = (
+                    minute_flow['inflow_change'] / change_std
+                ).fillna(0)
+                latest_window = minute_flow['window_key'].max()
+                crossover = minute_flow[minute_flow['window_key'] == latest_window].copy()
+                crossover['gross_turnover_eok'] = crossover['gross_turnover_per_minute'].apply(format_won_to_eok).clip(lower=1)
+                scatter = px.scatter(
+                    crossover,
+                    x='sector_return',
+                    y='inflow_change_z',
+                    color='sector',
+                    size='gross_turnover_eok',
+                    hover_name='sector',
+                    hover_data={
+                        'sector_return': ':.2f',
+                        'inflow_change_z': ':.2f',
+                        'signed_flow_eok': ':,.0f',
+                        'gross_turnover_eok': ':,.0f',
+                        'sector': False,
+                    },
+                    labels={
+                        'sector_return': '구간 수익률(%)',
+                        'inflow_change_z': '순유입 증가 Z-Score',
+                        'signed_flow_eok': '순유입 거래대금(억)',
+                        'gross_turnover_eok': '총 거래대금(억)',
+                    },
+                )
+                scatter.add_hline(y=0, line_dash='dash', line_color='#777777')
+                scatter.add_vline(x=0, line_dash='dash', line_color='#777777')
+                scatter.update_layout(
+                    height=520,
+                    margin={'l': 20, 'r': 20, 't': 20, 'b': 20},
+                    showlegend=False,
+                )
+                st.plotly_chart(scatter, use_container_width=True)
+                latest_table = crossover.sort_values(
+                    ['inflow_change_z', 'sector_return'], ascending=False
+                )[[
+                    'sector', 'sector_return', 'inflow_change_z',
+                    'signed_flow_eok', 'normalized_flow'
+                ]].rename(columns={
+                    'sector': '업종',
+                    'sector_return': '구간 수익률(%)',
+                    'inflow_change_z': '순유입 증가 Z-Score',
+                    'signed_flow_eok': '순유입 거래대금(억)',
+                    'normalized_flow': '자체 정규화 강도',
+                })
+                latest_table['구간 수익률(%)'] = latest_table['구간 수익률(%)'].round(2)
+                latest_table['순유입 증가 Z-Score'] = latest_table['순유입 증가 Z-Score'].round(2)
+                latest_table['자체 정규화 강도'] = latest_table['자체 정규화 강도'].round(2)
+                display_wrapped_table(latest_table)
+            st.stop()
+
         intraday = df_raw[
             (df_raw['date'] == selected_date) &
             (df_raw['category'] == 'VOLUME_TOP_60') &

@@ -6,6 +6,9 @@ from bs4 import BeautifulSoup
 import time
 import os
 import re
+import hashlib
+import json
+from pathlib import Path
 from dotenv import load_dotenv
 
 # .env 파일에서 환경변수 로드
@@ -44,7 +47,24 @@ class StockCrawler:
             
         if not self.kis_app_key or not self.kis_app_secret:
             raise ValueError("KIS API 키가 .env 파일에 설정되지 않았습니다.")
-            
+
+        cache_path = Path(os.environ.get(
+            "KIS_TOKEN_CACHE",
+            Path(__file__).resolve().parent / ".kis_token_cache.json",
+        ))
+        app_key_hash = hashlib.sha256(self.kis_app_key.encode("utf-8")).hexdigest()
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if (
+                cached.get("app_key_hash") == app_key_hash
+                and float(cached.get("expires_at", 0)) > time.time() + 300
+                and cached.get("access_token")
+            ):
+                self.access_token = cached["access_token"]
+                return self.access_token
+        except (FileNotFoundError, ValueError, json.JSONDecodeError):
+            pass
+
         url = f"{self.kis_base_url}/oauth2/tokenP"
         headers = {"content-type": "application/json"}
         body = {
@@ -55,6 +75,17 @@ class StockCrawler:
         res = requests.post(url, headers=headers, json=body)
         if res.status_code == 200:
             self.access_token = res.json().get('access_token')
+            expires_in = int(res.json().get('expires_in', 23 * 60 * 60))
+            cache_path.write_text(
+                json.dumps({
+                    "app_key_hash": app_key_hash,
+                    "access_token": self.access_token,
+                    "expires_at": time.time() + expires_in,
+                }),
+                encoding="utf-8",
+            )
+            if os.name != "nt":
+                cache_path.chmod(0o600)
             return self.access_token
         else:
             raise Exception(f"KIS 토큰 발급 실패: {res.text}")
