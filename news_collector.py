@@ -14,16 +14,31 @@ class NewsCollector:
         self.db_path = db_path
         self.kst = timezone(timedelta(hours=9))
         self.collected_at_kst = datetime.now(self.kst).strftime("%Y-%m-%d %H:%M:%S")
-        self.positive_keywords = [
-            "수주", "공급", "계약", "실적", "호조", "흑자", "상향", "증가", "성장",
-            "강세", "급등", "반등", "기대", "승인", "신규", "확대", "투자", "개발",
-            "수혜", "최대", "돌파", "개선", "회복", "선정"
-        ]
-        self.negative_keywords = [
-            "하향", "부진", "적자", "감소", "급락", "약세", "하락", "우려", "리콜",
-            "소송", "규제", "제재", "손실", "악화", "축소", "중단", "연기", "취소",
-            "압수수색", "상장폐지", "횡령", "배임"
-        ]
+        self.positive_weights = {
+            "공급계약 체결": 4, "공급 계약 체결": 4, "대규모 수주": 4,
+            "수주": 4, "낙찰": 4, "기술수출": 4, "기술 수출": 4,
+            "라이선스 아웃": 4, "사상 최대": 3, "역대 최대": 3,
+            "어닝서프라이즈": 3, "어닝 서프라이즈": 3, "흑자전환": 3,
+            "흑자 전환": 3, "FDA 승인": 3, "품목허가": 3, "품목 허가": 3,
+            "임상 성공": 3, "자사주 소각": 3, "배당 확대": 3,
+            "목표주가 상향": 2, "전망 상향": 2, "가이던스 상향": 2,
+            "증설": 2, "대규모 투자": 2, "신규 진출": 2,
+            "전략적 제휴": 2, "업무협약": 2, "MOU": 2,
+            "호조": 1, "성장": 1, "증가": 1, "반등": 1,
+            "개선": 1, "회복": 1, "수혜": 1, "강세": 1,
+        }
+        self.negative_weights = {
+            "계약 해지": -4, "계약해지": -4, "계약 취소": -4,
+            "수주 취소": -4, "상장폐지": -4, "상장 폐지": -4,
+            "횡령": -4, "배임": -4, "거래정지": -4, "거래 정지": -4,
+            "적자전환": -3, "적자 전환": -3, "어닝쇼크": -3,
+            "어닝 쇼크": -3, "리콜": -3, "제재": -3,
+            "임상 실패": -3, "승인 거절": -3, "압수수색": -3,
+            "전망 하향": -2, "목표주가 하향": -2, "감산": -2,
+            "연기": -2, "지연": -2, "소송": -2, "유상증자": -2,
+            "유상 증자": -2, "부진": -1, "감소": -1, "약세": -1,
+            "하락": -1, "우려": -1, "손실": -1, "악화": -1,
+        }
         self._init_db()
 
     def _init_db(self):
@@ -95,9 +110,12 @@ class NewsCollector:
             return ""
 
     def _classify_news(self, title):
-        positive_hits = [keyword for keyword in self.positive_keywords if keyword in title]
-        negative_hits = [keyword for keyword in self.negative_keywords if keyword in title]
-        score = len(positive_hits) - len(negative_hits)
+        positive_hits = [phrase for phrase in self.positive_weights if phrase in title]
+        negative_hits = [phrase for phrase in self.negative_weights if phrase in title]
+        strong_negative = any(self.negative_weights[phrase] <= -3 for phrase in negative_hits)
+        positive_score = 0 if strong_negative else sum(self.positive_weights[phrase] for phrase in positive_hits)
+        negative_score = sum(self.negative_weights[phrase] for phrase in negative_hits)
+        score = max(-5, min(5, positive_score + negative_score))
         if score > 0:
             sentiment = "긍정"
         elif score < 0:
@@ -108,7 +126,7 @@ class NewsCollector:
         return sentiment, score, keywords
 
     def _fetch_google_news(self, name, max_items=5):
-        query = quote_plus(f'"{name}" 주가 OR 실적 OR 수주 OR 투자')
+        query = quote_plus(f'"{name}" 주가 OR 실적 OR 수주 OR 투자 when:1d')
         url = f"https://news.google.com/rss/search?q={query}&hl=ko&gl=KR&ceid=KR:ko"
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers, timeout=10)
@@ -144,17 +162,25 @@ class NewsCollector:
         )
 
         saved_count = 0
+        target_news_date = datetime.strptime(target_date, "%Y%m%d").strftime("%Y-%m-%d")
         for _, stock in stocks.iterrows():
             name = str(stock.get("name", "")).strip()
             if not name:
                 continue
             try:
-                news_items = self._fetch_google_news(name, max_items=per_stock_limit)
+                news_items = self._fetch_google_news(
+                    name,
+                    max_items=max(per_stock_limit * 3, 10),
+                )
             except Exception as e:
                 print(f"[News Warning] {name} 뉴스 수집 실패: {e}")
                 continue
 
-            for news in news_items:
+            today_items = [
+                news for news in news_items
+                if news.get("published_at", "").startswith(target_news_date)
+            ][:per_stock_limit]
+            for news in today_items:
                 sentiment, score, keywords = self._classify_news(news["title"])
                 conn.execute(
                     """

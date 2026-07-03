@@ -1,3 +1,15 @@
+## [2026-07-03 03:15] 당일 뉴스 필터 및 주가 이벤트 가중 점수 적용
+- **작업 목적:** 며칠 전 뉴스가 오늘 이슈로 섞이는 문제를 막고 수주·공급계약처럼 주가 영향이 큰 확정 이벤트를 일반 긍정 단어보다 중요하게 평가하도록 개선했습니다.
+- **영향을 받은 파일:** `news_collector.py`, `ai_changelog.md`
+- **주요 변경 사항:**
+  - Google 뉴스 검색에 최근 1일 조건을 추가하고 발행시각을 KST로 변환해 분석 대상 날짜와 같은 기사만 저장
+  - 발행시각이 없거나 파싱되지 않는 기사 및 과거 기사 제외
+  - 수주·공급계약·낙찰·기술수출은 +4, 최대 실적·흑자전환·승인은 +3 등 이벤트 중요도별 가중치 적용
+  - 계약 해지·상장폐지·횡령·거래정지는 -4, 적자전환·어닝쇼크·임상 실패는 -3 등 부정 가중치 적용
+  - 강한 부정 이벤트가 있으면 긍정 단어 점수를 무시하고 최종 점수를 -5~+5로 제한
+  - 오늘 기사 확보를 위해 검색 후보는 확대하되 종목당 저장 건수는 기존 최대 3건 유지
+---
+
 ## [2026-07-03 02:55] 장중 5회 분석 및 오전·오후·종가 시장강도 연결
 - **작업 목적:** 웹 조회 시간을 09:30·09:50·11:30·14:00·16:00으로 확대하고 선택 시간에 맞는 시장강도 결과를 표시하며 16시에는 하루 전체 시장강도를 비교할 수 있도록 개선했습니다.
 - **영향을 받은 파일:** `program_ws_collector.py`, `market_strength.py`, `crawler.py`, `main.py`, `cloud_job.py`, `app.py`, `deploy/oracle-cloud/afternoon-program.timer`, `deploy/oracle-cloud/afternoon-strength.timer`, `deploy/oracle-cloud/stock-analysis.timer`, `deploy/oracle-cloud/setup.sh`, `deploy/oracle-cloud/README.md`, `ai_changelog.md`
