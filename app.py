@@ -766,7 +766,7 @@ else:
                         scale=alt.Scale(reverse=True, zero=False),
                         axis=alt.Axis(tickMinStep=1),
                     ),
-                    color=alt.Color('sector:N', title='업종'),
+                    color=alt.Color('sector:N', title='업종', sort=latest_sector_names),
                     tooltip=[
                         alt.Tooltip('date_label:N', title='날짜'),
                         alt.Tooltip('sector:N', title='업종'),
@@ -841,7 +841,7 @@ else:
                             scale=alt.Scale(reverse=True, zero=False),
                             axis=alt.Axis(tickMinStep=1),
                         ),
-                        color=alt.Color('sector:N', title='업종'),
+                        color=alt.Color('sector:N', title='업종', sort=latest_rising_sectors),
                         tooltip=[
                             alt.Tooltip('date_label:N', title='날짜'),
                             alt.Tooltip('sector:N', title='업종'),
@@ -1509,12 +1509,19 @@ else:
                     snapshot_strength['sector'].isin(tracked_sectors)
                 ].copy()
                 session_labels = [display_session_name(session) for session in intraday_sessions]
+                latest_strength_session = intraday_sessions[-1]
+                strength_legend_order = strength_chart_data[
+                    strength_chart_data['session'] == latest_strength_session
+                ].sort_values('sector_strength', ascending=False)['sector'].tolist()
+                strength_legend_order.extend(
+                    sector for sector in tracked_sectors if sector not in strength_legend_order
+                )
 
                 st.subheader("섹터 상승 강도 변화")
                 strength_line = alt.Chart(strength_chart_data).mark_line(point=True).encode(
                     x=alt.X('session_label:N', title='시간', sort=session_labels),
                     y=alt.Y('sector_strength:Q', title='거래대금 가중 평균 등락률(%)'),
-                    color=alt.Color('sector:N', title='업종'),
+                    color=alt.Color('sector:N', title='업종', sort=strength_legend_order),
                     tooltip=[
                         alt.Tooltip('session_label:N', title='시간'),
                         alt.Tooltip('sector:N', title='업종'),
@@ -1530,10 +1537,17 @@ else:
                 st.subheader("구간 신규 거래대금 비중")
                 flow_chart_data = flow_df[flow_df['sector'].isin(tracked_sectors)].copy()
                 interval_labels = flow_df.sort_values('interval_order')['interval_label'].drop_duplicates().tolist()
+                latest_interval_order = flow_chart_data['interval_order'].max()
+                flow_legend_order = flow_chart_data[
+                    flow_chart_data['interval_order'] == latest_interval_order
+                ].sort_values('market_share', ascending=False)['sector'].tolist()
+                flow_legend_order.extend(
+                    sector for sector in tracked_sectors if sector not in flow_legend_order
+                )
                 flow_line = alt.Chart(flow_chart_data).mark_line(point=True).encode(
                     x=alt.X('interval_label:N', title='비교 구간', sort=interval_labels),
                     y=alt.Y('market_share:Q', title='구간 신규 거래대금 비중(%)'),
-                    color=alt.Color('sector:N', title='업종'),
+                    color=alt.Color('sector:N', title='업종', sort=flow_legend_order),
                     tooltip=[
                         alt.Tooltip('interval_label:N', title='구간'),
                         alt.Tooltip('sector:N', title='업종'),
