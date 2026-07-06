@@ -956,6 +956,29 @@ else:
                 })
                 st.dataframe(rank_display, use_container_width=True, hide_index=True)
 
+                rank_risers['sector'] = rank_risers['sector'].fillna('기타').replace('', '기타')
+                rank_sector = rank_risers.groupby('sector').agg(
+                    rising_stock_count=('ticker', 'nunique'),
+                    average_rank_rise=('순위 상승', 'mean'),
+                    current_trading_value=('trading_value_기준', 'sum'),
+                    included_stocks=('name', lambda names: ', '.join(dict.fromkeys(names.astype(str)))),
+                ).reset_index()
+                rank_sector = rank_sector.sort_values(
+                    ['rising_stock_count', 'average_rank_rise', 'current_trading_value'],
+                    ascending=[False, False, False],
+                )
+                rank_sector['average_rank_rise'] = rank_sector['average_rank_rise'].round(1)
+                rank_sector['current_trading_value'] = rank_sector['current_trading_value'].apply(format_won_to_eok)
+                rank_sector = rank_sector.rename(columns={
+                    'sector': '업종',
+                    'rising_stock_count': '상승 종목 수',
+                    'average_rank_rise': '평균 순위 상승',
+                    'current_trading_value': '현재 거래대금(억)',
+                    'included_stocks': '포함 종목',
+                })
+                st.markdown("**거래대금 순위 상승 업종 요약**")
+                display_wrapped_table(rank_sector)
+
             st.subheader("📈 거래대금 순위·등락률 동시 상승 종목")
             joint_risers = merged[
                 (merged['순위 상승'] > 0)
@@ -980,6 +1003,32 @@ else:
                     'fluctuation_rate_기준': '기준 등락률(%)',
                 })
                 st.dataframe(joint_display, use_container_width=True, hide_index=True)
+
+                joint_risers['sector'] = joint_risers['sector'].fillna('기타').replace('', '기타')
+                joint_sector = joint_risers.groupby('sector').agg(
+                    rising_stock_count=('ticker', 'nunique'),
+                    average_rank_rise=('순위 상승', 'mean'),
+                    average_rate_change=('등락률 변화(%p)', 'mean'),
+                    current_trading_value=('trading_value_기준', 'sum'),
+                    included_stocks=('name', lambda names: ', '.join(dict.fromkeys(names.astype(str)))),
+                ).reset_index()
+                joint_sector = joint_sector.sort_values(
+                    ['rising_stock_count', 'average_rate_change', 'average_rank_rise'],
+                    ascending=[False, False, False],
+                )
+                joint_sector['average_rank_rise'] = joint_sector['average_rank_rise'].round(1)
+                joint_sector['average_rate_change'] = joint_sector['average_rate_change'].round(2)
+                joint_sector['current_trading_value'] = joint_sector['current_trading_value'].apply(format_won_to_eok)
+                joint_sector = joint_sector.rename(columns={
+                    'sector': '업종',
+                    'rising_stock_count': '동시 상승 종목 수',
+                    'average_rank_rise': '평균 순위 상승',
+                    'average_rate_change': '평균 등락률 변화(%p)',
+                    'current_trading_value': '현재 거래대금(억)',
+                    'included_stocks': '포함 종목',
+                })
+                st.markdown("**거래대금 순위·등락률 동시 상승 업종 요약**")
+                display_wrapped_table(joint_sector)
 
     with tab8:
         st.header(f"📰 뉴스 이슈 종목 ({selected_session_label})")
