@@ -942,8 +942,8 @@ else:
                 st.info("선택한 두 시간 사이에 거래대금 순위가 상승한 공통 종목이 없습니다.")
             else:
                 rank_display = rank_risers[[
-                    'name', 'sector', 'trading_rank_비교', 'trading_rank_기준',
-                    '순위 상승', 'trading_value_비교', 'trading_value_기준'
+                    'name', 'sector', 'trading_rank_기준', 'trading_rank_비교',
+                    '순위 상승', 'trading_value_기준', 'trading_value_비교'
                 ]].copy()
                 rank_display['trading_value_비교'] = rank_display['trading_value_비교'].apply(format_won_to_eok)
                 rank_display['trading_value_기준'] = rank_display['trading_value_기준'].apply(format_won_to_eok)
@@ -968,9 +968,9 @@ else:
                 st.info("선택한 두 시간 사이에 거래대금과 등락률이 함께 상승한 공통 종목이 없습니다.")
             else:
                 joint_display = joint_risers[[
-                    'name', 'sector', 'trading_value_비교', 'trading_value_기준',
-                    '거래대금 증가', 'fluctuation_rate_비교',
-                    'fluctuation_rate_기준', '등락률 변화(%p)'
+                    'name', 'sector', 'trading_value_기준', 'trading_value_비교',
+                    '거래대금 증가', 'fluctuation_rate_기준',
+                    'fluctuation_rate_비교', '등락률 변화(%p)'
                 ]].copy()
                 for column in ['trading_value_비교', 'trading_value_기준', '거래대금 증가']:
                     joint_display[column] = joint_display[column].apply(format_won_to_eok)
