@@ -1246,6 +1246,27 @@ else:
 
     with tab10:
         st.header(f"🧭 오늘 섹터 자금 이동 ({selected_date})")
+        today_top60 = df_raw[
+            (df_raw['date'] == selected_date)
+            & (df_raw['category'] == 'VOLUME_TOP_60')
+            & (~df_raw['session'].astype(str).str.contains('시간외', na=False))
+        ].copy()
+        included_stocks_by_sector = {}
+        if not today_top60.empty:
+            latest_top60_session = max(
+                today_top60['session'].dropna().unique().tolist(),
+                key=session_sort_key,
+            )
+            latest_top60 = today_top60[
+                today_top60['session'] == latest_top60_session
+            ].drop_duplicates('ticker')
+            included_stocks_by_sector = (
+                latest_top60.groupby('sector')['name']
+                .apply(lambda names: ', '.join(dict.fromkeys(
+                    name for name in names.dropna().astype(str) if name.strip()
+                )))
+                .to_dict()
+            )
         minute_flow = df_sector_flow[
             df_sector_flow['trade_date'] == selected_date
         ].copy() if not df_sector_flow.empty else pd.DataFrame()
@@ -1375,6 +1396,7 @@ else:
                 latest_table['구간 수익률(%)'] = latest_table['구간 수익률(%)'].round(2)
                 latest_table['순유입 증가 Z-Score'] = latest_table['순유입 증가 Z-Score'].round(2)
                 latest_table['자체 정규화 강도'] = latest_table['자체 정규화 강도'].round(2)
+                latest_table['포함 종목'] = latest_table['업종'].map(included_stocks_by_sector).fillna('')
                 display_wrapped_table(latest_table)
             st.stop()
 
@@ -1406,6 +1428,9 @@ else:
                     trading_value=('trading_value', 'sum'),
                     stock_count=('ticker', 'nunique'),
                     rising_count=('fluctuation_rate', lambda rates: int((rates > 0).sum())),
+                    included_stocks=('name', lambda names: ', '.join(dict.fromkeys(
+                        name for name in names.dropna().astype(str) if name.strip()
+                    ))),
                 )
                 .reset_index()
             )
@@ -1604,12 +1629,13 @@ else:
                 latest_strength['sector_strength'] = latest_strength['sector_strength'].round(2)
                 latest_strength['rising_ratio'] = latest_strength['rising_ratio'].round(0).astype(int)
                 latest_disp = latest_strength[
-                    ['sector', 'sector_strength', 'rising_ratio', 'stock_count']
+                    ['sector', 'sector_strength', 'rising_ratio', 'stock_count', 'included_stocks']
                 ].rename(columns={
                     'sector': '업종',
                     'sector_strength': '현재 상승 강도(%)',
                     'rising_ratio': '상승 종목 비율(%)',
                     'stock_count': '종목 수',
+                    'included_stocks': '포함 종목',
                 })
                 st.subheader(f"{display_session_name(latest_session)} 현재 강도")
                 display_wrapped_table(latest_disp)
