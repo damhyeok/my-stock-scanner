@@ -633,9 +633,13 @@ else:
     with tab5:
         st.header(f"📊 섹터별 자금 유입 요약 ({selected_session_label} 기준)")
         sector_base = df_selected[df_selected['category'] == 'VOLUME_TOP_60'].drop_duplicates(subset=['ticker']).copy()
+        for column in ['foreign_net', 'inst_net', 'trading_value']:
+            sector_base[column] = pd.to_numeric(sector_base[column], errors='coerce').fillna(0)
         sector_base['total_net'] = sector_base['foreign_net'] + sector_base['inst_net']
         
         sector_grouped = sector_base.groupby('sector').agg(
+            foreign_net=('foreign_net', 'sum'),
+            inst_net=('inst_net', 'sum'),
             total_net=('total_net', 'sum'),
             trading_value=('trading_value', 'sum'),
             stock_count=('ticker', 'nunique'),
@@ -668,12 +672,34 @@ else:
         ).properties(height=420)
         st.altair_chart(sector_bar, use_container_width=True)
         st.caption("거래대금 차이가 너무 큰 섹터 때문에 다른 섹터가 눌려 보이지 않도록 그래프 축만 압축해서 표시합니다. 정확한 금액은 아래 표에서 확인할 수 있습니다.")
-        sector_disp = sector_grouped.rename(columns={'sector': '업종', 'total_net': '합산 순매수', 'trading_value': '합산 거래대금', 'stock_count': '종목 수', 'included_stocks': '포함된 종목들'})
-        sector_disp['합산 순매수'] = sector_disp['합산 순매수'].apply(format_kis_flow_to_eok)
-        sector_disp['합산 거래대금'] = sector_disp['합산 거래대금'].apply(format_won_to_eok)
-        sector_disp = sector_disp.rename(columns={
-            '합산 순매수': '합산 순매수(억)',
-            '합산 거래대금': '합산 거래대금(억)'
+        def classify_sector_flow(row):
+            if row['foreign_net'] > 0 and row['inst_net'] > 0:
+                return '동반 순매수'
+            if row['foreign_net'] < 0 and row['inst_net'] < 0:
+                return '동반 순매도'
+            if row['foreign_net'] > 0:
+                return '외인 매수 우위'
+            if row['inst_net'] > 0:
+                return '기관 매수 우위'
+            return '중립'
+
+        sector_disp = sector_grouped.copy()
+        sector_disp['flow_status'] = sector_disp.apply(classify_sector_flow, axis=1)
+        sector_disp['trading_value'] = sector_disp['trading_value'].apply(format_won_to_eok)
+        for column in ['foreign_net', 'inst_net', 'total_net']:
+            sector_disp[column] = sector_disp[column].apply(format_kis_flow_to_eok)
+        sector_disp = sector_disp[[
+            'sector', 'trading_value', 'stock_count', 'foreign_net',
+            'inst_net', 'total_net', 'flow_status', 'included_stocks'
+        ]].rename(columns={
+            'sector': '업종',
+            'trading_value': '합산 거래대금(억)',
+            'stock_count': '종목 수',
+            'foreign_net': '외국인(억)',
+            'inst_net': '기관(억)',
+            'total_net': '합산 순매수(억)',
+            'flow_status': '수급 상태',
+            'included_stocks': '포함된 종목들',
         })
         st.dataframe(sector_disp, use_container_width=True)
 
