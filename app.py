@@ -929,7 +929,6 @@ else:
             )
 
             merged['순위 상승'] = merged['trading_rank_비교'] - merged['trading_rank_기준']
-            merged['거래대금 증가'] = merged['trading_value_기준'] - merged['trading_value_비교']
             merged['등락률 변화(%p)'] = (
                 merged['fluctuation_rate_기준'] - merged['fluctuation_rate_비교']
             ).round(2)
@@ -957,29 +956,26 @@ else:
                 })
                 st.dataframe(rank_display, use_container_width=True, hide_index=True)
 
-            st.subheader("📈 거래대금·등락률 동시 상승 종목")
+            st.subheader("📈 거래대금 순위·등락률 동시 상승 종목")
             joint_risers = merged[
-                (merged['trading_value_기준'] > merged['trading_value_비교'])
+                (merged['순위 상승'] > 0)
                 & (merged['fluctuation_rate_기준'] > merged['fluctuation_rate_비교'])
             ].sort_values(
-                ['등락률 변화(%p)', '거래대금 증가'], ascending=False
+                ['순위 상승', '등락률 변화(%p)'], ascending=False
             ).copy()
             if joint_risers.empty:
-                st.info("선택한 두 시간 사이에 거래대금과 등락률이 함께 상승한 공통 종목이 없습니다.")
+                st.info("선택한 두 시간 사이에 거래대금 순위와 등락률이 함께 상승한 공통 종목이 없습니다.")
             else:
                 joint_display = joint_risers[[
-                    'name', 'sector', 'trading_value_기준', 'trading_value_비교',
-                    '거래대금 증가', 'fluctuation_rate_기준',
+                    'name', 'sector', 'trading_rank_기준', 'trading_rank_비교',
+                    '순위 상승', 'fluctuation_rate_기준',
                     'fluctuation_rate_비교', '등락률 변화(%p)'
                 ]].copy()
-                for column in ['trading_value_비교', 'trading_value_기준', '거래대금 증가']:
-                    joint_display[column] = joint_display[column].apply(format_won_to_eok)
                 joint_display = joint_display.rename(columns={
                     'name': '종목명',
                     'sector': '업종',
-                    'trading_value_비교': '비교 거래대금(억)',
-                    'trading_value_기준': '기준 거래대금(억)',
-                    '거래대금 증가': '거래대금 증가(억)',
+                    'trading_rank_기준': '기준 시간 순위',
+                    'trading_rank_비교': '비교 시간 순위',
                     'fluctuation_rate_비교': '비교 등락률(%)',
                     'fluctuation_rate_기준': '기준 등락률(%)',
                 })
