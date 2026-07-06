@@ -865,36 +865,125 @@ else:
 
     # 탭 7: 직전 시간 대비 변화
     with tab7:
-        st.header(f"⚡ {selected_session_label} 기준 직전 시간 대비 변화")
-        if 'session' in df_raw.columns and selected_session in day_sessions:
-            current_session_idx = day_sessions.index(selected_session)
-            if current_session_idx < len(day_sessions) - 1:
-                prev_session = day_sessions[current_session_idx + 1]
-                st.markdown(f"**비교 대상:** `{prev_session}` ➡️ `{selected_session}`")
-                df_curr = df_raw[(df_raw['date'] == selected_date) & (df_raw['session'] == selected_session) & (df_raw['category'] == 'VOLUME_TOP_60')]
-                df_prev = df_raw[(df_raw['date'] == selected_date) & (df_raw['session'] == prev_session) & (df_raw['category'] == 'VOLUME_TOP_60')]
-                curr_tickers = set(df_curr['ticker']); prev_tickers = set(df_prev['ticker'])
-                
-                new_entries = curr_tickers - prev_tickers
-                st.subheader("🚀 거래대금 Top 60 신규 진입 종목")
-                if new_entries:
-                    display_formatted_df(df_curr[df_curr['ticker'].isin(new_entries)].sort_values('trading_value', ascending=False))
-                else: st.info("신규 진입 종목이 없습니다.")
-                
-                common_tickers = curr_tickers.intersection(prev_tickers)
-                if common_tickers:
-                    merged = pd.merge(df_curr[df_curr['ticker'].isin(common_tickers)][['ticker', 'name', 'trading_value', 'sector']], df_prev[df_prev['ticker'].isin(common_tickers)][['ticker', 'trading_value']], on='ticker', suffixes=('_현재', '_이전'))
-                    merged['거래대금 급증률(%)'] = ((merged['trading_value_현재'] - merged['trading_value_이전']) / merged['trading_value_이전'] * 100).round(2)
-                    st.subheader("🔥 이전 시간 대비 거래대금 급증 종목 Top 10")
-                    merged_disp = merged.sort_values('거래대금 급증률(%)', ascending=False).head(10).reset_index(drop=True)
-                    merged_disp['trading_value_현재'] = merged_disp['trading_value_현재'].apply(format_won_to_eok)
-                    merged_disp['trading_value_이전'] = merged_disp['trading_value_이전'].apply(format_won_to_eok)
-                    merged_disp = merged_disp.rename(columns={
-                        'trading_value_현재': '거래대금 현재(억)',
-                        'trading_value_이전': '거래대금 이전(억)'
-                    })
-                    st.dataframe(merged_disp, use_container_width=True)
-            else: st.info("비교할 이전 시간 데이터가 없습니다.")
+        st.header("⚡ 시간별 거래대금·등락률 변화")
+        comparison_sessions = sorted(
+            df_raw[
+                (df_raw['date'] == selected_date)
+                & (df_raw['category'] == 'VOLUME_TOP_60')
+            ]['session'].dropna().unique().tolist(),
+            key=session_sort_key,
+        )
+
+        if len(comparison_sessions) < 2:
+            st.info("비교하려면 선택한 날짜에 거래대금 TOP60 데이터가 두 시간 이상 필요합니다.")
+        else:
+            reference_options = comparison_sessions[1:]
+            reference_default = (
+                reference_options.index(selected_session)
+                if selected_session in reference_options
+                else len(reference_options) - 1
+            )
+            time_col1, time_col2 = st.columns(2)
+            with time_col1:
+                reference_session = st.selectbox(
+                    "기준 시간",
+                    reference_options,
+                    index=reference_default,
+                    format_func=display_session_name,
+                    key="change_reference_session",
+                )
+            reference_index = comparison_sessions.index(reference_session)
+            previous_options = comparison_sessions[:reference_index]
+            with time_col2:
+                previous_session = st.selectbox(
+                    "비교 시간",
+                    previous_options,
+                    index=len(previous_options) - 1,
+                    format_func=display_session_name,
+                    key="change_previous_session",
+                )
+
+            df_curr = df_raw[
+                (df_raw['date'] == selected_date)
+                & (df_raw['session'] == reference_session)
+                & (df_raw['category'] == 'VOLUME_TOP_60')
+            ].drop_duplicates('ticker').copy()
+            df_prev = df_raw[
+                (df_raw['date'] == selected_date)
+                & (df_raw['session'] == previous_session)
+                & (df_raw['category'] == 'VOLUME_TOP_60')
+            ].drop_duplicates('ticker').copy()
+
+            for frame in [df_curr, df_prev]:
+                frame['trading_value'] = pd.to_numeric(frame['trading_value'], errors='coerce').fillna(0)
+                frame['fluctuation_rate'] = pd.to_numeric(frame['fluctuation_rate'], errors='coerce').fillna(0)
+                frame['trading_rank'] = frame['trading_value'].rank(method='min', ascending=False).astype(int)
+
+            merged = df_curr[[
+                'ticker', 'name', 'sector', 'trading_value', 'fluctuation_rate', 'trading_rank'
+            ]].merge(
+                df_prev[['ticker', 'trading_value', 'fluctuation_rate', 'trading_rank']],
+                on='ticker',
+                how='inner',
+                suffixes=('_기준', '_비교'),
+            )
+
+            merged['순위 상승'] = merged['trading_rank_비교'] - merged['trading_rank_기준']
+            merged['거래대금 증가'] = merged['trading_value_기준'] - merged['trading_value_비교']
+            merged['등락률 변화(%p)'] = (
+                merged['fluctuation_rate_기준'] - merged['fluctuation_rate_비교']
+            ).round(2)
+
+            st.subheader("🚀 거래대금 순위 상승 종목")
+            rank_risers = merged[merged['순위 상승'] > 0].sort_values(
+                ['순위 상승', 'trading_rank_기준'], ascending=[False, True]
+            ).copy()
+            if rank_risers.empty:
+                st.info("선택한 두 시간 사이에 거래대금 순위가 상승한 공통 종목이 없습니다.")
+            else:
+                rank_display = rank_risers[[
+                    'name', 'sector', 'trading_rank_비교', 'trading_rank_기준',
+                    '순위 상승', 'trading_value_비교', 'trading_value_기준'
+                ]].copy()
+                rank_display['trading_value_비교'] = rank_display['trading_value_비교'].apply(format_won_to_eok)
+                rank_display['trading_value_기준'] = rank_display['trading_value_기준'].apply(format_won_to_eok)
+                rank_display = rank_display.rename(columns={
+                    'name': '종목명',
+                    'sector': '업종',
+                    'trading_rank_비교': '비교 시간 순위',
+                    'trading_rank_기준': '기준 시간 순위',
+                    'trading_value_비교': '비교 거래대금(억)',
+                    'trading_value_기준': '기준 거래대금(억)',
+                })
+                st.dataframe(rank_display, use_container_width=True, hide_index=True)
+
+            st.subheader("📈 거래대금·등락률 동시 상승 종목")
+            joint_risers = merged[
+                (merged['trading_value_기준'] > merged['trading_value_비교'])
+                & (merged['fluctuation_rate_기준'] > merged['fluctuation_rate_비교'])
+            ].sort_values(
+                ['등락률 변화(%p)', '거래대금 증가'], ascending=False
+            ).copy()
+            if joint_risers.empty:
+                st.info("선택한 두 시간 사이에 거래대금과 등락률이 함께 상승한 공통 종목이 없습니다.")
+            else:
+                joint_display = joint_risers[[
+                    'name', 'sector', 'trading_value_비교', 'trading_value_기준',
+                    '거래대금 증가', 'fluctuation_rate_비교',
+                    'fluctuation_rate_기준', '등락률 변화(%p)'
+                ]].copy()
+                for column in ['trading_value_비교', 'trading_value_기준', '거래대금 증가']:
+                    joint_display[column] = joint_display[column].apply(format_won_to_eok)
+                joint_display = joint_display.rename(columns={
+                    'name': '종목명',
+                    'sector': '업종',
+                    'trading_value_비교': '비교 거래대금(억)',
+                    'trading_value_기준': '기준 거래대금(억)',
+                    '거래대금 증가': '거래대금 증가(억)',
+                    'fluctuation_rate_비교': '비교 등락률(%)',
+                    'fluctuation_rate_기준': '기준 등락률(%)',
+                })
+                st.dataframe(joint_display, use_container_width=True, hide_index=True)
 
     with tab8:
         st.header(f"📰 뉴스 이슈 종목 ({selected_session_label})")
