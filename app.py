@@ -421,6 +421,34 @@ def get_sector_flow_data():
     except Exception:
         return pd.DataFrame()
 
+@st.cache_data(ttl=60)
+def get_close_bet_data():
+    try:
+        db_path, _ = get_database_path()
+        conn = sqlite3.connect(db_path)
+        df = pd.read_sql(
+            "SELECT * FROM close_bet_scans ORDER BY trade_date DESC, session, market_cap DESC",
+            conn,
+        )
+        conn.close()
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=60)
+def get_close_bet_runs():
+    try:
+        db_path, _ = get_database_path()
+        conn = sqlite3.connect(db_path)
+        df = pd.read_sql(
+            "SELECT * FROM close_bet_scan_runs ORDER BY trade_date DESC, session",
+            conn,
+        )
+        conn.close()
+        return df
+    except Exception:
+        return pd.DataFrame()
+
 # 데이터 로드
 with st.spinner("데이터를 불러오고 있습니다..."):
     df_analyzed = get_analyzed_data()
@@ -428,6 +456,8 @@ with st.spinner("데이터를 불러오고 있습니다..."):
     df_news = get_news_data()
     df_market_strength = get_market_strength_data()
     df_sector_flow = get_sector_flow_data()
+    df_close_bet = get_close_bet_data()
+    df_close_bet_runs = get_close_bet_runs()
 
 if df_analyzed is None or df_raw.empty:
     st.warning("⚠️ 분석할 데이터가 없습니다. 먼저 `crawler.py`를 실행하여 데이터를 수집해주세요.")
@@ -519,7 +549,7 @@ else:
     st.divider()
 
     # 탭으로 분리
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
         "🏆 종합 추천종목", 
         "🔥 거래대금 Top", 
         "🟢 외인 순매수", 
@@ -529,7 +559,8 @@ else:
         "⚡ 실시간 변화(직전 대비)",
         "📰 뉴스 이슈 종목",
         "🌡️ 시장 강도 분석",
-        "🧭 오늘 섹터 흐름"
+        "🧭 오늘 섹터 흐름",
+        "🎯 종가베팅 스캐너"
     ])
     
     if 'session' in df_raw.columns:
@@ -1404,3 +1435,57 @@ else:
                 })
                 st.subheader(f"{display_session_name(latest_session)} 현재 강도")
                 display_wrapped_table(latest_disp)
+
+    with tab11:
+        st.header(f"🎯 종가베팅 스캐너 ({selected_session_label})")
+        st.caption("시가총액 5,000억 원 이상 종목을 대상으로 일봉 추세·모멘텀·거래량·OBV 조건을 검사합니다.")
+
+        selected_run = df_close_bet_runs[
+            (df_close_bet_runs['trade_date'].astype(str) == str(selected_date))
+            & (df_close_bet_runs['session'].astype(str) == str(selected_session))
+        ] if not df_close_bet_runs.empty else pd.DataFrame()
+
+        if selected_run.empty:
+            st.info("아직 이 날짜와 시간의 종가베팅 스캔 기록이 없습니다. 다음 전체 분석 실행 후 결과가 표시됩니다.")
+        else:
+            run = selected_run.iloc[-1]
+            metric1, metric2, metric3 = st.columns(3)
+            metric1.metric("검사 종목", f"{int(run['scanned_count'])}개")
+            metric2.metric("포착 종목", f"{int(run['selected_count'])}개")
+            metric3.metric("조회 실패", f"{int(run['failed_count'])}개")
+            selected_scan = df_close_bet[
+                (df_close_bet['trade_date'].astype(str) == str(selected_date))
+                & (df_close_bet['session'].astype(str) == str(selected_session))
+            ].copy() if not df_close_bet.empty else pd.DataFrame()
+            if selected_scan.empty:
+                st.info("선택한 날짜와 시간에는 조건을 충족한 종목이 없습니다.")
+            else:
+                grade_order = {
+                    'S급(최적타점)': 0,
+                    'A급(매복)': 1,
+                    'S급(과열주의)': 2,
+                }
+                selected_scan['grade_order'] = selected_scan['grade'].map(grade_order).fillna(9)
+                selected_scan = selected_scan.sort_values(
+                    ['grade_order', 'market_cap'], ascending=[True, False]
+                )
+                display_scan = selected_scan[[
+                    'grade', 'name', 'ticker', 'market_cap', 'current_price',
+                    'fluctuation_rate', 'volume_ratio', 'rsi', 'williams_r'
+                ]].copy()
+                display_scan['market_cap'] = display_scan['market_cap'].apply(format_won_to_eok)
+                display_scan = display_scan.rename(columns={
+                    'grade': '등급',
+                    'name': '종목명',
+                    'ticker': '종목코드',
+                    'market_cap': '시가총액(억)',
+                    'current_price': '현재가',
+                    'fluctuation_rate': '등락률(%)',
+                    'volume_ratio': '거래비율(%)',
+                    'rsi': 'RSI',
+                    'williams_r': 'W%R',
+                })
+                st.dataframe(display_scan, use_container_width=True, hide_index=True)
+                latest_scan_time = selected_scan['scanned_at_kst'].dropna().max()
+                if latest_scan_time:
+                    st.caption(f"스캔 완료 시각: {latest_scan_time} KST")

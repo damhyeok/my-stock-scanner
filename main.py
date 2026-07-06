@@ -7,6 +7,7 @@ from excel_manager import ExcelManager
 from telegram_bot import TelegramNotifier
 from news_collector import NewsCollector
 from market_strength import MarketStrengthAnalyzer
+from close_bet_scanner import CloseBetScanner
 
 
 def run_market_strength(access_token=None):
@@ -58,6 +59,12 @@ def main():
     elif crawler.run() is False:
         print("[Skip] 시간외 데이터는 분석 대상에서 제외되어 이후 단계를 실행하지 않습니다.")
         return
+
+    print("\n[Step 1-0] 종가베팅 스캐너를 실행합니다.")
+    try:
+        CloseBetScanner(crawler).run()
+    except Exception as e:
+        print(f"[Close Bet Warning] 종가베팅 스캔 중 오류가 발생했지만 주 분석은 계속합니다: {e}")
 
     print("\n[Step 1-1] 뉴스 이슈 데이터를 수집합니다.")
     try:
