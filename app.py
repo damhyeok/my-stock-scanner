@@ -1603,16 +1603,30 @@ else:
                     changes = changes.merge(interval_flow, on='sector', how='left').fillna({'market_share': 0})
                     stronger = changes.sort_values('strength_change', ascending=False).iloc[0]
                     weaker = changes.sort_values('strength_change').iloc[0]
+                    current_session_stocks = intraday[
+                        intraday['session'] == current_session
+                    ].drop_duplicates('ticker')
+
+                    def stocks_in_sector(sector_name):
+                        names = current_session_stocks[
+                            current_session_stocks['sector'] == sector_name
+                        ]['name'].dropna().astype(str)
+                        return ', '.join(dict.fromkeys(
+                            name for name in names if name.strip()
+                        ))
+
                     rotation_rows.append({
                         '구간': f"{display_session_name(previous_session)} → {display_session_name(current_session)}",
                         '강해진 섹터': (
                             f"{stronger['sector']} ({stronger['strength_change']:+.2f}%p, "
                             f"거래비중 {stronger['market_share']:.1f}%)"
                         ),
+                        '강해진 섹터 종목': stocks_in_sector(stronger['sector']),
                         '약해진 섹터': (
                             f"{weaker['sector']} ({weaker['strength_change']:+.2f}%p, "
                             f"거래비중 {weaker['market_share']:.1f}%)"
                         ),
+                        '약해진 섹터 종목': stocks_in_sector(weaker['sector']),
                     })
 
                 st.subheader("순환매 변화 요약")
