@@ -1047,10 +1047,16 @@ else:
                             directions.append('베이시스 확대')
                         elif pd.to_numeric(curr['basis'], errors='coerce') < pd.to_numeric(prev['basis'], errors='coerce'):
                             directions.append('베이시스 축소')
-                        if pd.to_numeric(curr['program_net'], errors='coerce') > pd.to_numeric(prev['program_net'], errors='coerce'):
-                            directions.append('프로그램 개선')
-                        elif pd.to_numeric(curr['program_net'], errors='coerce') < pd.to_numeric(prev['program_net'], errors='coerce'):
-                            directions.append('프로그램 약화')
+                        previous_non_arbitrage = pd.to_numeric(prev['non_arbitrage_net'], errors='coerce')
+                        current_non_arbitrage = pd.to_numeric(curr['non_arbitrage_net'], errors='coerce')
+                        if previous_non_arbitrage <= 0 < current_non_arbitrage:
+                            directions.append('비차익 순매수 전환')
+                        elif previous_non_arbitrage >= 0 > current_non_arbitrage:
+                            directions.append('비차익 순매도 전환')
+                        elif current_non_arbitrage > previous_non_arbitrage:
+                            directions.append('비차익 개선')
+                        elif current_non_arbitrage < previous_non_arbitrage:
+                            directions.append('비차익 약화')
                         if pd.to_numeric(curr['kospi200_futures_price'], errors='coerce') > pd.to_numeric(prev['kospi200_futures_price'], errors='coerce'):
                             directions.append('선물 상승')
                         elif pd.to_numeric(curr['kospi200_futures_price'], errors='coerce') < pd.to_numeric(prev['kospi200_futures_price'], errors='coerce'):
@@ -1061,7 +1067,6 @@ else:
                     'snapshot_time',
                     'basis',
                     'program_net',
-                    'arbitrage_net',
                     'non_arbitrage_net',
                     'kospi200_futures_price',
                     '변화 방향'
@@ -1069,11 +1074,10 @@ else:
                     'snapshot_time': '시간',
                     'basis': '베이시스',
                     'program_net': '프로그램 순매수',
-                    'arbitrage_net': '차익 순매수',
                     'non_arbitrage_net': '비차익 순매수',
                     'kospi200_futures_price': '코스피200 선물'
                 })
-                for col in ['프로그램 순매수', '차익 순매수', '비차익 순매수']:
+                for col in ['프로그램 순매수', '비차익 순매수']:
                     display_df[col] = pd.to_numeric(display_df[col], errors='coerce').round(0).astype('Int64')
                 for col in ['베이시스', '코스피200 선물']:
                     display_df[col] = pd.to_numeric(display_df[col], errors='coerce').round(2)
