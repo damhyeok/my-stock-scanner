@@ -1244,6 +1244,60 @@ else:
                 st.subheader("시간별 시장강도 흐름")
                 st.dataframe(display_df, use_container_width=True)
 
+    with tab11:
+        st.header(f"🎯 종가베팅 스캐너 ({selected_session_label})")
+        st.caption("시가총액 5,000억 원 이상 종목을 대상으로 일봉 추세·모멘텀·거래량·OBV 조건을 검사합니다.")
+
+        selected_run = df_close_bet_runs[
+            (df_close_bet_runs['trade_date'].astype(str) == str(selected_date))
+            & (df_close_bet_runs['session'].astype(str) == str(selected_session))
+        ] if not df_close_bet_runs.empty else pd.DataFrame()
+
+        if selected_run.empty:
+            st.info("아직 이 날짜와 시간의 종가베팅 스캔 기록이 없습니다. 다음 전체 분석 실행 후 결과가 표시됩니다.")
+        else:
+            run = selected_run.iloc[-1]
+            metric1, metric2, metric3 = st.columns(3)
+            metric1.metric("검사 종목", f"{int(run['scanned_count'])}개")
+            metric2.metric("포착 종목", f"{int(run['selected_count'])}개")
+            metric3.metric("조회 실패", f"{int(run['failed_count'])}개")
+            selected_scan = df_close_bet[
+                (df_close_bet['trade_date'].astype(str) == str(selected_date))
+                & (df_close_bet['session'].astype(str) == str(selected_session))
+            ].copy() if not df_close_bet.empty else pd.DataFrame()
+            if selected_scan.empty:
+                st.info("선택한 날짜와 시간에는 조건을 충족한 종목이 없습니다.")
+            else:
+                grade_order = {
+                    'S급(최적타점)': 0,
+                    'A급(매복)': 1,
+                    'S급(과열주의)': 2,
+                }
+                selected_scan['grade_order'] = selected_scan['grade'].map(grade_order).fillna(9)
+                selected_scan = selected_scan.sort_values(
+                    ['grade_order', 'market_cap'], ascending=[True, False]
+                )
+                display_scan = selected_scan[[
+                    'grade', 'name', 'ticker', 'market_cap', 'current_price',
+                    'fluctuation_rate', 'volume_ratio', 'rsi', 'williams_r'
+                ]].copy()
+                display_scan['market_cap'] = display_scan['market_cap'].apply(format_won_to_eok)
+                display_scan = display_scan.rename(columns={
+                    'grade': '등급',
+                    'name': '종목명',
+                    'ticker': '종목코드',
+                    'market_cap': '시가총액(억)',
+                    'current_price': '현재가',
+                    'fluctuation_rate': '등락률(%)',
+                    'volume_ratio': '거래비율(%)',
+                    'rsi': 'RSI',
+                    'williams_r': 'W%R',
+                })
+                st.dataframe(display_scan, use_container_width=True, hide_index=True)
+                latest_scan_time = selected_scan['scanned_at_kst'].dropna().max()
+                if latest_scan_time:
+                    st.caption(f"스캔 완료 시각: {latest_scan_time} KST")
+
     with tab10:
         st.header(f"🧭 오늘 섹터 자금 이동 ({selected_date})")
         today_top60 = df_raw[
@@ -1653,57 +1707,3 @@ else:
                 })
                 st.subheader(f"{display_session_name(latest_session)} 현재 강도")
                 display_wrapped_table(latest_disp)
-
-    with tab11:
-        st.header(f"🎯 종가베팅 스캐너 ({selected_session_label})")
-        st.caption("시가총액 5,000억 원 이상 종목을 대상으로 일봉 추세·모멘텀·거래량·OBV 조건을 검사합니다.")
-
-        selected_run = df_close_bet_runs[
-            (df_close_bet_runs['trade_date'].astype(str) == str(selected_date))
-            & (df_close_bet_runs['session'].astype(str) == str(selected_session))
-        ] if not df_close_bet_runs.empty else pd.DataFrame()
-
-        if selected_run.empty:
-            st.info("아직 이 날짜와 시간의 종가베팅 스캔 기록이 없습니다. 다음 전체 분석 실행 후 결과가 표시됩니다.")
-        else:
-            run = selected_run.iloc[-1]
-            metric1, metric2, metric3 = st.columns(3)
-            metric1.metric("검사 종목", f"{int(run['scanned_count'])}개")
-            metric2.metric("포착 종목", f"{int(run['selected_count'])}개")
-            metric3.metric("조회 실패", f"{int(run['failed_count'])}개")
-            selected_scan = df_close_bet[
-                (df_close_bet['trade_date'].astype(str) == str(selected_date))
-                & (df_close_bet['session'].astype(str) == str(selected_session))
-            ].copy() if not df_close_bet.empty else pd.DataFrame()
-            if selected_scan.empty:
-                st.info("선택한 날짜와 시간에는 조건을 충족한 종목이 없습니다.")
-            else:
-                grade_order = {
-                    'S급(최적타점)': 0,
-                    'A급(매복)': 1,
-                    'S급(과열주의)': 2,
-                }
-                selected_scan['grade_order'] = selected_scan['grade'].map(grade_order).fillna(9)
-                selected_scan = selected_scan.sort_values(
-                    ['grade_order', 'market_cap'], ascending=[True, False]
-                )
-                display_scan = selected_scan[[
-                    'grade', 'name', 'ticker', 'market_cap', 'current_price',
-                    'fluctuation_rate', 'volume_ratio', 'rsi', 'williams_r'
-                ]].copy()
-                display_scan['market_cap'] = display_scan['market_cap'].apply(format_won_to_eok)
-                display_scan = display_scan.rename(columns={
-                    'grade': '등급',
-                    'name': '종목명',
-                    'ticker': '종목코드',
-                    'market_cap': '시가총액(억)',
-                    'current_price': '현재가',
-                    'fluctuation_rate': '등락률(%)',
-                    'volume_ratio': '거래비율(%)',
-                    'rsi': 'RSI',
-                    'williams_r': 'W%R',
-                })
-                st.dataframe(display_scan, use_container_width=True, hide_index=True)
-                latest_scan_time = selected_scan['scanned_at_kst'].dropna().max()
-                if latest_scan_time:
-                    st.caption(f"스캔 완료 시각: {latest_scan_time} KST")

@@ -28,11 +28,10 @@ def main():
     scheduled_cron = os.environ.get("GITHUB_EVENT_SCHEDULE", "").strip()
     run_mode = os.environ.get("ANALYSIS_RUN_MODE", "").strip()
 
-    if scheduled_cron == "50 0 * * 1-5" or run_mode == "market_strength_only":
-        analysis_label = "오전" if scheduled_cron == "50 0 * * 1-5" else "수동"
-        print(f"\n[Market Strength Only] {analysis_label} 시장강도 데이터를 수집합니다.")
+    if run_mode == "market_strength_only":
+        print("\n[Market Strength Only] 수동 시장강도 데이터를 수집합니다.")
         run_market_strength()
-        print(f"\n=== {analysis_label} 시장강도 분석이 완료되었습니다! ===")
+        print("\n=== 수동 시장강도 분석이 완료되었습니다! ===")
         return
 
     use_latest_regular_data = False
