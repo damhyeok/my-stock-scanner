@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import requests
-from pykrx import stock
 
 
 class CloseBetScanner:
@@ -87,33 +86,84 @@ class CloseBetScanner:
         return payload
 
     def _load_universe(self, trade_date, session):
-        try:
-            market_caps = stock.get_market_cap_by_ticker(trade_date, market="ALL")
-            market_cap_column = "시가총액"
-            if market_caps.empty or market_cap_column not in market_caps.columns:
-                raise RuntimeError("market-cap data is empty")
-            market_caps = market_caps[market_caps[market_cap_column] >= self.MARKET_CAP_MIN]
-            frame = pd.DataFrame({
-                "ticker": market_caps.index.astype(str),
-                "market_cap": market_caps[market_cap_column].astype("int64").values,
-            })
-            frame["name"] = frame["ticker"].map(stock.get_market_ticker_name)
-            frame = frame[["ticker", "name", "market_cap"]].sort_values("market_cap", ascending=False)
-        except Exception as error:
-            print(f"[Close Bet Warning] full-market universe failed; using collected DB: {error}")
-            with sqlite3.connect(self.db_path) as conn:
-                frame = pd.read_sql_query(
-                    """
-                    SELECT ticker, MAX(name) AS name, MAX(market_cap) AS market_cap
-                    FROM daily_stocks
-                    WHERE date = ? AND session = ? AND market_cap >= ?
-                    GROUP BY ticker
-                    ORDER BY market_cap DESC
-                    """,
-                    conn,
-                    params=(trade_date, session, self.MARKET_CAP_MIN),
-                )
+        token = self.crawler._get_kis_access_token()
+        url = f"{self.crawler.kis_base_url}/uapi/domestic-stock/v1/ranking/market-cap"
+        params = {
+            "FID_INPUT_PRICE_2": "",
+            "FID_COND_MRKT_DIV_CODE": "J",
+            "FID_COND_SCR_DIV_CODE": "20174",
+            "FID_DIV_CLS_CODE": "1",
+            "FID_INPUT_ISCD": "0000",
+            "FID_TRGT_CLS_CODE": "0",
+            "FID_TRGT_EXLS_CLS_CODE": "0",
+            "FID_INPUT_PRICE_1": "",
+            "FID_VOL_CNT": "",
+        }
+        rows = []
+        seen_pages = set()
+        continuation = ""
+
+        for page_number in range(1, 51):
+            self._throttle()
+            headers = {
+                "content-type": "application/json; charset=utf-8",
+                "authorization": f"Bearer {token}",
+                "appkey": self.crawler.kis_app_key,
+                "appsecret": self.crawler.kis_app_secret,
+                "tr_id": "FHPST01740000",
+                "custtype": "P",
+            }
+            if continuation:
+                headers["tr_cont"] = "N"
+            response = requests.get(url, headers=headers, params=params, timeout=15)
+            response.raise_for_status()
+            payload = response.json()
+            if payload.get("rt_cd") != "0":
+                raise RuntimeError(payload.get("msg1") or "KIS market-cap ranking failed")
+
+            output = payload.get("output") or []
+            if not output:
+                break
+            page_key = tuple(item.get("mksc_shrn_iscd", "") for item in output)
+            if page_key in seen_pages:
+                raise RuntimeError("KIS market-cap pagination repeated the same page")
+            seen_pages.add(page_key)
+
+            valid_market_caps = []
+            for item in output:
+                ticker = str(item.get("mksc_shrn_iscd", "")).zfill(6)
+                name = str(item.get("hts_kor_isnm", "")).strip()
+                current_price = pd.to_numeric(item.get("stck_prpr"), errors="coerce")
+                listed_shares = pd.to_numeric(item.get("lstn_stcn"), errors="coerce")
+                if not ticker.isdigit() or pd.isna(current_price) or pd.isna(listed_shares):
+                    continue
+                market_cap = int(current_price * listed_shares)
+                valid_market_caps.append(market_cap)
+                if market_cap >= self.MARKET_CAP_MIN:
+                    rows.append({
+                        "ticker": ticker,
+                        "name": name,
+                        "market_cap": market_cap,
+                    })
+
+            print(
+                f"[Close Bet Universe] page={page_number}, rows={len(output)}, "
+                f"qualified={len(rows)}, tr_cont={response.headers.get('tr_cont', '-')}"
+            )
+            if valid_market_caps and min(valid_market_caps) < self.MARKET_CAP_MIN:
+                break
+            continuation = response.headers.get("tr_cont", "").strip().upper()
+            if continuation != "M":
+                break
+
+        frame = pd.DataFrame(rows).drop_duplicates("ticker") if rows else pd.DataFrame()
+        if frame.empty:
+            raise RuntimeError("KIS market-cap ranking returned no stocks above 500 billion won")
+        frame = frame[["ticker", "name", "market_cap"]].sort_values(
+            "market_cap", ascending=False
+        )
         frame["ticker"] = frame["ticker"].astype(str).str.zfill(6)
+        print(f"[Close Bet Universe] KIS large-cap stocks={len(frame)}")
         return frame
 
     def _fetch_daily_ohlcv(self, ticker, trade_date):
