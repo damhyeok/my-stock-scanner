@@ -128,6 +128,102 @@ def display_wrapped_table(df):
     )
     st.markdown(f'<div class="wrapped-table">{table_html}</div>', unsafe_allow_html=True)
 
+def calculate_consecutive_buy_streaks(
+    raw_data, current_stocks, selected_date, selected_session, mode, min_days=2
+):
+    if current_stocks.empty:
+        return pd.DataFrame()
+
+    history = raw_data[
+        (raw_data['date'].astype(str) <= str(selected_date))
+        & (raw_data['session'] == selected_session)
+    ].copy()
+    if history.empty:
+        return pd.DataFrame()
+
+    for column in ['foreign_net', 'inst_net', 'trading_value']:
+        history[column] = pd.to_numeric(history[column], errors='coerce').fillna(0)
+    history['ticker'] = history['ticker'].astype(str).str.zfill(6)
+    history = history.sort_values(['date', 'ticker', 'category']).drop_duplicates(
+        ['date', 'ticker'], keep='first'
+    )
+    trading_dates = sorted(history['date'].astype(str).unique().tolist(), reverse=True)
+
+    current = current_stocks.copy()
+    current['ticker'] = current['ticker'].astype(str).str.zfill(6)
+    for column in ['foreign_net', 'inst_net', 'trading_value']:
+        current[column] = pd.to_numeric(current[column], errors='coerce').fillna(0)
+
+    rows = []
+    for stock_row in current.drop_duplicates('ticker').itertuples(index=False):
+        ticker_history = history[history['ticker'] == stock_row.ticker].set_index(
+            history[history['ticker'] == stock_row.ticker]['date'].astype(str)
+        )
+        streak = 0
+        streak_start = None
+        for trade_date in trading_dates:
+            if trade_date not in ticker_history.index:
+                break
+            record = ticker_history.loc[trade_date]
+            if isinstance(record, pd.DataFrame):
+                record = record.iloc[0]
+            foreign_positive = record['foreign_net'] > 0
+            institution_positive = record['inst_net'] > 0
+            condition = {
+                'both': foreign_positive and institution_positive,
+                'foreign': foreign_positive,
+                'institution': institution_positive,
+            }[mode]
+            if not condition:
+                break
+            streak += 1
+            streak_start = trade_date
+
+        if streak >= min_days:
+            rows.append({
+                'name': stock_row.name,
+                'sector': stock_row.sector,
+                'streak_days': streak,
+                'streak_start': streak_start,
+                'foreign_net': stock_row.foreign_net,
+                'inst_net': stock_row.inst_net,
+                'total_net': stock_row.foreign_net + stock_row.inst_net,
+                'trading_value': stock_row.trading_value,
+            })
+
+    result = pd.DataFrame(rows)
+    if result.empty:
+        return result
+    sort_value = {'both': 'total_net', 'foreign': 'foreign_net', 'institution': 'inst_net'}[mode]
+    return result.sort_values(['streak_days', sort_value], ascending=[False, False])
+
+def display_consecutive_buy_table(streaks, mode):
+    if streaks.empty:
+        st.info("현재 종목 중 2거래일 이상 연속 순매수한 종목이 없습니다.")
+        return
+
+    common_columns = ['name', 'sector', 'streak_days', 'streak_start']
+    amount_columns = {
+        'both': ['foreign_net', 'inst_net', 'total_net'],
+        'foreign': ['foreign_net'],
+        'institution': ['inst_net'],
+    }[mode]
+    display = streaks[common_columns + amount_columns + ['trading_value']].copy()
+    for column in amount_columns:
+        display[column] = display[column].apply(format_kis_flow_to_eok)
+    display['trading_value'] = display['trading_value'].apply(format_won_to_eok)
+    display = display.rename(columns={
+        'name': '종목명',
+        'sector': '업종',
+        'streak_days': '연속 순매수(거래일)',
+        'streak_start': '연속 시작일',
+        'foreign_net': '현재 외국인(억)',
+        'inst_net': '현재 기관(억)',
+        'total_net': '현재 합산(억)',
+        'trading_value': '현재 거래대금(억)',
+    })
+    st.dataframe(display, use_container_width=True, hide_index=True)
+
 def to_csv_bytes(df):
     return df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
 
@@ -615,12 +711,25 @@ else:
             )
             display_formatted_df(both_buy_df, hidden_columns=['date', 'session', 'ticker', 'volume', 'theme'])
 
+        st.write("---")
+        st.subheader("🔁 외인·기관 동반 연속 순매수 종목")
+        both_streaks = calculate_consecutive_buy_streaks(
+            df_raw, both_buy_df, selected_date, selected_session, 'both'
+        )
+        display_consecutive_buy_table(both_streaks, 'both')
+
     with tab3:
         st.header(f"🟢 외국인 순매수 Top 30 ({selected_session_label})")
         df_for = df_selected[df_selected['category'] == 'FOREIGN_TOP_30'].copy()
         df_for = df_for.sort_values(by='foreign_net', ascending=False)
         display_formatted_df(df_for, hidden_columns=['date', 'session', 'ticker', 'volume', 'theme'])
         display_sector_summary(df_for)
+        st.write("---")
+        st.subheader("🔁 외국인 연속 순매수 종목")
+        foreign_streaks = calculate_consecutive_buy_streaks(
+            df_raw, df_for, selected_date, selected_session, 'foreign'
+        )
+        display_consecutive_buy_table(foreign_streaks, 'foreign')
 
     with tab4:
         st.header(f"🔴 기관 순매수 Top 30 ({selected_session_label})")
@@ -628,6 +737,12 @@ else:
         df_inst = df_inst.sort_values(by='inst_net', ascending=False)
         display_formatted_df(df_inst, hidden_columns=['date', 'session', 'ticker', 'volume', 'theme'])
         display_sector_summary(df_inst)
+        st.write("---")
+        st.subheader("🔁 기관 연속 순매수 종목")
+        institution_streaks = calculate_consecutive_buy_streaks(
+            df_raw, df_inst, selected_date, selected_session, 'institution'
+        )
+        display_consecutive_buy_table(institution_streaks, 'institution')
         
     # 탭 5: 섹터 요약
     with tab5:
