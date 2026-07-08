@@ -88,22 +88,15 @@ class CloseBetScanner:
     def _load_universe(self, trade_date, session):
         token = self.crawler._get_kis_access_token()
         url = f"{self.crawler.kis_base_url}/uapi/domestic-stock/v1/ranking/market-cap"
-        params = {
-            "FID_INPUT_PRICE_2": "",
-            "FID_COND_MRKT_DIV_CODE": "J",
-            "FID_COND_SCR_DIV_CODE": "20174",
-            "FID_DIV_CLS_CODE": "1",
-            "FID_INPUT_ISCD": "0000",
-            "FID_TRGT_CLS_CODE": "0",
-            "FID_TRGT_EXLS_CLS_CODE": "0",
-            "FID_INPUT_PRICE_1": "",
-            "FID_VOL_CNT": "",
-        }
         rows = []
-        seen_pages = set()
-        continuation = ""
+        pending_ranges = [(0, 10_000_000)]
+        processed_ranges = 0
 
-        for page_number in range(1, 51):
+        while pending_ranges:
+            if processed_ranges >= 256:
+                raise RuntimeError("KIS market-cap price-range split exceeded the safety limit")
+            minimum_price, maximum_price = pending_ranges.pop()
+            processed_ranges += 1
             self._throttle()
             headers = {
                 "content-type": "application/json; charset=utf-8",
@@ -113,8 +106,17 @@ class CloseBetScanner:
                 "tr_id": "FHPST01740000",
                 "custtype": "P",
             }
-            if continuation:
-                headers["tr_cont"] = "N"
+            params = {
+                "FID_INPUT_PRICE_2": str(maximum_price),
+                "FID_COND_MRKT_DIV_CODE": "J",
+                "FID_COND_SCR_DIV_CODE": "20174",
+                "FID_DIV_CLS_CODE": "1",
+                "FID_INPUT_ISCD": "0000",
+                "FID_TRGT_CLS_CODE": "0",
+                "FID_TRGT_EXLS_CLS_CODE": "0",
+                "FID_INPUT_PRICE_1": str(minimum_price),
+                "FID_VOL_CNT": "",
+            }
             response = requests.get(url, headers=headers, params=params, timeout=15)
             response.raise_for_status()
             payload = response.json()
@@ -123,11 +125,11 @@ class CloseBetScanner:
 
             output = payload.get("output") or []
             if not output:
-                break
-            page_key = tuple(item.get("mksc_shrn_iscd", "") for item in output)
-            if page_key in seen_pages:
-                raise RuntimeError("KIS market-cap pagination repeated the same page")
-            seen_pages.add(page_key)
+                print(
+                    f"[Close Bet Universe] price={minimum_price:,}~{maximum_price:,}, "
+                    "rows=0"
+                )
+                continue
 
             valid_market_caps = []
             for item in output:
@@ -147,14 +149,22 @@ class CloseBetScanner:
                     })
 
             print(
-                f"[Close Bet Universe] page={page_number}, rows={len(output)}, "
-                f"qualified={len(rows)}, tr_cont={response.headers.get('tr_cont', '-')}"
+                f"[Close Bet Universe] price={minimum_price:,}~{maximum_price:,}, "
+                f"rows={len(output)}, qualified={len(rows)}"
             )
-            if valid_market_caps and min(valid_market_caps) < self.MARKET_CAP_MIN:
-                break
-            continuation = response.headers.get("tr_cont", "").strip().upper()
-            if continuation != "M":
-                break
+            bucket_may_be_truncated = (
+                len(output) >= 30
+                and valid_market_caps
+                and min(valid_market_caps) >= self.MARKET_CAP_MIN
+            )
+            if bucket_may_be_truncated:
+                if minimum_price >= maximum_price:
+                    raise RuntimeError(
+                        f"KIS market-cap bucket remained truncated at price {minimum_price}"
+                    )
+                midpoint = (minimum_price + maximum_price) // 2
+                pending_ranges.append((minimum_price, midpoint))
+                pending_ranges.append((midpoint + 1, maximum_price))
 
         frame = pd.DataFrame(rows).drop_duplicates("ticker") if rows else pd.DataFrame()
         if frame.empty:
@@ -163,7 +173,10 @@ class CloseBetScanner:
             "market_cap", ascending=False
         )
         frame["ticker"] = frame["ticker"].astype(str).str.zfill(6)
-        print(f"[Close Bet Universe] KIS large-cap stocks={len(frame)}")
+        print(
+            f"[Close Bet Universe] KIS large-cap stocks={len(frame)}, "
+            f"price_ranges={processed_ranges}"
+        )
         return frame
 
     def _fetch_daily_ohlcv(self, ticker, trade_date):
