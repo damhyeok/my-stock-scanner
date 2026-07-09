@@ -5,6 +5,7 @@ import re
 import os
 import tempfile
 import html
+import json
 import requests
 import hashlib
 import hmac
@@ -15,6 +16,10 @@ import altair as alt
 import plotly.express as px
 import plotly.graph_objects as go
 from analyzer import StockAnalyzer
+from model_data_collector import ModelDataCollector
+from model_features import ModelFeatureBuilder
+from model_labels import ModelLabelBuilder
+from stock_chart_analyzer import StockChartAnalyzer
 
 # 페이지 기본 설정
 st.set_page_config(page_title="주식 분석 대시보드", layout="wide", page_icon="📈")
@@ -545,6 +550,25 @@ def get_close_bet_runs():
     except Exception:
         return pd.DataFrame()
 
+@st.cache_data(ttl=60)
+def get_bottom_candidate_data():
+    try:
+        db_path, _ = get_database_path()
+        conn = sqlite3.connect(db_path)
+        df = pd.read_sql(
+            """
+            SELECT *
+            FROM model_bottom_signals
+            WHERE universe_type = 'market_cap_10000eok_plus'
+            ORDER BY signal_date DESC, bottom_score DESC
+            """,
+            conn,
+        )
+        conn.close()
+        return df
+    except Exception:
+        return pd.DataFrame()
+
 # 데이터 로드
 with st.spinner("데이터를 불러오고 있습니다..."):
     df_analyzed = get_analyzed_data()
@@ -554,6 +578,7 @@ with st.spinner("데이터를 불러오고 있습니다..."):
     df_sector_flow = get_sector_flow_data()
     df_close_bet = get_close_bet_data()
     df_close_bet_runs = get_close_bet_runs()
+    df_bottom_candidates = get_bottom_candidate_data()
 
 if df_analyzed is None or df_raw.empty:
     st.warning("⚠️ 분석할 데이터가 없습니다. 먼저 `crawler.py`를 실행하여 데이터를 수집해주세요.")
@@ -645,7 +670,7 @@ else:
     st.divider()
 
     # 탭으로 분리
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13 = st.tabs([
         "🏆 종합 추천종목", 
         "🔥 거래대금 Top", 
         "🟢 외인 순매수", 
@@ -656,13 +681,133 @@ else:
         "📰 뉴스 이슈 종목",
         "🌡️ 시장 강도 분석",
         "🧭 오늘 섹터 흐름",
-        "🎯 종가베팅 스캐너"
+        "🎯 종가베팅 스캐너",
+        "🧱 바닥 후보 종목",
+        "🔎 종목 차트 분석"
     ])
     
     if 'session' in df_raw.columns:
         df_selected = df_raw[(df_raw['date'] == selected_date) & (df_raw['session'] == selected_session)].copy()
     else:
         df_selected = df_raw[df_raw['date'] == selected_date].copy()
+
+    with tab12:
+        st.header("🧱 바닥 후보 종목")
+        if df_bottom_candidates.empty:
+            st.info("아직 생성된 바닥 후보 신호가 없습니다. `bottom_detector.py`를 먼저 실행해주세요.")
+        else:
+            bottom_day = df_bottom_candidates[
+                df_bottom_candidates['signal_date'].astype(str) == str(selected_date)
+            ].copy()
+            if bottom_day.empty:
+                latest_signal_date = df_bottom_candidates['signal_date'].astype(str).max()
+                st.info(f"{selected_date} 신호가 없어 최신 신호일({latest_signal_date})을 표시합니다.")
+                bottom_day = df_bottom_candidates[
+                    df_bottom_candidates['signal_date'].astype(str) == latest_signal_date
+                ].copy()
+
+            def compact_json_list(value):
+                try:
+                    items = json.loads(value) if isinstance(value, str) else []
+                    return " / ".join(str(item) for item in items[:4])
+                except Exception:
+                    return str(value)
+
+            display = bottom_day.copy()
+            for column in ['reasons', 'risk_reasons']:
+                if column in display.columns:
+                    display[column] = display[column].apply(compact_json_list)
+
+            display_columns = [
+                'signal_date', 'name', 'current_price', 'bottom_score', 'grade',
+                'chart_score', 'supply_score', 'sector_market_score', 'news_score',
+                'risk_penalty', 'reasons', 'risk_reasons',
+                'similar_pattern_win_rate', 'similar_pattern_count', 'market_regime',
+            ]
+            display_columns = [column for column in display_columns if column in display.columns]
+            display = display[display_columns].rename(columns={
+                'signal_date': '날짜',
+                'name': '종목명',
+                'current_price': '현재가',
+                'bottom_score': '바닥 후보 점수',
+                'grade': '등급',
+                'chart_score': '차트 점수',
+                'supply_score': '수급 점수',
+                'sector_market_score': '섹터/시장 점수',
+                'news_score': '뉴스 점수',
+                'risk_penalty': '리스크 감점',
+                'reasons': '판단 근거',
+                'risk_reasons': '리스크 근거',
+                'similar_pattern_win_rate': '유사 패턴 승률(%)',
+                'similar_pattern_count': '유사 패턴 수',
+                'market_regime': '시장 레짐',
+            })
+            display_wrapped_table(display)
+
+    with tab13:
+        st.header("🔎 종목 차트 분석")
+        query = st.text_input("종목명 또는 종목코드", value="", placeholder="예: 삼성전자 또는 005930")
+        if query:
+            db_path, _ = get_database_path()
+            chart_analyzer = StockChartAnalyzer(db_path=db_path)
+            analysis = chart_analyzer.analyze(query)
+            if analysis is None:
+                st.warning("저장된 모델 데이터에서 종목을 찾지 못했습니다.")
+                st.caption("시총 5천억 이상 종목이면 KIS에서 1년치 일봉을 받아 model_ 전용 DB에 캐시 저장할 수 있습니다.")
+                if st.button("KIS에서 종목 데이터 저장 후 분석"):
+                    with st.spinner("KIS에서 종목 확인 및 일봉 저장 중..."):
+                        try:
+                            collector = ModelDataCollector(db_path=db_path)
+                            summary = collector.collect_single_stock_ohlcv(
+                                query,
+                                min_market_cap=500_000_000_000,
+                                universe_type="custom_5000eok_plus",
+                                lookback_days=370,
+                            )
+                            ModelFeatureBuilder(db_path=db_path).run("custom_5000eok_plus")
+                            ModelLabelBuilder(db_path=db_path).run("custom_5000eok_plus")
+                            st.cache_data.clear()
+                            st.success(
+                                f"{summary['stock']['name']} 데이터 저장 완료: "
+                                f"{summary['ohlcv_rows']}개 일봉"
+                            )
+                            st.rerun()
+                        except Exception as error:
+                            st.error(f"데이터 저장 실패: {error}")
+            else:
+                stock = analysis["stock"]
+                metric_cols = st.columns(6)
+                metric_cols[0].metric("종목", f"{stock['name']} ({stock['ticker']})")
+                metric_cols[1].metric("점수", analysis["score"])
+                metric_cols[2].metric("등급", analysis["grade"])
+                metric_cols[3].metric("시장 레짐", analysis.get("market_regime") or "-")
+                metric_cols[4].metric("유사 승률", "-" if analysis["similar_pattern_win_rate"] is None else f"{analysis['similar_pattern_win_rate']}%")
+                metric_cols[5].metric("유사 표본", analysis["similar_pattern_count"])
+
+                score_cols = st.columns(5)
+                score_cols[0].metric("차트", analysis["chart_score"])
+                score_cols[1].metric("수급", analysis["supply_score"])
+                score_cols[2].metric("섹터/시장", analysis["sector_market_score"])
+                score_cols[3].metric("뉴스", analysis["news_score"])
+                score_cols[4].metric("리스크 감점", analysis["risk_penalty"])
+
+                st.plotly_chart(analysis["figure"], use_container_width=True)
+
+                reason_col, risk_col = st.columns(2)
+                with reason_col:
+                    st.subheader("판단 근거")
+                    if analysis["reasons"]:
+                        for reason in analysis["reasons"]:
+                            st.write(f"- {reason}")
+                    else:
+                        st.info("강한 긍정 근거가 아직 부족합니다.")
+                with risk_col:
+                    st.subheader("리스크 근거")
+                    if analysis["risk_reasons"]:
+                        for reason in analysis["risk_reasons"]:
+                            st.write(f"- {reason}")
+                    else:
+                        st.info("큰 리스크 감점 요인이 없습니다.")
 
     # 탭 1: 종합 추천
     with tab1:
