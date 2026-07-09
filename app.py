@@ -584,7 +584,7 @@ def collect_and_build_single_stock(query, db_path):
         query,
         min_market_cap=500_000_000_000,
         universe_type="custom_5000eok_plus",
-        lookback_days=370,
+        lookback_days=180,
     )
     ModelFeatureBuilder(db_path=db_path).run("custom_5000eok_plus")
     ModelLabelBuilder(db_path=db_path).run("custom_5000eok_plus")
