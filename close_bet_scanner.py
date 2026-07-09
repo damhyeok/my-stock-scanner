@@ -12,6 +12,12 @@ class CloseBetScanner:
     """Scan liquid large-cap stocks for the requested close-bet chart setup."""
 
     MARKET_CAP_MIN = 500_000_000_000
+    PRODUCT_KEYWORDS = (
+        "KODEX", "TIGER", "ACE", "SOL", "PLUS", "RISE", "HANARO",
+        "KOSEF", "ARIRANG", "KBSTAR", "KINDEX", "TREX", "TIMEFOLIO",
+        "FOCUS", "WOORI", "1Q", "ETF", "ETN", "레버리지", "인버스",
+        "선물", "채권",
+    )
 
     def __init__(self, crawler, db_path="stock_data.db"):
         self.crawler = crawler
@@ -85,6 +91,11 @@ class CloseBetScanner:
             raise RuntimeError(payload.get("msg1") or "KIS API request failed")
         return payload
 
+    @classmethod
+    def _is_exchange_traded_product(cls, name):
+        name_upper = str(name or "").upper()
+        return any(keyword in name_upper for keyword in cls.PRODUCT_KEYWORDS)
+
     def _load_universe(self, trade_date, session):
         token = self.crawler._get_kis_access_token()
         url = f"{self.crawler.kis_base_url}/uapi/domestic-stock/v1/ranking/market-cap"
@@ -113,7 +124,7 @@ class CloseBetScanner:
                 "FID_DIV_CLS_CODE": "1",
                 "FID_INPUT_ISCD": "0000",
                 "FID_TRGT_CLS_CODE": "0",
-                "FID_TRGT_EXLS_CLS_CODE": "0",
+                "FID_TRGT_EXLS_CLS_CODE": "0000001101",
                 "FID_INPUT_PRICE_1": str(minimum_price),
                 "FID_VOL_CNT": "",
             }
@@ -132,9 +143,13 @@ class CloseBetScanner:
                 continue
 
             valid_market_caps = []
+            excluded_products = 0
             for item in output:
                 ticker = str(item.get("mksc_shrn_iscd", "")).zfill(6)
                 name = str(item.get("hts_kor_isnm", "")).strip()
+                if self._is_exchange_traded_product(name):
+                    excluded_products += 1
+                    continue
                 current_price = pd.to_numeric(item.get("stck_prpr"), errors="coerce")
                 listed_shares = pd.to_numeric(item.get("lstn_stcn"), errors="coerce")
                 if not ticker.isdigit() or pd.isna(current_price) or pd.isna(listed_shares):
@@ -150,7 +165,7 @@ class CloseBetScanner:
 
             print(
                 f"[Close Bet Universe] price={minimum_price:,}~{maximum_price:,}, "
-                f"rows={len(output)}, qualified={len(rows)}"
+                f"rows={len(output)}, excluded_products={excluded_products}, qualified={len(rows)}"
             )
             bucket_may_be_truncated = (
                 len(output) >= 30
