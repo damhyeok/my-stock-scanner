@@ -4,6 +4,7 @@ import sqlite3
 import plotly.graph_objects as go
 
 from bottom_detector import BottomDetector
+from model_schema import init_model_tables
 
 
 DEFAULT_UNIVERSE_TYPES = (
@@ -16,6 +17,7 @@ DEFAULT_UNIVERSE_TYPES = (
 class StockChartAnalyzer:
     def __init__(self, db_path="stock_data.db"):
         self.db_path = db_path
+        init_model_tables(db_path)
         self.detector = BottomDetector(db_path=db_path)
 
     def resolve_stock(self, query, universe_types=DEFAULT_UNIVERSE_TYPES):

@@ -19,6 +19,7 @@ from analyzer import StockAnalyzer
 from model_data_collector import ModelDataCollector
 from model_features import ModelFeatureBuilder
 from model_labels import ModelLabelBuilder
+from model_schema import init_model_tables
 from stock_chart_analyzer import StockChartAnalyzer
 
 # 페이지 기본 설정
@@ -240,6 +241,12 @@ def get_config_value(key, default=""):
         return st.secrets.get(key, os.environ.get(key, default))
     except Exception:
         return os.environ.get(key, default)
+
+def configure_model_runtime_secrets():
+    for key in ("KIS_APP_KEY", "KIS_APP_SECRET"):
+        value = get_config_value(key)
+        if value:
+            os.environ[key] = value
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_database_path():
@@ -554,6 +561,7 @@ def get_close_bet_runs():
 def get_bottom_candidate_data():
     try:
         db_path, _ = get_database_path()
+        init_model_tables(db_path)
         conn = sqlite3.connect(db_path)
         df = pd.read_sql(
             """
@@ -568,6 +576,19 @@ def get_bottom_candidate_data():
         return df
     except Exception:
         return pd.DataFrame()
+
+def collect_and_build_single_stock(query, db_path):
+    configure_model_runtime_secrets()
+    collector = ModelDataCollector(db_path=db_path)
+    summary = collector.collect_single_stock_ohlcv(
+        query,
+        min_market_cap=500_000_000_000,
+        universe_type="custom_5000eok_plus",
+        lookback_days=370,
+    )
+    ModelFeatureBuilder(db_path=db_path).run("custom_5000eok_plus")
+    ModelLabelBuilder(db_path=db_path).run("custom_5000eok_plus")
+    return summary
 
 # 데이터 로드
 with st.spinner("데이터를 불러오고 있습니다..."):
@@ -749,6 +770,7 @@ else:
         query = st.text_input("종목명 또는 종목코드", value="", placeholder="예: 삼성전자 또는 005930")
         if query:
             db_path, _ = get_database_path()
+            init_model_tables(db_path)
             chart_analyzer = StockChartAnalyzer(db_path=db_path)
             analysis = chart_analyzer.analyze(query)
             if analysis is None:
@@ -757,16 +779,7 @@ else:
                 if st.button("KIS에서 종목 데이터 저장 후 분석"):
                     with st.spinner("KIS에서 종목 확인 및 일봉 저장 중..."):
                         try:
-                            collector = ModelDataCollector(db_path=db_path)
-                            summary = collector.collect_single_stock_ohlcv(
-                                query,
-                                min_market_cap=500_000_000_000,
-                                universe_type="custom_5000eok_plus",
-                                lookback_days=370,
-                            )
-                            ModelFeatureBuilder(db_path=db_path).run("custom_5000eok_plus")
-                            ModelLabelBuilder(db_path=db_path).run("custom_5000eok_plus")
-                            st.cache_data.clear()
+                            summary = collect_and_build_single_stock(query, db_path)
                             st.success(
                                 f"{summary['stock']['name']} 데이터 저장 완료: "
                                 f"{summary['ohlcv_rows']}개 일봉"
