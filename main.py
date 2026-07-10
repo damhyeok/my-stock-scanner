@@ -1,5 +1,7 @@
 import os
+import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from crawler import StockCrawler
 from analyzer import StockAnalyzer
@@ -28,23 +30,47 @@ def report_market_strength_error(error):
 
 def run_bottom_model():
     universe_type = "market_cap_10000eok_plus"
+    status_path = Path("reports") / "bottom_model_status.json"
+    status_path.parent.mkdir(exist_ok=True)
     print("\n[Bottom Model] Collecting 180-day data for stocks over 1T KRW market cap.")
-    collector = ModelDataCollector(db_path="stock_data.db")
-    summary = collector.collect_market_cap_threshold_ohlcv(
-        min_market_cap=1_000_000_000_000,
-        universe_type=universe_type,
-        lookback_days=180,
-    )
-    print(
-        "[Bottom Model] Collected: "
-        f"universe={summary['universe_count']}, "
-        f"ohlcv_rows={summary['ohlcv_rows']}, "
-        f"failures={len(summary['failures'])}"
-    )
-    ModelFeatureBuilder(db_path="stock_data.db").run(universe_type)
-    MarketRegimeBuilder(db_path="stock_data.db").run(universe_type)
-    BottomDetector(db_path="stock_data.db").run(universe_type=universe_type, min_score=55)
-    print("[Bottom Model] Done.")
+    status = {
+        "status": "started",
+        "universe_type": universe_type,
+        "lookback_days": 180,
+        "started_at_kst": datetime.now(timezone(timedelta(hours=9))).isoformat(timespec="seconds"),
+    }
+    try:
+        collector = ModelDataCollector(db_path="stock_data.db")
+        summary = collector.collect_market_cap_threshold_ohlcv(
+            min_market_cap=1_000_000_000_000,
+            universe_type=universe_type,
+            lookback_days=180,
+        )
+        status["collection"] = {
+            "universe_count": summary["universe_count"],
+            "ohlcv_rows": summary["ohlcv_rows"],
+            "failure_count": len(summary["failures"]),
+        }
+        print(
+            "[Bottom Model] Collected: "
+            f"universe={summary['universe_count']}, "
+            f"ohlcv_rows={summary['ohlcv_rows']}, "
+            f"failures={len(summary['failures'])}"
+        )
+        ModelFeatureBuilder(db_path="stock_data.db").run(universe_type)
+        MarketRegimeBuilder(db_path="stock_data.db").run(universe_type)
+        signals = BottomDetector(db_path="stock_data.db").run(universe_type=universe_type, min_score=55)
+        status["status"] = "success"
+        status["signal_count"] = 0 if signals is None else len(signals)
+        print("[Bottom Model] Done.")
+    except Exception as error:
+        status["status"] = "failure"
+        status["error"] = str(error)
+        print(f"[Bottom Model Error] {error}")
+        raise
+    finally:
+        status["finished_at_kst"] = datetime.now(timezone(timedelta(hours=9))).isoformat(timespec="seconds")
+        status_path.write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def main():

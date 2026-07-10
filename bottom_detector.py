@@ -276,7 +276,8 @@ class BottomDetector:
         ticker = feature["ticker"]
         date = feature["date"]
         with sqlite3.connect(self.db_path) as conn:
-            daily_flow = conn.execute(
+            daily_flow = self._safe_fetchone(
+                conn,
                 """
                 SELECT foreign_net, inst_net, trading_value, sector
                 FROM daily_stocks
@@ -285,8 +286,9 @@ class BottomDetector:
                 LIMIT 1
                 """,
                 (date, ticker),
-            ).fetchone()
-            market = conn.execute(
+            )
+            market = self._safe_fetchone(
+                conn,
                 """
                 SELECT market_strength_score
                 FROM market_strength_snapshots
@@ -295,27 +297,30 @@ class BottomDetector:
                 LIMIT 1
                 """,
                 (date,),
-            ).fetchone()
-            news_rows = conn.execute(
+            )
+            news_rows = self._safe_fetchall(
+                conn,
                 """
                 SELECT sentiment_score, title
                 FROM stock_news
                 WHERE date = ? AND ticker = ?
                 """,
                 (date, ticker),
-            ).fetchall()
-            regime = conn.execute(
+            )
+            regime = self._safe_fetchone(
+                conn,
                 """
                 SELECT regime
                 FROM model_market_regimes
                 WHERE date = ? AND universe_type = ?
                 """,
                 (date, feature["universe_type"]),
-            ).fetchone()
+            )
 
             sector_flow = None
             if daily_flow and daily_flow[3]:
-                sector_flow = conn.execute(
+                sector_flow = self._safe_fetchone(
+                    conn,
                     """
                     SELECT relative_signed_flow, sector_return
                     FROM sector_flow_windows
@@ -324,7 +329,7 @@ class BottomDetector:
                     LIMIT 1
                     """,
                     (date, daily_flow[3]),
-                ).fetchone()
+                )
 
         return {
             "daily_flow": None if not daily_flow else {
@@ -341,6 +346,20 @@ class BottomDetector:
             "news": [{"sentiment_score": row[0], "title": row[1]} for row in news_rows],
             "market_regime": None if not regime else regime[0],
         }
+
+    @staticmethod
+    def _safe_fetchone(conn, query, params=()):
+        try:
+            return conn.execute(query, params).fetchone()
+        except sqlite3.Error:
+            return None
+
+    @staticmethod
+    def _safe_fetchall(conn, query, params=()):
+        try:
+            return conn.execute(query, params).fetchall()
+        except sqlite3.Error:
+            return []
 
     def _similar_pattern_stats(self, feature, universe_type):
         conditions = []
@@ -360,7 +379,8 @@ class BottomDetector:
             return None, 0
 
         with sqlite3.connect(self.db_path) as conn:
-            row = conn.execute(
+            row = self._safe_fetchone(
+                conn,
                 f"""
                 SELECT COUNT(*), SUM(l.is_success)
                 FROM model_feature_daily f
@@ -374,7 +394,9 @@ class BottomDetector:
                   AND {' AND '.join(conditions)}
                 """,
                 params[:2] + [feature["date"]] + params[2:],
-            ).fetchone()
+            )
+        if row is None:
+            return None, 0
         count = row[0] or 0
         wins = row[1] or 0
         return (None if count == 0 else wins * 100 / count), count

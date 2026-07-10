@@ -60,6 +60,7 @@ jobs:
           done
         
       - name: 누적된 DB 및 엑셀 파일 깃허브 저장소에 커밋 및 푸시
+        if: always()
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
