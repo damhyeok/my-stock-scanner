@@ -175,6 +175,15 @@ class ModelDataCollector:
                 )
 
             bucket_may_be_truncated = len(output) >= 30 and valid_caps
+            if min_market_cap is not None:
+                bucket_may_be_truncated = (
+                    bucket_may_be_truncated
+                    and min(valid_caps) >= min_market_cap
+                )
+            elif limit is not None:
+                bucket_may_be_truncated = bucket_may_be_truncated and len(rows) < limit
+            else:
+                bucket_may_be_truncated = False
             if bucket_may_be_truncated and min_price < max_price:
                 midpoint = (min_price + max_price) // 2
                 pending_ranges.append((min_price, midpoint))
