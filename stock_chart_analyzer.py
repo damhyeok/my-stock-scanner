@@ -250,10 +250,11 @@ class StockChartAnalyzer:
         chart_score, chart_reasons = self.detector.chart_agent.score(latest, previous)
         supply_score, supply_reasons = self.detector.supply_agent.score(context)
         sector_score, sector_reasons = self.detector.sector_market_agent.score(context)
-        news_score, news_reasons = self.detector.news_agent.score(context)
-        context["news_score"] = news_score
+        news_score = 0
+        news_reasons = []
+        context["news_score"] = 0
         risk_penalty, risk_reasons = self.detector.adversarial_agent.score(latest, context)
-        total = max(0, min(100, (chart_score * 0.72) + supply_score + sector_score + news_score - risk_penalty))
+        total = max(0, min(100, (chart_score * 0.72) + supply_score + sector_score - risk_penalty))
         similar_win_rate, similar_count = self.detector._similar_pattern_stats(latest, stock["universe_type"])
         markers = self._bottom_marker_dates(features, labels)
 

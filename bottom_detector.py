@@ -453,11 +453,12 @@ class BottomDetector:
             chart_score, chart_reasons = self.chart_agent.score(feature, previous)
             supply_score, supply_reasons = self.supply_agent.score(context)
             sector_score, sector_reasons = self.sector_market_agent.score(context)
-            news_score, news_reasons = self.news_agent.score(context)
-            context["news_score"] = news_score
+            news_score = 0
+            news_reasons = []
+            context["news_score"] = 0
             risk_penalty, risk_reasons = self.adversarial_agent.score(feature, context)
 
-            total = (chart_score * 0.72) + supply_score + sector_score + news_score - risk_penalty
+            total = (chart_score * 0.72) + supply_score + sector_score - risk_penalty
             total = max(0, min(100, total))
             grade = self._grade(total)
             if total < min_score:
