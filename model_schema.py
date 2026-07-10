@@ -9,6 +9,7 @@ MODEL_TABLES = (
     "model_bottom_signals",
     "model_bottom_weight_runs",
     "model_market_regimes",
+    "model_strategy_registry",
 )
 
 
@@ -168,6 +169,22 @@ def init_model_tables(db_path="stock_data.db"):
                 regime TEXT,
                 calculated_at_kst TEXT,
                 PRIMARY KEY (date, universe_type)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS model_strategy_registry (
+                model_id TEXT PRIMARY KEY,
+                model_name TEXT NOT NULL,
+                model_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                source_db TEXT,
+                parameters_json TEXT NOT NULL,
+                validation_json TEXT NOT NULL,
+                description TEXT,
+                created_at_kst TEXT NOT NULL,
+                updated_at_kst TEXT NOT NULL
             )
             """
         )

@@ -169,6 +169,15 @@ class StockChartAnalyzer:
         dates = [row["date"] for row in ohlcv]
         closes = [row["close"] for row in ohlcv]
         lows_by_date = {row["date"]: row["low"] for row in ohlcv}
+        channel_upper, channel_lower = [], []
+        for index in range(len(ohlcv)):
+            if index < 20:
+                channel_upper.append(None)
+                channel_lower.append(None)
+                continue
+            prior = ohlcv[index - 20:index]
+            channel_upper.append(max(row["high"] for row in prior))
+            channel_lower.append(min(row["low"] for row in prior))
         fig = go.Figure()
         fig.add_trace(go.Candlestick(
             x=dates,
@@ -181,6 +190,44 @@ class StockChartAnalyzer:
         fig.add_trace(go.Scatter(x=dates, y=self._moving_average(closes, 20), name="MA20", line=dict(width=1.4)))
         fig.add_trace(go.Scatter(x=dates, y=self._moving_average(closes, 60), name="MA60", line=dict(width=1.4)))
         fig.add_trace(go.Scatter(x=dates, y=self._moving_average(closes, 120), name="MA120", line=dict(width=1.2)))
+        fig.add_trace(go.Scatter(
+            x=dates, y=channel_upper, name="20D Channel Upper",
+            line=dict(color="#6b7c93", width=1, dash="dot"),
+        ))
+        fig.add_trace(go.Scatter(
+            x=dates, y=channel_lower, name="20D Channel Lower",
+            line=dict(color="#6b7c93", width=1, dash="dot"),
+        ))
+
+        breakdowns = [
+            index for index, row in enumerate(ohlcv)
+            if channel_lower[index] is not None and row["close"] < channel_lower[index]
+        ]
+        if breakdowns:
+            breakdown_index = breakdowns[-1]
+            breakdown = ohlcv[breakdown_index]
+            fig.add_trace(go.Scatter(
+                x=[breakdown["date"]], y=[breakdown["low"]], mode="markers+text",
+                text=["Break Down"], textposition="bottom center", name="Break Down",
+                marker=dict(color="#d03050", size=12, symbol="triangle-down"),
+            ))
+            channel_top = channel_upper[breakdown_index]
+            trough = min(row["low"] for row in ohlcv[breakdown_index:])
+            if channel_top and channel_top > trough:
+                fib_levels = {
+                    "Fib 38.2%": trough + (channel_top - trough) * .382,
+                    "Fib 50.0%": trough + (channel_top - trough) * .5,
+                    "Fib 61.8%": trough + (channel_top - trough) * .618,
+                }
+                colors = {"Fib 38.2%": "#b58b00", "Fib 50.0%": "#f08c00", "Fib 61.8%": "#18a058"}
+                for label, level in fib_levels.items():
+                    fig.add_hline(
+                        y=level, line_dash="dash", line_width=1, line_color=colors[label],
+                        annotation_text=label, annotation_position="right",
+                    )
+                if closes[-1] >= fib_levels["Fib 38.2%"] and closes[-1] < fib_levels["Fib 61.8%"]:
+                    fig.add_hline(y=closes[-1] * .97, line_dash="dot", line_color="#d03050",
+                                  annotation_text="Model 1 stop (-3%)", annotation_position="left")
 
         success_dates = [item["date"] for item in markers if item["success"]]
         failed_dates = [item["date"] for item in markers if not item["success"]]
