@@ -725,6 +725,13 @@ else:
 
     with tab12:
         st.header("🧱 바닥 후보 종목")
+        st.markdown("""
+        **바닥 후보 점수 해석**
+        - **70점 이상**: 매수 검토 가능 구간입니다. 바로 전량 매수보다 리스크 근거와 시장 흐름을 확인한 뒤 분할 접근을 권장합니다.
+        - **55~69점**: 관심 후보입니다. 반등 확인, 거래량 증가, 지지선 방어를 더 보고 판단하는 구간입니다.
+        - **40~54점**: 약한 관찰 후보입니다. 실패를 줄이는 기준에서는 매수보다 모니터링에 가깝습니다.
+        - **40점 미만**: 현재 기준에서는 제외합니다.
+        """)
         if df_bottom_candidates.empty:
             st.info("아직 생성된 바닥 후보 신호가 없습니다. `bottom_detector.py`를 먼저 실행해주세요.")
             display_workflow_run_status(st)
@@ -767,7 +774,7 @@ else:
 
             display_columns = [
                 'signal_date', 'name', 'current_price', 'bottom_score', 'grade',
-                'chart_score', 'supply_score', 'sector_market_score', 'news_score',
+                'chart_score', 'supply_score', 'sector_market_score',
                 'risk_penalty', 'reasons', 'risk_reasons',
                 'similar_pattern_win_rate', 'similar_pattern_count', 'market_regime',
             ]
@@ -781,7 +788,6 @@ else:
                 'chart_score': '차트 점수',
                 'supply_score': '수급 점수',
                 'sector_market_score': '섹터/시장 점수',
-                'news_score': '뉴스 점수',
                 'risk_penalty': '리스크 감점',
                 'reasons': '판단 근거',
                 'risk_reasons': '리스크 근거',
@@ -824,12 +830,11 @@ else:
                 metric_cols[4].metric("유사 승률", "-" if analysis["similar_pattern_win_rate"] is None else f"{analysis['similar_pattern_win_rate']}%")
                 metric_cols[5].metric("유사 표본", analysis["similar_pattern_count"])
 
-                score_cols = st.columns(5)
+                score_cols = st.columns(4)
                 score_cols[0].metric("차트", analysis["chart_score"])
                 score_cols[1].metric("수급", analysis["supply_score"])
                 score_cols[2].metric("섹터/시장", analysis["sector_market_score"])
-                score_cols[3].metric("뉴스", analysis["news_score"])
-                score_cols[4].metric("리스크 감점", analysis["risk_penalty"])
+                score_cols[3].metric("리스크 감점", analysis["risk_penalty"])
 
                 st.plotly_chart(analysis["figure"], use_container_width=True)
 
