@@ -6,6 +6,7 @@ import os
 import tempfile
 import html
 import json
+import shutil
 import requests
 import hashlib
 import hmac
@@ -270,6 +271,16 @@ def get_database_path():
         return remote_db_path, "GitHub 최신 DB"
     except Exception:
         return local_db_path, "로컬 DB"
+
+def get_chart_model_database_path(base_db_path):
+    model_db_path = os.path.join(tempfile.gettempdir(), "stock_chart_model_runtime.db")
+    if not os.path.exists(model_db_path):
+        try:
+            shutil.copy2(base_db_path, model_db_path)
+        except Exception:
+            model_db_path = base_db_path
+    init_model_tables(model_db_path)
+    return model_db_path
 
 def trigger_github_workflow(run_mode="full", market_strength_mode="manual", requested_at_kst=None):
     token = get_config_value("GITHUB_ACTIONS_TOKEN")
@@ -778,7 +789,8 @@ else:
         st.header("🔎 종목 차트 분석")
         query = st.text_input("종목명 또는 종목코드", value="", placeholder="예: 삼성전자 또는 005930")
         if query:
-            db_path, _ = get_database_path()
+            base_db_path, _ = get_database_path()
+            db_path = get_chart_model_database_path(base_db_path)
             init_model_tables(db_path)
             chart_analyzer = StockChartAnalyzer(db_path=db_path)
             analysis = chart_analyzer.analyze(query)
