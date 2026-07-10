@@ -716,6 +716,7 @@ else:
         st.header("🧱 바닥 후보 종목")
         if df_bottom_candidates.empty:
             st.info("아직 생성된 바닥 후보 신호가 없습니다. `bottom_detector.py`를 먼저 실행해주세요.")
+            display_workflow_run_status(st)
             if st.button("바닥 후보 데이터 생성 요청"):
                 with st.spinner("GitHub Actions에 바닥 후보 모델 생성을 요청 중..."):
                     ok, message = trigger_github_workflow(run_mode="bottom_model")
