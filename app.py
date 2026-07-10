@@ -755,6 +755,12 @@ else:
                     return str(value)
 
             display = bottom_day.copy()
+            if 'bottom_score' in display.columns and 'grade' in display.columns:
+                display.loc[
+                    (pd.to_numeric(display['bottom_score'], errors='coerce') >= 40)
+                    & (pd.to_numeric(display['bottom_score'], errors='coerce') < 55),
+                    'grade'
+                ] = '약한 관찰'
             for column in ['reasons', 'risk_reasons']:
                 if column in display.columns:
                     display[column] = display[column].apply(compact_json_list)

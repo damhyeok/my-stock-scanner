@@ -59,7 +59,7 @@ def run_bottom_model():
         )
         ModelFeatureBuilder(db_path="stock_data.db").run(universe_type)
         MarketRegimeBuilder(db_path="stock_data.db").run(universe_type)
-        signals = BottomDetector(db_path="stock_data.db").run(universe_type=universe_type, min_score=55)
+        signals = BottomDetector(db_path="stock_data.db").run(universe_type=universe_type, min_score=40)
         status["status"] = "success"
         status["signal_count"] = 0 if signals is None else len(signals)
         print("[Bottom Model] Done.")
