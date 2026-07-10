@@ -1,0 +1,8 @@
+{
+  "status": "failure",
+  "universe_type": "market_cap_10000eok_plus",
+  "lookback_days": 180,
+  "started_at_kst": "2026-07-10T18:17:29+09:00",
+  "error": "KIS market-cap range split exceeded safety limit",
+  "finished_at_kst": "2026-07-10T18:20:17+09:00"
+}
