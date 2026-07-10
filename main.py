@@ -8,6 +8,10 @@ from telegram_bot import TelegramNotifier
 from news_collector import NewsCollector
 from market_strength import MarketStrengthAnalyzer
 from close_bet_scanner import CloseBetScanner
+from bottom_detector import BottomDetector
+from model_data_collector import ModelDataCollector
+from model_features import ModelFeatureBuilder
+from model_regime import MarketRegimeBuilder
 
 
 def run_market_strength(access_token=None):
@@ -22,6 +26,27 @@ def report_market_strength_error(error):
     print(f"::error title=Market Strength Analysis Failed::{message}")
 
 
+def run_bottom_model():
+    universe_type = "market_cap_10000eok_plus"
+    print("\n[Bottom Model] Collecting 180-day data for stocks over 1T KRW market cap.")
+    collector = ModelDataCollector(db_path="stock_data.db")
+    summary = collector.collect_market_cap_threshold_ohlcv(
+        min_market_cap=1_000_000_000_000,
+        universe_type=universe_type,
+        lookback_days=180,
+    )
+    print(
+        "[Bottom Model] Collected: "
+        f"universe={summary['universe_count']}, "
+        f"ohlcv_rows={summary['ohlcv_rows']}, "
+        f"failures={len(summary['failures'])}"
+    )
+    ModelFeatureBuilder(db_path="stock_data.db").run(universe_type)
+    MarketRegimeBuilder(db_path="stock_data.db").run(universe_type)
+    BottomDetector(db_path="stock_data.db").run(universe_type=universe_type, min_score=55)
+    print("[Bottom Model] Done.")
+
+
 def main():
     print("=== 주식 분석 자동화 시스템 시작 ===")
 
@@ -32,6 +57,11 @@ def main():
         print("\n[Market Strength Only] 수동 시장강도 데이터를 수집합니다.")
         run_market_strength()
         print("\n=== 수동 시장강도 분석이 완료되었습니다! ===")
+        return
+
+    if run_mode == "bottom_model":
+        run_bottom_model()
+        print("\n=== Bottom candidate model completed. ===")
         return
 
     use_latest_regular_data = False

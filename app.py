@@ -716,6 +716,14 @@ else:
         st.header("🧱 바닥 후보 종목")
         if df_bottom_candidates.empty:
             st.info("아직 생성된 바닥 후보 신호가 없습니다. `bottom_detector.py`를 먼저 실행해주세요.")
+            if st.button("바닥 후보 데이터 생성 요청"):
+                with st.spinner("GitHub Actions에 바닥 후보 모델 생성을 요청 중..."):
+                    ok, message = trigger_github_workflow(run_mode="bottom_model")
+                if ok:
+                    st.success("요청 완료. 몇 분 뒤 새로고침하면 바닥 후보가 표시됩니다.")
+                    display_workflow_run_status(st)
+                else:
+                    st.error(message)
         else:
             bottom_day = df_bottom_candidates[
                 df_bottom_candidates['signal_date'].astype(str) == str(selected_date)
