@@ -576,10 +576,16 @@ def get_bottom_candidate_data():
         conn = sqlite3.connect(db_path)
         df = pd.read_sql(
             """
-            SELECT *
-            FROM model_bottom_signals
-            WHERE universe_type = 'market_cap_10000eok_plus'
-            ORDER BY signal_date DESC, bottom_score DESC
+            SELECT
+                s.*,
+                o.change_rate AS today_change_rate
+            FROM model_bottom_signals s
+            LEFT JOIN model_ohlcv_daily o
+                ON o.ticker = s.ticker
+                AND o.date = s.signal_date
+                AND o.universe_type = s.universe_type
+            WHERE s.universe_type = 'market_cap_10000eok_plus'
+            ORDER BY s.signal_date DESC, s.bottom_score DESC
             """,
             conn,
         )
@@ -771,29 +777,34 @@ else:
             for column in ['reasons', 'risk_reasons']:
                 if column in display.columns:
                     display[column] = display[column].apply(compact_json_list)
+            if 'today_change_rate' in display.columns:
+                display['today_change_rate'] = pd.to_numeric(
+                    display['today_change_rate'], errors='coerce'
+                ).round(2)
+            display['decision_risk_summary'] = (
+                display.get('reasons', pd.Series('', index=display.index)).fillna('').astype(str)
+                + " | 리스크: "
+                + display.get('risk_reasons', pd.Series('', index=display.index)).fillna('').astype(str)
+            )
 
             display_columns = [
-                'signal_date', 'name', 'current_price', 'bottom_score', 'grade',
+                'signal_date', 'name', 'current_price', 'today_change_rate', 'bottom_score', 'grade',
                 'chart_score', 'supply_score', 'sector_market_score',
-                'risk_penalty', 'reasons', 'risk_reasons',
-                'similar_pattern_win_rate', 'similar_pattern_count', 'market_regime',
+                'risk_penalty', 'decision_risk_summary',
             ]
             display_columns = [column for column in display_columns if column in display.columns]
             display = display[display_columns].rename(columns={
                 'signal_date': '날짜',
                 'name': '종목명',
                 'current_price': '현재가',
+                'today_change_rate': '오늘 상승률(%)',
                 'bottom_score': '바닥 후보 점수',
                 'grade': '등급',
                 'chart_score': '차트 점수',
                 'supply_score': '수급 점수',
                 'sector_market_score': '섹터/시장 점수',
                 'risk_penalty': '리스크 감점',
-                'reasons': '판단 근거',
-                'risk_reasons': '리스크 근거',
-                'similar_pattern_win_rate': '유사 패턴 승률(%)',
-                'similar_pattern_count': '유사 패턴 수',
-                'market_regime': '시장 레짐',
+                'decision_risk_summary': '판단/리스크 근거',
             })
             display_wrapped_table(display)
 
