@@ -110,6 +110,11 @@ def display_formatted_df(df, use_container_width=True, hidden_columns=None):
     temp_df = temp_df.rename(columns=current_map)
     st.dataframe(temp_df, use_container_width=use_container_width)
 
+def display_integer_table(df, **kwargs):
+    """Render scanner tables with readable whole-number values only."""
+    formats = {column: '{:,.0f}' for column in df.select_dtypes(include=['number']).columns}
+    st.dataframe(df.style.format(formats), hide_index=True, **kwargs)
+
 def display_wrapped_table(df):
     escaped_df = df.copy()
     for col in escaped_df.columns:
@@ -1583,7 +1588,8 @@ else:
         st.header(f"🎯 종가베팅 스캐너 ({selected_session_label})")
         st.caption("시가총액 5,000억 원 이상 종목을 대상으로 일봉 추세·모멘텀·거래량·OBV 조건을 검사합니다.")
 
-        st.subheader('다음 날 시가 모델: 거래대금 Top 60 교집합')
+        st.subheader('① 다음 날 시가 상승 후보 · 거래대금 Top 60 교집합')
+        st.caption('시장 강세(상승 종목 비율 55% 이상·MA20 기울기 양수)에서 종가가 MA20 위이고, RSI 55~75·OBV가 20일 평균 이상인 종목만 고릅니다. 그중 거래대금 상위 60개와 겹치는 종목입니다.')
         if df_next_day_open_model.empty:
             st.info('현재 데이터에서 RSI 55~75 다음 날 시가 모델 조건을 통과한 종목이 없습니다.')
         else:
@@ -1611,7 +1617,7 @@ else:
                 model_overlap['supply_highlight'] = model_overlap['foreign_inst_buying'].map({True: '외인·기관 동시 순매수', False: ''})
                 model_overlap = model_overlap.sort_values(['fluctuation_rate', 'foreign_inst_buying', 'trading_value'], ascending=[False, False, False])
                 model_display = model_overlap[[
-                    'supply_highlight', 'name', 'ticker', 'market_cap', 'close', 'fluctuation_rate',
+                    'supply_highlight', 'name', 'market_cap', 'close', 'fluctuation_rate',
                     'trading_value', 'rsi_14', 'volume_ratio_20', 'foreign_net', 'inst_net', 'signal_reason'
                 ]].copy()
                 model_display['market_cap'] = model_display['market_cap'].apply(format_won_to_eok)
@@ -1624,8 +1630,12 @@ else:
                 })
                 def highlight_next_day_supply(row):
                     return ['background-color: #fff3cd' if row['수급 하이라이트'] else '' for _ in row]
-                st.dataframe(model_display.style.apply(highlight_next_day_supply, axis=1), use_container_width=True, hide_index=True)
+                styled_model_display = model_display.style.apply(highlight_next_day_supply, axis=1)
+                formats = {column: '{:,.0f}' for column in model_display.select_dtypes(include=['number']).columns}
+                st.dataframe(styled_model_display.format(formats), use_container_width=True, hide_index=True)
 
+        st.subheader('② 종가베팅 조건 충족 후보')
+        st.caption('시가총액 5,000억 원 이상 종목 중 단기 추세가 상승하고, RSI 55 초과·Williams %R -20 초과·MACD 강세·OBV 지지 조건을 만족합니다. 거래량 증가와 5일 박스권 돌파 여부로 S/A 등급을 나눕니다.')
         selected_run = df_close_bet_runs[
             (df_close_bet_runs['trade_date'].astype(str) == str(selected_date))
             & (df_close_bet_runs['session'].astype(str) == str(selected_session))
@@ -1655,50 +1665,8 @@ else:
                 selected_scan = selected_scan.sort_values(
                     ['grade_order', 'market_cap'], ascending=[True, False]
                 )
-                # Prioritize close-bet candidates that also have today's largest trading value.
-                top60_source = df_raw[
-                    (df_raw['date'] == selected_date) & (df_raw['session'] == selected_session)
-                ].copy()
-                if not top60_source.empty:
-                    for column in ['trading_value', 'foreign_net', 'inst_net', 'fluctuation_rate']:
-                        top60_source[column] = pd.to_numeric(top60_source.get(column), errors='coerce')
-                    top60_source = (
-                        top60_source.sort_values('trading_value', ascending=False)
-                        .drop_duplicates('ticker').head(60)
-                    )
-                    top60_columns = ['ticker', 'trading_value', 'foreign_net', 'inst_net', 'fluctuation_rate']
-                    overlap = selected_scan.merge(top60_source[top60_columns], on='ticker', how='inner', suffixes=('', '_top60'))
-                    if not overlap.empty:
-                        overlap['foreign_inst_buying'] = (overlap['foreign_net'] > 0) & (overlap['inst_net'] > 0)
-                        overlap['supply_highlight'] = overlap['foreign_inst_buying'].map(
-                            {True: '외인·기관 동시 순매수', False: ''}
-                        )
-                        overlap = overlap.sort_values(
-                            ['fluctuation_rate_top60', 'foreign_inst_buying', 'trading_value'],
-                            ascending=[False, False, False],
-                        )
-                        st.subheader('거래대금 Top 60 교집합')
-                        overlap_display = overlap[[
-                            'supply_highlight', 'grade', 'name', 'ticker', 'market_cap', 'current_price',
-                            'fluctuation_rate_top60', 'trading_value', 'foreign_net', 'inst_net',
-                            'volume_ratio', 'rsi', 'williams_r',
-                        ]].copy()
-                        overlap_display['market_cap'] = overlap_display['market_cap'].apply(format_won_to_eok)
-                        overlap_display['trading_value'] = overlap_display['trading_value'].apply(format_won_to_eok)
-                        overlap_display = overlap_display.rename(columns={
-                            'supply_highlight': '수급 하이라이트', 'grade': '등급', 'name': '종목', 'ticker': '코드',
-                            'market_cap': '시가총액(억)', 'current_price': '현재가',
-                            'fluctuation_rate_top60': '등락률(%)', 'trading_value': '거래대금(억)',
-                            'foreign_net': '외국인 순매수', 'inst_net': '기관 순매수',
-                            'volume_ratio': '거래량비율(%)', 'rsi': 'RSI', 'williams_r': 'W%R',
-                        })
-                        def highlight_supply(row):
-                            return ['background-color: #fff3cd' if row['수급 하이라이트'] else '' for _ in row]
-                        st.dataframe(overlap_display.style.apply(highlight_supply, axis=1), use_container_width=True, hide_index=True)
-                    else:
-                        st.info('종가베팅 후보 중 거래대금 Top 60과 겹치는 종목이 없습니다.')
                 display_scan = selected_scan[[
-                    'grade', 'name', 'ticker', 'market_cap', 'current_price',
+                    'grade', 'name', 'market_cap', 'current_price',
                     'fluctuation_rate', 'volume_ratio', 'rsi', 'williams_r'
                 ]].copy()
                 display_scan['market_cap'] = display_scan['market_cap'].apply(format_won_to_eok)
@@ -1713,7 +1681,7 @@ else:
                     'rsi': 'RSI',
                     'williams_r': 'W%R',
                 })
-                st.dataframe(display_scan, use_container_width=True, hide_index=True)
+                display_integer_table(display_scan, use_container_width=True)
                 latest_scan_time = selected_scan['scanned_at_kst'].dropna().max()
                 if latest_scan_time:
                     st.caption(f"스캔 완료 시각: {latest_scan_time} KST")
