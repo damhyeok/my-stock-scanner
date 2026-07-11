@@ -1662,15 +1662,31 @@ else:
                     'S급(과열주의)': 2,
                 }
                 selected_scan['grade_order'] = selected_scan['grade'].map(grade_order).fillna(9)
+                top60_source = df_raw[
+                    (df_raw['date'] == selected_date) & (df_raw['session'] == selected_session)
+                ].copy()
+                if not top60_source.empty:
+                    top60_source['trading_value'] = pd.to_numeric(top60_source['trading_value'], errors='coerce')
+                    top60_tickers = set(
+                        top60_source.sort_values('trading_value', ascending=False)
+                        .drop_duplicates('ticker').head(60)['ticker'].astype(str)
+                    )
+                else:
+                    top60_tickers = set()
+                selected_scan['top60_check'] = selected_scan['ticker'].astype(str).map(
+                    lambda ticker: '✓ 거래대금 Top 60' if ticker in top60_tickers else ''
+                )
+                selected_scan['is_top60'] = selected_scan['ticker'].astype(str).isin(top60_tickers)
                 selected_scan = selected_scan.sort_values(
-                    ['grade_order', 'market_cap'], ascending=[True, False]
+                    ['grade_order', 'is_top60', 'market_cap'], ascending=[True, False, False]
                 )
                 display_scan = selected_scan[[
-                    'grade', 'name', 'market_cap', 'current_price',
+                    'top60_check', 'grade', 'name', 'market_cap', 'current_price',
                     'fluctuation_rate', 'volume_ratio', 'rsi', 'williams_r'
                 ]].copy()
                 display_scan['market_cap'] = display_scan['market_cap'].apply(format_won_to_eok)
                 display_scan = display_scan.rename(columns={
+                    'top60_check': '거래대금 Top 60',
                     'grade': '등급',
                     'name': '종목명',
                     'ticker': '종목코드',
