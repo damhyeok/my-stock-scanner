@@ -572,24 +572,25 @@ def get_close_bet_runs():
         return pd.DataFrame()
 
 @st.cache_data(ttl=60)
-def get_bottom_candidate_data():
+def get_bottom_candidate_data(selected_date):
     try:
         db_path, _ = get_database_path()
-        model_1, macd_obv, _ = scan_model_tables(db_path)
-        rows = []
-        for label, signals in (("1번 모델", model_1), ("MACD + OBV 모델", macd_obv)):
-            if signals.empty:
-                continue
-            display = signals.copy()
-            display["scanner_model"] = label
-            display["signal_date"] = display["date"].dt.strftime("%Y%m%d")
-            display["current_price"] = display["close"]
-            display["today_change_rate"] = display["change_rate"]
-            display["entry_price"] = display["close"]
-            display["first_target_price"] = display["fib_618"]
-            display["decision_risk_summary"] = display["signal_reason"]
-            rows.append(display)
-        return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
+        with sqlite3.connect(db_path) as conn:
+            df = pd.read_sql_query(
+                """SELECT signal_date, model_id AS scanner_model, ticker, name,
+                   current_price, change_rate AS today_change_rate, market_cap,
+                   trend_score, rsi_14, volume_ratio, entry_price, stop_price,
+                   first_target_price, target_room_pct, signal_reason AS decision_risk_summary
+                   FROM model_rule_scan_signals
+                   WHERE signal_date = ? AND universe_type = 'market_cap_10000eok_plus'
+                   ORDER BY model_id, trend_score DESC, target_room_pct DESC""",
+                conn, params=(str(selected_date),),
+            )
+        if not df.empty:
+            df["scanner_model"] = df["scanner_model"].map({
+                "model_1": "1번 모델", "macd_obv": "MACD + OBV 모델"
+            }).fillna(df["scanner_model"])
+        return df
     except Exception:
         return pd.DataFrame()
 
@@ -624,7 +625,6 @@ with st.spinner("데이터를 불러오고 있습니다..."):
     df_close_bet = get_close_bet_data()
     df_close_bet_runs = get_close_bet_runs()
     df_next_day_open_model = get_next_day_open_model_data()
-    df_bottom_candidates = get_bottom_candidate_data()
 
 if df_analyzed is None or df_raw.empty:
     st.warning("⚠️ 분석할 데이터가 없습니다. 먼저 `crawler.py`를 실행하여 데이터를 수집해주세요.")
@@ -645,6 +645,7 @@ else:
         day_sessions = ["데이터 없음 (DB 초기화 필요)"]
         
     selected_session = st.sidebar.selectbox("⏰ 시간 선택:", day_sessions)
+    df_bottom_candidates = get_bottom_candidate_data(selected_date)
 
     selected_session_df = df_raw[
         (df_raw['date'] == selected_date) & (df_raw['session'] == selected_session)
@@ -758,15 +759,7 @@ else:
                 else:
                     st.error(message)
         else:
-            bottom_day = df_bottom_candidates[
-                df_bottom_candidates['signal_date'].astype(str) == str(selected_date)
-            ].copy()
-            if bottom_day.empty:
-                latest_signal_date = df_bottom_candidates['signal_date'].astype(str).max()
-                st.info(f"{selected_date} 신호가 없어 최신 신호일({latest_signal_date})을 표시합니다.")
-                bottom_day = df_bottom_candidates[
-                    df_bottom_candidates['signal_date'].astype(str) == latest_signal_date
-                ].copy()
+            bottom_day = df_bottom_candidates.copy()
 
             def compact_json_list(value):
                 try:

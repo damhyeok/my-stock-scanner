@@ -10,6 +10,7 @@ MODEL_TABLES = (
     "model_bottom_weight_runs",
     "model_market_regimes",
     "model_strategy_registry",
+    "model_rule_scan_signals",
 )
 
 
@@ -189,6 +190,18 @@ def init_model_tables(db_path="stock_data.db"):
             """
         )
         conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS model_rule_scan_signals (
+                signal_date TEXT NOT NULL, model_id TEXT NOT NULL, ticker TEXT NOT NULL,
+                name TEXT, universe_type TEXT NOT NULL, current_price REAL, change_rate REAL,
+                market_cap REAL, trend_score REAL, rsi_14 REAL, volume_ratio REAL,
+                entry_price REAL, stop_price REAL, first_target_price REAL,
+                target_room_pct REAL, signal_reason TEXT, created_at_kst TEXT,
+                PRIMARY KEY (signal_date, model_id, ticker, universe_type)
+            )
+            """
+        )
+        conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_model_ohlcv_ticker_date "
             "ON model_ohlcv_daily (ticker, date)"
         )
@@ -203,6 +216,10 @@ def init_model_tables(db_path="stock_data.db"):
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_model_bottom_score "
             "ON model_bottom_signals (signal_date, bottom_score)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_model_rule_scan_date "
+            "ON model_rule_scan_signals (signal_date, model_id)"
         )
 
 

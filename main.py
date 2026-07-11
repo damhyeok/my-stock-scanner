@@ -11,6 +11,7 @@ from news_collector import NewsCollector
 from market_strength import MarketStrengthAnalyzer
 from close_bet_scanner import CloseBetScanner
 from bottom_detector import BottomDetector
+from model_1_scanner import save_model_scan_history
 from model_data_collector import ModelDataCollector
 from model_features import ModelFeatureBuilder
 from model_regime import MarketRegimeBuilder
@@ -60,6 +61,8 @@ def run_bottom_model():
         ModelFeatureBuilder(db_path="stock_data.db").run(universe_type)
         MarketRegimeBuilder(db_path="stock_data.db").run(universe_type)
         signals = BottomDetector(db_path="stock_data.db").run(universe_type=universe_type, min_score=40)
+        saved_rule_signals = save_model_scan_history("stock_data.db", universe_type=universe_type)
+        print(f"[Rule Bottom Models] Saved {saved_rule_signals} date-fixed signals.")
         status["status"] = "success"
         status["signal_count"] = 0 if signals is None else len(signals)
         print("[Bottom Model] Done.")
