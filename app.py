@@ -864,6 +864,21 @@ else:
             else:
                 display_wrapped_table(display)
 
+            latest_bottom_date = str(bottom_day['signal_date'].max())
+            if latest_bottom_date < str(selected_date):
+                st.warning(
+                    f"바닥 모델의 최신 기준일은 {latest_bottom_date}입니다. "
+                    f"선택한 날짜 {selected_date} 데이터로 갱신이 필요합니다."
+                )
+                if st.button("오늘 바닥 후보 데이터 갱신 요청", key="refresh_bottom_model"):
+                    with st.spinner("GitHub Actions에 바닥 후보 모델 생성을 요청 중..."):
+                        ok, message = trigger_github_workflow(run_mode="bottom_model")
+                    if ok:
+                        st.success("갱신 요청 완료. 작업이 끝난 뒤 데이터 새로고침을 눌러주세요.")
+                        display_workflow_run_status(st)
+                    else:
+                        st.error(message)
+
     with tab13:
         st.header("🔎 종목 차트 분석")
         query = st.text_input("종목명 또는 종목코드", value="", placeholder="예: 삼성전자 또는 005930")
