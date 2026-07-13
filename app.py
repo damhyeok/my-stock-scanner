@@ -1634,7 +1634,6 @@ else:
                 st.caption("등급 · 80점 이상 매우 좋음 · 70점 이상 좋음 · 60점 이상 보통 · 50점 이상 주의 · 50점 미만 위험")
 
                 table_df = strength_selected.copy()
-                last_row = table_df.iloc[-1]
                 scorer = MarketStrengthAnalyzer.__new__(MarketStrengthAnalyzer)
                 scorer.snapshot_times = table_df['snapshot_time'].astype(str).tolist()
                 snapshot_map = {
@@ -1650,13 +1649,18 @@ else:
                         'futures': '세부 산정 근거를 불러오지 못했습니다',
                     }
 
-                basis_note = f"베이시스 {int(latest_row.get('basis_score', 0))}/35: {score_notes['basis']}"
-                program_note = f"프로그램 {int(latest_row.get('program_score', 0))}/35: {score_notes['program']}"
-                futures_note = f"선물 {int(latest_row.get('futures_trend_score', 0))}/30: {score_notes['futures']}"
-                table_df['점수 설명'] = '점수 계산에 사용된 중간 시점'
-                table_df.iloc[0, table_df.columns.get_loc('점수 설명')] = '점수 계산 기준 시점'
-                table_df.iloc[-1, table_df.columns.get_loc('점수 설명')] = (
-                    f"{basis_note}\n{program_note}\n{futures_note}"
+                st.markdown("#### 점수 산정 근거")
+                st.markdown(
+                    f"**베이시스 {int(latest_row.get('basis_score', 0))}/35**  \n"
+                    f"{score_notes['basis']}"
+                )
+                st.markdown(
+                    f"**프로그램 {int(latest_row.get('program_score', 0))}/35**  \n"
+                    f"{score_notes['program']}"
+                )
+                st.markdown(
+                    f"**선물 {int(latest_row.get('futures_trend_score', 0))}/30**  \n"
+                    f"{score_notes['futures']}"
                 )
 
                 display_df = table_df[[
@@ -1665,7 +1669,6 @@ else:
                     'program_net',
                     'non_arbitrage_net',
                     'kospi200_futures_price',
-                    '점수 설명'
                 ]].rename(columns={
                     'snapshot_time': '시간',
                     'basis': '베이시스',
@@ -1678,11 +1681,7 @@ else:
                 for col in ['베이시스', '코스피200 선물']:
                     display_df[col] = pd.to_numeric(display_df[col], errors='coerce').round(2)
                 st.subheader("시간별 시장강도 흐름")
-                st.dataframe(
-                    display_df,
-                    use_container_width=True,
-                    column_config={"점수 설명": st.column_config.TextColumn(width="large")},
-                )
+                st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     with tab11:
         st.header(f"🎯 종가베팅 스캐너 ({selected_session_label})")
