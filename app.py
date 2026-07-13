@@ -1631,24 +1631,7 @@ else:
                 st.caption("등급 · 80점 이상 매우 좋음 · 70점 이상 좋음 · 60점 이상 보통 · 50점 이상 주의 · 50점 미만 위험")
 
                 table_df = strength_selected.copy()
-                first_row = table_df.iloc[0]
                 last_row = table_df.iloc[-1]
-                first_basis = pd.to_numeric(first_row['basis'], errors='coerce')
-                last_basis = pd.to_numeric(last_row['basis'], errors='coerce')
-                first_non_arbitrage = pd.to_numeric(first_row['non_arbitrage_net'], errors='coerce')
-                last_non_arbitrage = pd.to_numeric(last_row['non_arbitrage_net'], errors='coerce')
-                first_futures = pd.to_numeric(first_row['kospi200_futures_price'], errors='coerce')
-                last_futures = pd.to_numeric(last_row['kospi200_futures_price'], errors='coerce')
-                middle_futures = pd.to_numeric(
-                    table_df.iloc[1]['kospi200_futures_price'] if len(table_df) >= 4 else first_futures,
-                    errors='coerce',
-                )
-                non_arbitrage_change = (
-                    (last_non_arbitrage - first_non_arbitrage) / max(abs(first_non_arbitrage), 1) * 100
-                )
-                full_futures_change = (last_futures / first_futures - 1) * 100 if first_futures else 0
-                middle_futures_change = (last_futures / middle_futures - 1) * 100 if middle_futures else 0
-                quality_issues = []
                 scorer = MarketStrengthAnalyzer.__new__(MarketStrengthAnalyzer)
                 scorer.snapshot_times = table_df['snapshot_time'].astype(str).tolist()
                 snapshot_map = {
@@ -1656,22 +1639,17 @@ else:
                     for _, row in table_df.iterrows()
                 }
                 try:
-                    quality_issues = scorer._data_quality_issues(snapshot_map)
+                    score_notes = scorer.explain_scores(snapshot_map)
                 except (KeyError, TypeError, ValueError):
-                    pass
+                    score_notes = {
+                        'basis': '세부 산정 근거를 불러오지 못했습니다',
+                        'program': '세부 산정 근거를 불러오지 못했습니다',
+                        'futures': '세부 산정 근거를 불러오지 못했습니다',
+                    }
 
-                basis_note = f"베이시스 {int(latest_row.get('basis_score', 0))}/35: 종가 {last_basis:+.2f}, 시작 대비 {last_basis - first_basis:+.2f}"
-                if "베이시스 급변값" in quality_issues:
-                    basis_note += ", 급변값 감점"
-                program_note = (
-                    f"프로그램 {int(latest_row.get('program_score', 0))}/35: "
-                    f"종가 {pd.to_numeric(last_row['program_net'], errors='coerce'):,.0f}, "
-                    f"비차익 {non_arbitrage_change:+.1f}% 변화(최대 5점)"
-                )
-                futures_note = (
-                    f"선물 {int(latest_row.get('futures_trend_score', 0))}/30: "
-                    f"시작 대비 {full_futures_change:+.2f}%, 중간 대비 {middle_futures_change:+.2f}%"
-                )
+                basis_note = f"베이시스 {int(latest_row.get('basis_score', 0))}/35: {score_notes['basis']}"
+                program_note = f"프로그램 {int(latest_row.get('program_score', 0))}/35: {score_notes['program']}"
+                futures_note = f"선물 {int(latest_row.get('futures_trend_score', 0))}/30: {score_notes['futures']}"
                 table_df['점수 설명'] = '점수 계산에 사용된 중간 시점'
                 table_df.iloc[0, table_df.columns.get_loc('점수 설명')] = '점수 계산 기준 시점'
                 table_df.iloc[-1, table_df.columns.get_loc('점수 설명')] = (

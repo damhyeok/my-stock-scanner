@@ -56,3 +56,11 @@ def test_intraday_vwap_uses_bar_price_and_volume(tmp_path):
         {"stck_cntg_hour": "152000", "futs_prpr": "200", "cntg_vol": "10"},
     ]
     assert analyzer._intraday_vwap(rows, "150000") == 310 / 3
+
+
+def test_score_explanation_describes_why_points_were_limited(tmp_path):
+    analyzer = make_analyzer(tmp_path)
+    notes = analyzer.explain_scores(suspicious_snapshots())
+    assert "급변값은 신뢰도가 낮아 감점" in notes["basis"]
+    assert "순매도라 절대 수급 가점 없음" in notes["program"]
+    assert "마지막 반등은 보조점수만 인정" in notes["futures"]

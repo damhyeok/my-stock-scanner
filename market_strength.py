@@ -531,6 +531,60 @@ class MarketStrengthAnalyzer:
             issues.append("선물 고저가 오류")
         return issues
 
+    def explain_scores(self, snapshots):
+        basis = [snapshots[t]["basis"] for t in self.snapshot_times]
+        program = [snapshots[t]["program_net"] for t in self.snapshot_times]
+        non_arbitrage = [snapshots[t]["non_arbitrage_net"] for t in self.snapshot_times]
+        futures = [snapshots[t]["kospi200_futures_price"] for t in self.snapshot_times]
+        last = snapshots[self.snapshot_times[-1]]
+
+        basis_parts = ["양(+)의 베이시스로 선물 우위는 인정"] if basis[-1] > 0 else ["음(-)의 베이시스로 선물 우위 가점 없음"]
+        basis_parts.append("장 후반 확대 흐름도 가점" if basis[-1] - basis[0] >= 0.1 else "장 후반 확대 흐름이 약해 추세 가점 없음")
+        if self._has_basis_outlier(basis):
+            basis_parts.append("중간 급변값은 신뢰도가 낮아 감점")
+
+        program_parts = []
+        if program[-1] < 0:
+            program_parts.append("종가까지 순매도라 절대 수급 가점 없음")
+        else:
+            program_parts.append("종가 순매수로 절대 수급 가점")
+        total_improvement = (program[-1] - program[0]) / max(abs(program[0]), 1)
+        if total_improvement < 0.01:
+            program_parts.append("전체 개선폭이 1% 미만이라 추세 가점 없음")
+        else:
+            program_parts.append("전체 수급 개선폭은 의미 있어 가점")
+        non_arbitrage_improvement = (non_arbitrage[-1] - non_arbitrage[0]) / max(abs(non_arbitrage[0]), 1)
+        if non_arbitrage_improvement >= 0.01:
+            program_parts.append("비차익 순매도 완화만 일부 인정")
+        elif non_arbitrage[-1] > 0:
+            program_parts.append("비차익 순매수를 추가 반영")
+        else:
+            program_parts.append("비차익 수급도 가점 없음")
+
+        full_change = (futures[-1] / futures[0] - 1) * 100 if futures[0] > 0 else 0
+        middle_base = futures[1] if len(futures) >= 4 else futures[0]
+        middle_change = (futures[-1] / middle_base - 1) * 100 if middle_base > 0 else 0
+        late_change = (futures[-1] / futures[-2] - 1) * 100 if futures[-2] > 0 else 0
+        futures_parts = []
+        futures_parts.append("전체 구간 상승은 가점" if full_change > 0 else "전체 구간 하락으로 가점 없음")
+        futures_parts.append("중간 이후 상승도 확인" if middle_change > 0 else "중간 이후 하락이어서 추세 가점 없음")
+        if late_change > 0:
+            futures_parts.append("마지막 반등은 보조점수만 인정")
+        else:
+            futures_parts.append("마지막 구간도 약해 보조점수 없음")
+        day_range = last["futures_day_high"] - last["futures_day_low"]
+        range_position = (futures[-1] - last["futures_day_low"]) / day_range if day_range > 0 else 0
+        if range_position < 0.5:
+            futures_parts.append("장중 범위 하단이라 추가 가점 없음")
+        if not self._is_valid_reference(last["futures_vwap"], futures[-1]):
+            futures_parts.append("VWAP 오류값은 점수에서 제외")
+
+        return {
+            "basis": ", ".join(basis_parts),
+            "program": ", ".join(program_parts),
+            "futures": ", ".join(futures_parts),
+        }
+
     def _build_interpretation(self, score, basis_score, program_score, futures_score, snapshots):
         basis_delta = snapshots[self.snapshot_times[-1]]["basis"] - snapshots[self.snapshot_times[0]]["basis"]
         program_delta = snapshots[self.snapshot_times[-1]]["program_net"] - snapshots[self.snapshot_times[0]]["program_net"]
