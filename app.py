@@ -24,7 +24,6 @@ from model_labels import ModelLabelBuilder
 from model_schema import init_model_tables
 from stock_chart_analyzer import StockChartAnalyzer
 from model_1_scanner import scan_model_tables
-from next_day_open_scanner import scan_next_day_open_candidates
 
 # Make local desktop runs read this project's .env regardless of the launch cwd.
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"), override=False)
@@ -265,20 +264,20 @@ def get_database_path():
     repo = get_config_value("GITHUB_REPOSITORY", "damhyeok/my-stock-scanner")
     branch = get_config_value("GITHUB_BRANCH", "main")
     db_url = get_config_value(
-        "STOCK_DB_URL",
-        f"https://raw.githubusercontent.com/{repo}/{branch}/stock_data.db"
+        "WEB_DB_URL",
+        f"https://raw.githubusercontent.com/{repo}/{branch}/web_data.db"
     )
-    local_db_path = "stock_data.db"
+    local_db_path = "web_data.db"
 
     try:
         with open(local_db_path, "rb") as db_file:
             if db_file.read(16) == b"SQLite format 3\000":
-                return local_db_path, "배포 DB"
+                return local_db_path, "웹 경량 DB"
     except OSError:
         pass
 
     try:
-        remote_db_path = os.path.join(tempfile.gettempdir(), "stock_data_latest.db")
+        remote_db_path = os.path.join(tempfile.gettempdir(), "web_data_latest.db")
         response = requests.get(db_url, stream=True, timeout=(10, 60))
         response.raise_for_status()
         with open(remote_db_path, "wb") as db_file:
@@ -591,29 +590,51 @@ def get_bottom_candidate_data(selected_date):
     try:
         db_path, _ = get_database_path()
         with sqlite3.connect(db_path) as conn:
-            df = pd.read_sql_query(
-                """SELECT signal_date, model_id AS scanner_model, ticker, name,
-                   current_price, change_rate AS today_change_rate, market_cap,
-                   trend_score, rsi_14, volume_ratio, entry_price, stop_price,
-                   first_target_price, target_room_pct, signal_reason AS decision_risk_summary
-                   FROM model_rule_scan_signals
-                   WHERE signal_date = ? AND universe_type = 'market_cap_10000eok_plus'
-                   ORDER BY model_id, trend_score DESC, target_room_pct DESC""",
-                conn, params=(str(selected_date),),
-            )
+            tables = {
+                row[0] for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            df = pd.DataFrame()
+            if "model_rule_scan_signals" in tables:
+                df = pd.read_sql_query(
+                    """SELECT signal_date, model_id AS scanner_model, ticker, name,
+                       current_price, change_rate AS today_change_rate, market_cap,
+                       trend_score, rsi_14, volume_ratio, entry_price, stop_price,
+                       first_target_price, target_room_pct,
+                       signal_reason AS decision_risk_summary
+                       FROM model_rule_scan_signals
+                       WHERE signal_date = (
+                           SELECT MAX(signal_date) FROM model_rule_scan_signals
+                           WHERE signal_date <= ? AND universe_type = 'market_cap_10000eok_plus'
+                       ) AND universe_type = 'market_cap_10000eok_plus'
+                       ORDER BY model_id, trend_score DESC, target_room_pct DESC""",
+                    conn, params=(str(selected_date),),
+                )
+            if df.empty and "model_bottom_signals" in tables:
+                df = pd.read_sql_query(
+                    """SELECT b.signal_date, b.ticker, b.name, b.current_price,
+                       (SELECT o.change_rate FROM model_ohlcv_daily o
+                        WHERE o.date = b.signal_date AND o.ticker = b.ticker
+                          AND o.universe_type = b.universe_type LIMIT 1) AS today_change_rate,
+                       (SELECT o.market_cap FROM model_ohlcv_daily o
+                        WHERE o.date = b.signal_date AND o.ticker = b.ticker
+                          AND o.universe_type = b.universe_type LIMIT 1) AS market_cap,
+                       b.bottom_score, b.grade, b.chart_score, b.supply_score, b.sector_market_score,
+                       risk_penalty, reasons, risk_reasons
+                       FROM model_bottom_signals b
+                       WHERE b.signal_date = (
+                           SELECT MAX(signal_date) FROM model_bottom_signals
+                           WHERE signal_date <= ? AND universe_type = 'market_cap_10000eok_plus'
+                       ) AND b.universe_type = 'market_cap_10000eok_plus'
+                       ORDER BY b.bottom_score DESC""",
+                    conn, params=(str(selected_date),),
+                )
         if not df.empty:
             df["scanner_model"] = df["scanner_model"].map({
                 "model_1": "1번 모델", "macd_obv": "MACD + OBV 모델"
             }).fillna(df["scanner_model"])
         return df
-    except Exception:
-        return pd.DataFrame()
-
-@st.cache_data(ttl=60)
-def get_next_day_open_model_data():
-    try:
-        db_path, _ = get_database_path()
-        return scan_next_day_open_candidates(db_path)
     except Exception:
         return pd.DataFrame()
 
@@ -639,7 +660,6 @@ with st.spinner("데이터를 불러오고 있습니다..."):
     df_sector_flow = get_sector_flow_data()
     df_close_bet = get_close_bet_data()
     df_close_bet_runs = get_close_bet_runs()
-    df_next_day_open_model = get_next_day_open_model_data()
 
 if df_analyzed is None or df_raw.empty:
     st.warning("⚠️ 분석할 데이터가 없습니다. 먼저 `crawler.py`를 실행하여 데이터를 수집해주세요.")
@@ -1598,51 +1618,50 @@ else:
         st.header(f"🎯 종가베팅 스캐너 ({selected_session_label})")
         st.caption("시가총액 5,000억 원 이상 종목을 대상으로 일봉 추세·모멘텀·거래량·OBV 조건을 검사합니다.")
 
-        st.subheader('① 다음 날 시가 상승 후보 · 거래대금 Top 60 교집합')
-        st.caption('시장 강세(상승 종목 비율 55% 이상·MA20 기울기 양수)에서 종가가 MA20 위이고, RSI 55~75·OBV가 20일 평균 이상인 종목만 고릅니다. 그중 거래대금 상위 60개와 겹치는 종목입니다.')
-        if df_next_day_open_model.empty:
-            st.info('현재 데이터에서 RSI 55~75 다음 날 시가 모델 조건을 통과한 종목이 없습니다.')
+        st.subheader('① 종가베팅 후보 · 거래대금 Top 60 교집합')
+        st.caption('②와 동일한 당일 종가베팅 스캔 결과 중 선택한 시간의 거래대금 상위 60개에 포함된 종목입니다.')
+        first_scan = df_close_bet[
+            (df_close_bet['trade_date'].astype(str) == str(selected_date))
+            & (df_close_bet['session'].astype(str) == str(selected_session))
+        ].copy() if not df_close_bet.empty else pd.DataFrame()
+        top_source = df_raw[
+            (df_raw['date'].astype(str) == str(selected_date))
+            & (df_raw['session'].astype(str) == str(selected_session))
+        ].copy()
+        if not first_scan.empty and not top_source.empty:
+            for column in ['trading_value', 'foreign_net', 'inst_net']:
+                top_source[column] = pd.to_numeric(top_source[column], errors='coerce')
+            top60 = (
+                top_source.sort_values('trading_value', ascending=False)
+                .drop_duplicates('ticker').head(60)
+            )
+            first_scan = first_scan.merge(
+                top60[['ticker', 'trading_value', 'foreign_net', 'inst_net']],
+                on='ticker', how='inner',
+            )
         else:
-            model_date = pd.to_datetime(df_next_day_open_model['date'].iloc[0]).strftime('%Y%m%d')
-            top_source = df_raw[df_raw['date'].astype(str) == model_date].copy()
-            if not top_source.empty:
-                if selected_session in set(top_source['session'].dropna().astype(str)):
-                    top_source = top_source[top_source['session'].astype(str) == str(selected_session)]
-                else:
-                    latest_session = max(top_source['session'].dropna().unique().tolist(), key=session_sort_key)
-                    top_source = top_source[top_source['session'] == latest_session]
-                for column in ['trading_value', 'foreign_net', 'inst_net', 'fluctuation_rate']:
-                    top_source[column] = pd.to_numeric(top_source[column], errors='coerce')
-                top60_model = top_source.sort_values('trading_value', ascending=False).drop_duplicates('ticker').head(60)
-                model_overlap = df_next_day_open_model.merge(
-                    top60_model[['ticker', 'trading_value', 'foreign_net', 'inst_net', 'fluctuation_rate']],
-                    on='ticker', how='inner'
-                )
-            else:
-                model_overlap = pd.DataFrame()
-            if model_overlap.empty:
-                st.info('다음 날 시가 모델 후보 중 거래대금 Top 60과 겹치는 종목이 없습니다.')
-            else:
-                model_overlap['foreign_inst_buying'] = (model_overlap['foreign_net'] > 0) & (model_overlap['inst_net'] > 0)
-                model_overlap['supply_highlight'] = model_overlap['foreign_inst_buying'].map({True: '외인·기관 동시 순매수', False: ''})
-                model_overlap = model_overlap.sort_values(['fluctuation_rate', 'foreign_inst_buying', 'trading_value'], ascending=[False, False, False])
-                model_display = model_overlap[[
-                    'supply_highlight', 'name', 'market_cap', 'close', 'fluctuation_rate',
-                    'trading_value', 'rsi_14', 'volume_ratio_20', 'foreign_net', 'inst_net', 'signal_reason'
-                ]].copy()
-                model_display['market_cap'] = model_display['market_cap'].apply(format_won_to_eok)
-                model_display['trading_value'] = model_display['trading_value'].apply(format_won_to_eok)
-                model_display = model_display.rename(columns={
-                    'supply_highlight': '수급 하이라이트', 'name': '종목', 'ticker': '코드',
-                    'market_cap': '시가총액(억)', 'close': '종가 진입가', 'fluctuation_rate': '등락률(%)',
-                    'trading_value': '거래대금(억)', 'rsi_14': 'RSI', 'volume_ratio_20': '거래량비율',
-                    'foreign_net': '외국인 순매수', 'inst_net': '기관 순매수', 'signal_reason': '신호 근거'
-                })
-                def highlight_next_day_supply(row):
-                    return ['background-color: #fff3cd' if row['수급 하이라이트'] else '' for _ in row]
-                styled_model_display = model_display.style.apply(highlight_next_day_supply, axis=1)
-                formats = {column: '{:,.0f}' for column in model_display.select_dtypes(include=['number']).columns}
-                st.dataframe(styled_model_display.format(formats), use_container_width=True, hide_index=True)
+            first_scan = pd.DataFrame()
+        if first_scan.empty:
+            st.info('선택한 날짜와 시간에는 종가베팅 후보와 거래대금 Top 60의 교집합이 없습니다.')
+        else:
+            first_scan['수급 하이라이트'] = (
+                (first_scan['foreign_net'] > 0) & (first_scan['inst_net'] > 0)
+            ).map({True: '외인·기관 동시 순매수', False: ''})
+            first_display = first_scan[[
+                '수급 하이라이트', 'grade', 'name', 'market_cap', 'current_price',
+                'fluctuation_rate', 'trading_value', 'rsi', 'volume_ratio',
+                'foreign_net', 'inst_net',
+            ]].copy()
+            first_display['market_cap'] = first_display['market_cap'].apply(format_won_to_eok)
+            first_display['trading_value'] = first_display['trading_value'].apply(format_won_to_eok)
+            first_display = first_display.rename(columns={
+                'grade': '등급', 'name': '종목', 'market_cap': '시가총액(억)',
+                'current_price': '현재가', 'fluctuation_rate': '등락률(%)',
+                'trading_value': '거래대금(억)', 'rsi': 'RSI',
+                'volume_ratio': '거래비율(%)', 'foreign_net': '외국인 순매수',
+                'inst_net': '기관 순매수',
+            })
+            display_integer_table(first_display, use_container_width=True)
 
         st.subheader('② 종가베팅 조건 충족 후보')
         st.caption('시가총액 5,000억 원 이상 종목 중 단기 추세가 상승하고, RSI 55 초과·Williams %R -20 초과·MACD 강세·OBV 지지 조건을 만족합니다. 거래량 증가와 5일 박스권 돌파 여부로 S/A 등급을 나눕니다.')

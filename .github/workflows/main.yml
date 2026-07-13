@@ -1,6 +1,8 @@
 name: Daily Stock Analysis Automation
 
 on:
+  schedule:
+    - cron: '30 8 * * 1-5'
   workflow_dispatch: # 깃허브 웹사이트에서 수동 실행 버튼 허용
     inputs:
       run_mode:
@@ -29,6 +31,9 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
+
+      - name: 웹 스냅샷에서 작업용 DB 복원
+        run: python -c "from web_database import restore_working_database; restore_working_database()"
           
       - name: 필수 패키지 설치
         run: |
@@ -43,7 +48,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule }}
-          ANALYSIS_RUN_MODE: ${{ github.event.inputs.run_mode }}
+          ANALYSIS_RUN_MODE: ${{ github.event_name == 'schedule' && 'bottom_model' || github.event.inputs.run_mode }}
           MARKET_STRENGTH_MODE: ${{ github.event.inputs.market_strength_mode }}
           MARKET_STRENGTH_REQUESTED_AT_KST: ${{ github.event.inputs.requested_at_kst }}
         run: |
@@ -58,13 +63,17 @@ jobs:
             echo "Retrying after 60 seconds..."
             sleep 60
           done
+
+      - name: 웹용 경량 DB 생성
+        if: always()
+        run: python web_database.py --source stock_data.db --target web_data.db
         
       - name: 누적된 DB 및 엑셀 파일 깃허브 저장소에 커밋 및 푸시
         if: always()
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- stock_data.db
+          git add -- web_data.db
           if [ -d reports ]; then
             git add -- reports/
           fi

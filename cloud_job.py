@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from market_strength import MarketStrengthAnalyzer
 from program_ws_collector import ProgramTradeCollector
 from sector_flow_collector import SectorFlowCollector
+from web_database import build_web_database, restore_working_database
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -54,8 +55,9 @@ def pull_latest():
 
 
 def push_outputs(task_name):
+    build_web_database(PROJECT_DIR / "stock_data.db", PROJECT_DIR / "web_data.db")
     with file_lock(".cloud_git.lock"):
-        run_command(["git", "add", "--", "stock_data.db"])
+        run_command(["git", "add", "--", "web_data.db"])
         reports_dir = PROJECT_DIR / "reports"
         if reports_dir.is_dir():
             run_command(["git", "add", "--", "reports/"])
@@ -149,6 +151,9 @@ def main():
     else:
         with file_lock(".cloud_data.lock"):
             pull_latest()
+            restore_working_database(
+                PROJECT_DIR / "web_data.db", PROJECT_DIR / "stock_data.db"
+            )
             if args.task in ("full-analysis", "manual-analysis"):
                 run_full_analysis(manual=args.task == "manual-analysis")
             elif args.task == "morning-strength":
