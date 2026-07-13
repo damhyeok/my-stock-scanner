@@ -260,7 +260,7 @@ def configure_model_runtime_secrets():
         if value:
             os.environ[key] = value
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_resource(show_spinner=False)
 def get_database_path():
     repo = get_config_value("GITHUB_REPOSITORY", "damhyeok/my-stock-scanner")
     branch = get_config_value("GITHUB_BRANCH", "main")
@@ -269,6 +269,13 @@ def get_database_path():
         f"https://raw.githubusercontent.com/{repo}/{branch}/stock_data.db"
     )
     local_db_path = "stock_data.db"
+
+    try:
+        with open(local_db_path, "rb") as db_file:
+            if db_file.read(16) == b"SQLite format 3\000":
+                return local_db_path, "배포 DB"
+    except OSError:
+        pass
 
     try:
         remote_db_path = os.path.join(tempfile.gettempdir(), "stock_data_latest.db")
