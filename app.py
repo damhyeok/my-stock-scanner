@@ -825,6 +825,8 @@ else:
 
             display_columns = [
                 'signal_date', 'scanner_model', 'name', 'current_price', 'today_change_rate', 'market_cap',
+                'bottom_score', 'grade', 'chart_score', 'supply_score',
+                'sector_market_score', 'risk_penalty',
                 'trend_score', 'rsi_14', 'volume_ratio', 'entry_price', 'stop_price',
                 'first_target_price', 'target_room_pct', 'decision_risk_summary',
             ]
