@@ -271,14 +271,17 @@ def get_database_path():
     local_db_path = "stock_data.db"
 
     try:
-        response = requests.get(db_url, timeout=20)
-        response.raise_for_status()
-        if not response.content.startswith(b"SQLite format 3"):
-            raise ValueError("Downloaded file is not a SQLite database.")
-
         remote_db_path = os.path.join(tempfile.gettempdir(), "stock_data_latest.db")
+        response = requests.get(db_url, stream=True, timeout=(10, 60))
+        response.raise_for_status()
         with open(remote_db_path, "wb") as db_file:
-            db_file.write(response.content)
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    db_file.write(chunk)
+
+        with open(remote_db_path, "rb") as db_file:
+            if db_file.read(16) != b"SQLite format 3\000":
+                raise ValueError("Downloaded file is not a SQLite database.")
         return remote_db_path, "GitHub 최신 DB"
     except Exception:
         return local_db_path, "로컬 DB"
