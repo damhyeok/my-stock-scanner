@@ -126,6 +126,10 @@ def display_wrapped_table(df):
     st.markdown(
         """
         <style>
+        .wrapped-table {
+            width: 100%;
+            overflow-x: auto;
+        }
         .wrapped-table table {
             width: 100%;
             border-collapse: collapse;
@@ -138,6 +142,9 @@ def display_wrapped_table(df):
             white-space: normal;
             word-break: keep-all;
             overflow-wrap: anywhere;
+        }
+        .wrapped-table th:last-child, .wrapped-table td:last-child {
+            min-width: 12rem;
         }
         .wrapped-table th {
             font-weight: 700;
@@ -1374,26 +1381,36 @@ else:
             else:
                 rank_display = rank_risers[[
                     'name', 'sector', 'trading_rank_기준', 'trading_rank_비교',
-                    '순위 상승', 'trading_value_기준', 'trading_value_비교'
+                    '순위 상승', 'fluctuation_rate_기준',
+                    'fluctuation_rate_비교', '등락률 변화(%p)'
                 ]].copy()
-                rank_display['trading_value_비교'] = rank_display['trading_value_비교'].apply(format_won_to_eok)
-                rank_display['trading_value_기준'] = rank_display['trading_value_기준'].apply(format_won_to_eok)
                 rank_display = rank_display.rename(columns={
                     'name': '종목명',
                     'sector': '업종',
                     'trading_rank_비교': '비교 시간 순위',
                     'trading_rank_기준': '기준 시간 순위',
-                    'trading_value_비교': '비교 거래대금(억)',
-                    'trading_value_기준': '기준 거래대금(억)',
+                    'fluctuation_rate_비교': '비교 등락률(%)',
+                    'fluctuation_rate_기준': '기준 등락률(%)',
                 })
-                st.dataframe(rank_display, use_container_width=True, hide_index=True)
+                rate_columns = {
+                    column: st.column_config.NumberColumn(format="%.2f")
+                    for column in ['비교 등락률(%)', '기준 등락률(%)', '등락률 변화(%p)']
+                }
+                st.dataframe(
+                    rank_display, use_container_width=True, hide_index=True,
+                    column_config=rate_columns,
+                )
 
                 rank_risers['sector'] = rank_risers['sector'].fillna('기타').replace('', '기타')
+                rank_risers['stock_label'] = (
+                    rank_risers['name'].astype(str)
+                    + rank_risers['fluctuation_rate_기준'].map(lambda rate: f" ({rate:+.2f}%)")
+                )
                 rank_sector = rank_risers.groupby('sector').agg(
                     rising_stock_count=('ticker', 'nunique'),
                     average_rank_rise=('순위 상승', 'mean'),
                     current_trading_value=('trading_value_기준', 'sum'),
-                    included_stocks=('name', lambda names: ', '.join(dict.fromkeys(names.astype(str)))),
+                    included_stocks=('stock_label', lambda labels: ', '.join(dict.fromkeys(labels.astype(str)))),
                 ).reset_index()
                 rank_sector = rank_sector.sort_values(
                     ['rising_stock_count', 'average_rank_rise', 'current_trading_value'],
@@ -1434,15 +1451,22 @@ else:
                     'fluctuation_rate_비교': '비교 등락률(%)',
                     'fluctuation_rate_기준': '기준 등락률(%)',
                 })
-                st.dataframe(joint_display, use_container_width=True, hide_index=True)
+                st.dataframe(
+                    joint_display, use_container_width=True, hide_index=True,
+                    column_config=rate_columns,
+                )
 
                 joint_risers['sector'] = joint_risers['sector'].fillna('기타').replace('', '기타')
+                joint_risers['stock_label'] = (
+                    joint_risers['name'].astype(str)
+                    + joint_risers['fluctuation_rate_기준'].map(lambda rate: f" ({rate:+.2f}%)")
+                )
                 joint_sector = joint_risers.groupby('sector').agg(
                     rising_stock_count=('ticker', 'nunique'),
                     average_rank_rise=('순위 상승', 'mean'),
                     average_rate_change=('등락률 변화(%p)', 'mean'),
                     current_trading_value=('trading_value_기준', 'sum'),
-                    included_stocks=('name', lambda names: ', '.join(dict.fromkeys(names.astype(str)))),
+                    included_stocks=('stock_label', lambda labels: ', '.join(dict.fromkeys(labels.astype(str)))),
                 ).reset_index()
                 joint_sector = joint_sector.sort_values(
                     ['rising_stock_count', 'average_rate_change', 'average_rank_rise'],
