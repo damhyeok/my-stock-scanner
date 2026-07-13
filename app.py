@@ -111,8 +111,11 @@ def display_formatted_df(df, use_container_width=True, hidden_columns=None):
     st.dataframe(temp_df, use_container_width=use_container_width)
 
 def display_integer_table(df, **kwargs):
-    """Render scanner tables with readable whole-number values only."""
+    """Render scanner tables with whole numbers, except two-decimal return rates."""
     formats = {column: '{:,.0f}' for column in df.select_dtypes(include=['number']).columns}
+    for column in formats:
+        if '등락률' in str(column):
+            formats[column] = '{:,.2f}'
     st.dataframe(df.style.format(formats), hide_index=True, **kwargs)
 
 def display_wrapped_table(df):
