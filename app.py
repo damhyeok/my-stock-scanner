@@ -24,6 +24,7 @@ from model_labels import ModelLabelBuilder
 from model_schema import init_model_tables
 from stock_chart_analyzer import StockChartAnalyzer
 from model_1_scanner import scan_model_tables
+from market_strength import MarketStrengthAnalyzer
 
 # Make local desktop runs read this project's .env regardless of the launch cwd.
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"), override=False)
@@ -541,9 +542,48 @@ def get_market_strength_data():
                 'closing': '종가 흐름',
                 'manual': '수동 흐름',
             }).fillna(df['analysis_type'])
+        df = apply_current_market_strength_scoring(df)
         return df
     except:
         return pd.DataFrame()
+
+
+def apply_current_market_strength_scoring(df):
+    """저장 시점과 관계없이 화면에는 현재 시장강도 산식을 적용합니다."""
+    if df.empty:
+        return df
+    result = df.copy()
+    analyzer = MarketStrengthAnalyzer.__new__(MarketStrengthAnalyzer)
+    for _, rows in result.groupby(['trade_date', 'analysis_type'], sort=False):
+        rows = rows.sort_values('snapshot_time')
+        if len(rows) < 2:
+            continue
+        analyzer.snapshot_times = rows['snapshot_time'].astype(str).tolist()
+        snapshots = {
+            str(row['snapshot_time']): row.to_dict()
+            for _, row in rows.iterrows()
+        }
+        try:
+            basis_score = analyzer._score_basis(snapshots)
+            program_score = analyzer._score_program(snapshots)
+            futures_score = analyzer._score_futures_trend(snapshots)
+            total_score = basis_score + program_score + futures_score
+            if analyzer._data_quality_issues(snapshots):
+                total_score = min(total_score, 49)
+            if snapshots[analyzer.snapshot_times[-1]]['program_net'] < 0:
+                total_score = min(total_score, 69)
+            interpretation = analyzer._build_interpretation(
+                total_score, basis_score, program_score, futures_score, snapshots
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+        indices = rows.index
+        result.loc[indices, 'basis_score'] = basis_score
+        result.loc[indices, 'program_score'] = program_score
+        result.loc[indices, 'futures_trend_score'] = futures_score
+        result.loc[indices, 'market_strength_score'] = total_score
+        result.loc[indices, 'interpretation_text'] = interpretation
+    return result
 
 @st.cache_data(ttl=60)
 def get_sector_flow_data():
