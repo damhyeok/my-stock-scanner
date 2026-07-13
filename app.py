@@ -630,7 +630,7 @@ def get_bottom_candidate_data(selected_date):
                        ORDER BY b.bottom_score DESC""",
                     conn, params=(str(selected_date),),
                 )
-        if not df.empty:
+        if not df.empty and "scanner_model" in df.columns:
             df["scanner_model"] = df["scanner_model"].map({
                 "model_1": "1번 모델", "macd_obv": "MACD + OBV 모델"
             }).fillna(df["scanner_model"])
