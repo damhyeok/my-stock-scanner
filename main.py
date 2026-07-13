@@ -50,12 +50,16 @@ def run_bottom_model():
         status["collection"] = {
             "universe_count": summary["universe_count"],
             "ohlcv_rows": summary["ohlcv_rows"],
+            "full_refresh_count": summary["full_refresh_count"],
+            "incremental_count": summary["incremental_count"],
             "failure_count": len(summary["failures"]),
         }
         print(
             "[Bottom Model] Collected: "
             f"universe={summary['universe_count']}, "
             f"ohlcv_rows={summary['ohlcv_rows']}, "
+            f"full={summary['full_refresh_count']}, "
+            f"incremental={summary['incremental_count']}, "
             f"failures={len(summary['failures'])}"
         )
         ModelFeatureBuilder(db_path="stock_data.db").run(universe_type)

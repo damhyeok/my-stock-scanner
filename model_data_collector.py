@@ -414,12 +414,47 @@ class ModelDataCollector:
         summary["stock"] = stock
         return summary
 
+    def _load_ohlcv_coverage(self, universe_type):
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                """SELECT ticker, COUNT(*), MIN(date), MAX(date)
+                   FROM model_ohlcv_daily
+                   WHERE universe_type = ?
+                   GROUP BY ticker""",
+                (universe_type,),
+            ).fetchall()
+        return {
+            str(ticker): {
+                "row_count": int(row_count),
+                "first_date": first_date,
+                "latest_date": latest_date,
+            }
+            for ticker, row_count, first_date, latest_date in rows
+        }
+
     def _collect_ohlcv_for_universe(self, universe, universe_type, lookback_days):
         saved_rows = 0
         failures = []
+        full_refresh_count = 0
+        incremental_count = 0
+        coverage = self._load_ohlcv_coverage(universe_type)
+        snapshot_day = datetime.strptime(self.snapshot_date, "%Y%m%d")
         for stock in universe:
             try:
-                frame = self.fetch_daily_ohlcv(stock["ticker"], lookback_days=lookback_days)
+                existing = coverage.get(str(stock["ticker"]))
+                if existing and existing["row_count"] >= 100 and existing["latest_date"]:
+                    latest_day = datetime.strptime(existing["latest_date"], "%Y%m%d")
+                    missing_calendar_days = max((snapshot_day - latest_day).days, 0)
+                    request_days = min(lookback_days, max(7, missing_calendar_days + 5))
+                    collection_mode = "incremental"
+                    incremental_count += 1
+                else:
+                    request_days = lookback_days
+                    collection_mode = "full"
+                    full_refresh_count += 1
+                frame = self.fetch_daily_ohlcv(
+                    stock["ticker"], lookback_days=request_days
+                )
                 saved_rows += self.save_ohlcv(
                     stock["ticker"],
                     stock["name"],
@@ -429,7 +464,8 @@ class ModelDataCollector:
                 )
                 print(
                     f"[ModelData] {stock['rank']:03d} {stock['ticker']} "
-                    f"{stock['name']}: {len(frame)} rows"
+                    f"{stock['name']}: {len(frame)} rows "
+                    f"({collection_mode}, lookback={request_days}d)"
                 )
             except Exception as error:
                 failures.append((stock["ticker"], stock["name"], str(error)))
@@ -441,6 +477,8 @@ class ModelDataCollector:
             "snapshot_date": self.snapshot_date,
             "universe_count": len(universe),
             "ohlcv_rows": saved_rows,
+            "full_refresh_count": full_refresh_count,
+            "incremental_count": incremental_count,
             "failures": failures,
         }
 
