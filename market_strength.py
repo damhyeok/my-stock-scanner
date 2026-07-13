@@ -237,6 +237,21 @@ class MarketStrengthAnalyzer:
             return {}
         return min(valid_rows, key=lambda item: abs(item[0] - target))[1]
 
+    def _intraday_vwap(self, rows, time_key):
+        target = int(time_key)
+        weighted_sum = 0.0
+        total_volume = 0.0
+        for row in rows:
+            raw_time = str(row.get("stck_cntg_hour", "")).zfill(6)
+            if not raw_time.isdigit() or int(raw_time) > target:
+                continue
+            price = self._to_float(row.get("futs_prpr"))
+            volume = self._to_float(row.get("cntg_vol"))
+            if price > 0 and volume > 0:
+                weighted_sum += price * volume
+                total_volume += volume
+        return weighted_sum / total_volume if total_volume else 0.0
+
     def _fetch_program_snapshots(self):
         program_db_path = os.environ.get("PROGRAM_SNAPSHOT_DB", "").strip() or self.db_path
         rows = []
@@ -332,16 +347,15 @@ class MarketStrengthAnalyzer:
         for snapshot_time in self.snapshot_times:
             row = self._nearest_row(rows, self._time_to_hhmmss(snapshot_time), "stck_cntg_hour")
             price = self._to_float(row.get("futs_prpr"))
-            amount = self._to_float(row.get("acml_tr_pbmn"))
-            volume = self._to_float(row.get("cntg_vol"))
             index_price = index_snapshots.get(snapshot_time)
             calculated_basis = price - index_price if index_price else None
+            vwap = self._intraday_vwap(rows, self._time_to_hhmmss(snapshot_time))
             snapshots[snapshot_time] = {
                 "basis": calculated_basis if calculated_basis is not None and abs(calculated_basis) < 100 else basis_now,
                 "kospi200_futures_price": price,
                 "futures_day_high": day_high,
                 "futures_day_low": day_low,
-                "futures_vwap": amount / volume if volume else price,
+                "futures_vwap": vwap or price,
             }
         return snapshots
 
@@ -397,39 +411,50 @@ class MarketStrengthAnalyzer:
     def _score_basis(self, snapshots):
         values = [snapshots[t]["basis"] for t in self.snapshot_times]
         delta = values[-1] - values[0]
-        late_delta = values[-1] - values[-2]
-        score = 18
-        if values[-1] > 0:
+        last = values[-1]
+
+        if last >= 3:
+            score = 15
+        elif last >= 1:
+            score = 12
+        elif last >= 0:
+            score = 8
+        elif last >= -1:
+            score = 4
+        else:
+            score = 0
+
+        if delta >= 1:
+            score += 10
+        elif delta >= 0.5:
             score += 7
-        if delta > 0:
-            score += 6
-        elif delta < 0:
-            score -= 6
-        if late_delta > 0:
+        elif delta >= 0.1:
             score += 4
-        elif late_delta < 0:
-            score -= 4
-        if values[0] >= 0 and values[-1] < 0:
+
+        positive_steps = sum(curr > prev for prev, curr in zip(values, values[1:]))
+        score += round(5 * positive_steps / max(1, len(values) - 1))
+
+        futures = [snapshots[t]["kospi200_futures_price"] for t in self.snapshot_times]
+        if delta > 0 and futures[-1] > futures[0]:
+            score += 5
+
+        if self._has_basis_outlier(values):
             score -= 10
         return max(0, min(35, int(round(score))))
 
     def _score_program(self, snapshots):
         program = [snapshots[t]["program_net"] for t in self.snapshot_times]
         non_arbitrage = [snapshots[t]["non_arbitrage_net"] for t in self.snapshot_times]
-        score = 16
-        if program[-1] > 0:
-            score += 7
-        if program[-1] > program[0]:
-            score += 6
-        elif program[-1] < program[0]:
-            score -= 5
-        if non_arbitrage[-1] > non_arbitrage[0]:
-            score += 4
+        score = 15 if program[-1] > 0 else 0
+        score += self._improvement_points(program[0], program[-1], 10)
+        score += self._improvement_points(non_arbitrage[0], non_arbitrage[-1], 5)
+        score += self._improvement_points(program[-2], program[-1], 5)
+        score = max(0, min(35, int(round(score))))
+
+        # 순매도 상태에서 방향만 소폭 개선된 경우 높은 등급을 막습니다.
         if program[-1] < 0:
-            score -= 8
-        if program[-1] > program[-2]:
-            score += 2
-        return max(0, min(35, int(round(score))))
+            score = min(score, 15)
+        return score
 
     def _score_futures_trend(self, snapshots):
         prices = [snapshots[t]["kospi200_futures_price"] for t in self.snapshot_times]
@@ -437,39 +462,104 @@ class MarketStrengthAnalyzer:
         day_high = snapshots[self.snapshot_times[-1]]["futures_day_high"]
         day_low = snapshots[self.snapshot_times[-1]]["futures_day_low"]
         vwap = snapshots[self.snapshot_times[-1]]["futures_vwap"]
-        score = 12
+        score = self._return_points(prices[0], last, 10)
+        if len(prices) >= 4:
+            score += self._return_points(prices[1], last, 10)
+        else:
+            score += self._return_points(prices[0], last, 10)
+        score += self._return_points(prices[-2], last, 3)
+
         day_range = day_high - day_low
-        if day_range > 0 and last >= day_low + day_range * 0.75:
-            score += 7
-        if last > vwap:
-            score += 6
-        if last > prices[-2]:
-            score += 5
-        elif last < prices[-2]:
-            score -= 5
-        if last < prices[0]:
-            score -= 4
+        if day_range > 0:
+            range_position = (last - day_low) / day_range
+            if range_position >= 0.75:
+                score += 4
+            elif range_position >= 0.5:
+                score += 2
+        if self._is_valid_reference(vwap, last) and last > vwap:
+            score += 3
         return max(0, min(30, int(round(score))))
+
+    @staticmethod
+    def _improvement_points(start, end, maximum):
+        scale = max(abs(start), 1.0)
+        improvement = (end - start) / scale
+        if improvement >= 0.10:
+            return maximum
+        if improvement >= 0.05:
+            return round(maximum * 0.7)
+        if improvement >= 0.01:
+            return round(maximum * 0.3)
+        return 0
+
+    @staticmethod
+    def _return_points(start, end, maximum):
+        if start <= 0:
+            return 0
+        change_pct = (end / start - 1) * 100
+        if change_pct >= 0.5:
+            return maximum
+        if change_pct >= 0.2:
+            return round(maximum * 0.7)
+        if change_pct > 0:
+            return round(maximum * 0.5)
+        if change_pct > -0.2:
+            return round(maximum * 0.25)
+        return 0
+
+    @staticmethod
+    def _is_valid_reference(reference, price):
+        return price > 0 and price * 0.8 <= reference <= price * 1.2
+
+    @staticmethod
+    def _has_basis_outlier(values):
+        return any(
+            abs(curr - prev) > 10 and abs(curr - prev) > 5 * max(abs(prev), 1)
+            for prev, curr in zip(values, values[1:])
+        )
+
+    def _data_quality_issues(self, snapshots):
+        last = snapshots[self.snapshot_times[-1]]
+        issues = []
+        basis = [snapshots[t]["basis"] for t in self.snapshot_times]
+        if self._has_basis_outlier(basis):
+            issues.append("베이시스 급변값")
+        price = last["kospi200_futures_price"]
+        if not self._is_valid_reference(last["futures_vwap"], price):
+            issues.append("선물 VWAP 오류")
+        if not (last["futures_day_low"] <= price <= last["futures_day_high"]):
+            issues.append("선물 고저가 오류")
+        return issues
 
     def _build_interpretation(self, score, basis_score, program_score, futures_score, snapshots):
         basis_delta = snapshots[self.snapshot_times[-1]]["basis"] - snapshots[self.snapshot_times[0]]["basis"]
         program_delta = snapshots[self.snapshot_times[-1]]["program_net"] - snapshots[self.snapshot_times[0]]["program_net"]
-        futures_delta = (
-            snapshots[self.snapshot_times[-1]]["kospi200_futures_price"]
-            - snapshots[self.snapshot_times[-2]]["kospi200_futures_price"]
-        )
+        futures_start = snapshots[self.snapshot_times[0]]["kospi200_futures_price"]
+        futures_last = snapshots[self.snapshot_times[-1]]["kospi200_futures_price"]
 
         parts = []
         parts.append("베이시스가 장 막판 확대되었습니다" if basis_delta > 0 else "베이시스가 장 막판 축소되었습니다")
-        parts.append("프로그램 순매수가 증가했습니다" if program_delta > 0 else "프로그램 매수 강도는 약화되었습니다")
-        parts.append("15:20 이후 선물이 상승했습니다" if futures_delta > 0 else "15:20 이후 선물이 밀렸습니다")
+        program_last = snapshots[self.snapshot_times[-1]]["program_net"]
+        if program_last < 0:
+            parts.append("프로그램 순매도가 이어지고 있습니다")
+        elif program_delta > 0:
+            parts.append("프로그램 순매수가 증가했습니다")
+        else:
+            parts.append("프로그램 매수 강도는 약화되었습니다")
+        parts.append("전체 구간에서 선물이 상승했습니다" if futures_last > futures_start else "전체 구간에서 선물이 하락했습니다")
 
-        if score >= 85:
+        issues = self._data_quality_issues(snapshots)
+        if issues:
+            parts.append(f"데이터 확인 필요: {', '.join(issues)}")
+
+        if score >= 80:
             tail = "종가베팅 시장 환경은 매우 우호적입니다."
         elif score >= 70:
             tail = "종가베팅 시장 환경은 우호적입니다."
-        elif score >= 55:
+        elif score >= 60:
             tail = "종가베팅은 보통 수준의 환경에서 선별 접근이 필요합니다."
+        elif score >= 50:
+            tail = "시장 신호가 엇갈려 종가베팅은 주의가 필요합니다."
         else:
             tail = "장 막판 수급이 약해 종가베팅은 신중하게 접근하는 것이 좋습니다."
 
@@ -551,6 +641,10 @@ class MarketStrengthAnalyzer:
         program_score = self._score_program(snapshots)
         futures_score = self._score_futures_trend(snapshots)
         total_score = basis_score + program_score + futures_score
+        if self._data_quality_issues(snapshots):
+            total_score = min(total_score, 49)
+        if snapshots[self.snapshot_times[-1]]["program_net"] < 0:
+            total_score = min(total_score, 69)
         scores = {
             "market_strength_score": total_score,
             "basis_score": basis_score,

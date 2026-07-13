@@ -456,12 +456,14 @@ def display_workflow_run_status(container):
 def market_strength_status(score):
     if pd.isna(score):
         return "데이터 없음"
-    if score >= 85:
+    if score >= 80:
         return "매우 좋음"
     if score >= 70:
         return "좋음"
-    if score >= 55:
+    if score >= 60:
         return "보통"
+    if score >= 50:
+        return "주의"
     return "위험"
 
 def display_sector_summary(df, title="📊 업종별 종목 묶음 보기", show_rate=False):
@@ -1580,6 +1582,12 @@ else:
                 card1.metric("베이시스 점수", f"{int(latest_row.get('basis_score', 0))} / 35")
                 card2.metric("프로그램매매 점수", f"{int(latest_row.get('program_score', 0))} / 35")
                 card3.metric("코스피200 선물 추세 점수", f"{int(latest_row.get('futures_trend_score', 0))} / 30")
+
+                st.caption(
+                    "점수 기준 · 베이시스 35점 + 프로그램 수급 35점 + 선물 추세 30점 | "
+                    "프로그램 순매도는 최대 '보통', 데이터 오류가 감지되면 최대 '위험'으로 제한합니다."
+                )
+                st.caption("등급 · 80점 이상 매우 좋음 · 70점 이상 좋음 · 60점 이상 보통 · 50점 이상 주의 · 50점 미만 위험")
 
                 table_df = strength_selected.copy()
                 table_df['변화 방향'] = ''
