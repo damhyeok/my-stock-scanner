@@ -10,6 +10,7 @@ from telegram_bot import TelegramNotifier
 from news_collector import NewsCollector
 from market_strength import MarketStrengthAnalyzer
 from close_bet_scanner import CloseBetScanner
+from close_bet_model3_scanner import CloseBetModel3Scanner
 from bottom_detector import BottomDetector
 from model_1_scanner import save_model_scan_history
 from model_data_collector import ModelDataCollector
@@ -127,6 +128,12 @@ def main():
         CloseBetScanner(crawler).run()
     except Exception as e:
         print(f"[Close Bet Warning] 종가베팅 스캔 중 오류가 발생했지만 주 분석은 계속합니다: {e}")
+
+    print("\n[Step 1-0-3] 종가베팅 모델 3 스캔을 실행합니다.")
+    try:
+        CloseBetModel3Scanner(crawler).run()
+    except Exception as e:
+        print(f"[Close Bet Model 3 Warning] 스캔 오류가 발생했지만 주 분석은 계속합니다: {e}")
 
     print("\n[Step 1-1] 뉴스 이슈 데이터를 수집합니다.")
     try:

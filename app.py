@@ -656,6 +656,24 @@ def get_close_bet_runs():
         return pd.DataFrame()
 
 @st.cache_data(ttl=60)
+def get_close_bet_model3_data():
+    try:
+        db_path, _ = get_database_path()
+        with sqlite3.connect(db_path) as conn:
+            return pd.read_sql("SELECT * FROM close_bet_model3_scans ORDER BY trade_date DESC, session, market_cap DESC", conn)
+    except Exception:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=60)
+def get_close_bet_model3_runs():
+    try:
+        db_path, _ = get_database_path()
+        with sqlite3.connect(db_path) as conn:
+            return pd.read_sql("SELECT * FROM close_bet_model3_runs ORDER BY trade_date DESC, session", conn)
+    except Exception:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=60)
 def get_bottom_candidate_data(selected_date):
     try:
         db_path, _ = get_database_path()
@@ -730,6 +748,8 @@ with st.spinner("데이터를 불러오고 있습니다..."):
     df_sector_flow = get_sector_flow_data()
     df_close_bet = get_close_bet_data()
     df_close_bet_runs = get_close_bet_runs()
+    df_close_bet_model3 = get_close_bet_model3_data()
+    df_close_bet_model3_runs = get_close_bet_model3_runs()
 
 if df_analyzed is None or df_raw.empty:
     st.warning("⚠️ 분석할 데이터가 없습니다. 먼저 `crawler.py`를 실행하여 데이터를 수집해주세요.")
@@ -1862,6 +1882,58 @@ else:
                 latest_scan_time = selected_scan['scanned_at_kst'].dropna().max()
                 if latest_scan_time:
                     st.caption(f"스캔 완료 시각: {latest_scan_time} KST")
+
+        st.divider()
+        st.subheader("3번 모델 · MACD + RSI 동시 매수신호")
+        st.caption("시총 1조원 이상 · 당일 상승률 +10% 이하 · 거래량 20일 평균의 0.7~1.5배 · MA20 5일 변화율 +1% 이하 · 전일 수익률 -3% 이상. A등급은 전일 보합/상승, B등급은 전일 -3%~0%입니다.")
+        model3_run = df_close_bet_model3_runs[
+            (df_close_bet_model3_runs['trade_date'].astype(str) == str(selected_date))
+            & (df_close_bet_model3_runs['session'].astype(str) == str(selected_session))
+        ] if not df_close_bet_model3_runs.empty else pd.DataFrame()
+        if model3_run.empty:
+            st.info("아직 선택한 날짜·시간의 3번 모델 스캔 기록이 없습니다. 다음 전체 분석 실행 후 결과가 표시됩니다.")
+        else:
+            run = model3_run.iloc[-1]
+            m1, m2, m3 = st.columns(3)
+            m1.metric("검사 종목", f"{int(run['scanned_count'])}개")
+            m2.metric("선정 종목", f"{int(run['selected_count'])}개")
+            m3.metric("조회 실패", f"{int(run['failed_count'])}개")
+            model3 = df_close_bet_model3[
+                (df_close_bet_model3['trade_date'].astype(str) == str(selected_date))
+                & (df_close_bet_model3['session'].astype(str) == str(selected_session))
+            ].copy() if not df_close_bet_model3.empty else pd.DataFrame()
+            if model3.empty:
+                st.info("선택한 날짜·시간에는 3번 모델 조건을 모두 충족한 종목이 없습니다.")
+            else:
+                top60_source = df_raw[
+                    (df_raw['date'].astype(str) == str(selected_date))
+                    & (df_raw['session'].astype(str) == str(selected_session))
+                ].copy()
+                top60_tickers = set()
+                if not top60_source.empty:
+                    top60_source['trading_value'] = pd.to_numeric(top60_source['trading_value'], errors='coerce')
+                    top60_tickers = set(
+                        top60_source.sort_values('trading_value', ascending=False)
+                        .drop_duplicates('ticker').head(60)['ticker'].astype(str).str.zfill(6)
+                    )
+                model3['ticker'] = model3['ticker'].astype(str).str.zfill(6)
+                model3['top60_check'] = model3['ticker'].isin(top60_tickers).map({True: '✓ Top 60', False: ''})
+                model3['is_top60'] = model3['ticker'].isin(top60_tickers)
+                model3['grade_order'] = model3['grade'].map({'A': 0, 'B': 1}).fillna(9)
+                model3 = model3.sort_values(['grade_order', 'is_top60', 'market_cap'], ascending=[True, False, False])
+                display = model3[[
+                    'top60_check', 'grade', 'name', 'market_cap', 'current_price',
+                    'fluctuation_rate', 'previous_return', 'volume_ratio', 'rsi', 'ma20_change_5d'
+                ]].copy()
+                display['market_cap'] = display['market_cap'].apply(format_won_to_eok)
+                display = display.rename(columns={
+                    'top60_check': '거래대금 Top 60', 'grade': '등급', 'name': '종목명',
+                    'market_cap': '시가총액(억)', 'current_price': '현재가',
+                    'fluctuation_rate': '당일 등락률(%)', 'previous_return': '전일 수익률(%)',
+                    'volume_ratio': '20일 거래량 배수', 'rsi': 'RSI',
+                    'ma20_change_5d': 'MA20 5일 변화(%)',
+                })
+                display_integer_table(display, use_container_width=True)
 
     with tab10:
         st.header(f"🧭 오늘 섹터 자금 이동 ({selected_date})")
