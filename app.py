@@ -1570,7 +1570,15 @@ else:
                             st.caption(f"{sentiment} | {source} | {published_at}")
 
     with tab9:
-        st.header(f"🌡️ 시장 강도 분석 ({selected_date})")
+        market_display_date = selected_date
+        if not df_market_strength.empty:
+            market_dates = sorted(df_market_strength['trade_date'].dropna().astype(str).unique())
+            eligible_dates = [date for date in market_dates if date <= str(selected_date)]
+            if str(selected_date) not in market_dates and market_dates:
+                market_display_date = eligible_dates[-1] if eligible_dates else market_dates[-1]
+        st.header(f"🌡️ 시장 강도 분석 ({market_display_date})")
+        if str(market_display_date) != str(selected_date):
+            st.caption(f"선택한 {selected_date} 데이터가 아직 없어 최근 분석일 {market_display_date} 결과를 표시합니다.")
         manual_col, refresh_col = st.columns([1, 3])
         if manual_col.button("지금 기준 시장강도 분석 실행"):
             requested_at = datetime.now(timezone(timedelta(hours=9))).isoformat(timespec="minutes")
@@ -1588,7 +1596,9 @@ else:
         if df_market_strength.empty:
             st.info("시장강도 분석 데이터가 없습니다. 15:40 이후 자동 실행 또는 수동 실행 후 표시됩니다.")
         else:
-            strength_selected = df_market_strength[df_market_strength['trade_date'] == selected_date].copy()
+            strength_selected = df_market_strength[
+                df_market_strength['trade_date'].astype(str) == str(market_display_date)
+            ].copy()
             if strength_selected.empty:
                 st.info("선택한 날짜의 시장강도 분석 데이터가 없습니다.")
             else:
