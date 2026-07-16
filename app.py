@@ -477,6 +477,27 @@ def market_strength_status(score):
         return "주의"
     return "위험"
 
+
+def calculate_daily_market_strength(session_scores):
+    required = ['morning', 'afternoon', 'closing']
+    if any(name not in session_scores or pd.isna(session_scores[name]) for name in required):
+        return None, 0, "오전·오후·종가 데이터가 모두 있어야 계산됩니다."
+    morning, afternoon, closing = (float(session_scores[name]) for name in required)
+    base = morning * 0.20 + afternoon * 0.30 + closing * 0.50
+    adjustment = 0
+    reason = "시간대 흐름이 엇갈려 별도 보정 없음"
+    if morning < afternoon < closing:
+        adjustment = 5
+        reason = "장중 강도가 계속 개선되어 +5점"
+    elif morning > afternoon > closing:
+        adjustment = -10
+        reason = "장중 강도가 계속 약화되어 -10점"
+    elif closing >= max(morning, afternoon) + 20 and (morning + afternoon) / 2 < 50:
+        adjustment = -5
+        reason = "종가만 급반등해 신뢰도 보정 -5점"
+    total = max(0, min(100, round(base + adjustment)))
+    return total, adjustment, reason
+
 def display_sector_summary(df, title="📊 업종별 종목 묶음 보기", show_rate=False):
     """해당 리스트의 업종별 요약과 포함된 종목 리스트를 아래에 출력합니다."""
     if 'sector' in df.columns and not df.empty:
@@ -574,14 +595,11 @@ def apply_current_market_strength_scoring(df):
             for _, row in rows.iterrows()
         }
         try:
-            basis_score = analyzer._score_basis(snapshots)
-            program_score = analyzer._score_program(snapshots)
-            futures_score = analyzer._score_futures_trend(snapshots)
-            total_score = basis_score + program_score + futures_score
-            if analyzer._data_quality_issues(snapshots):
-                total_score = min(total_score, 49)
-            if snapshots[analyzer.snapshot_times[-1]]['program_net'] < 0:
-                total_score = min(total_score, 69)
+            scores = analyzer.score_snapshots(snapshots)
+            basis_score = scores['basis_score']
+            program_score = scores['program_score']
+            futures_score = scores['futures_trend_score']
+            total_score = scores['market_strength_score']
             interpretation = analyzer._build_interpretation(
                 total_score, basis_score, program_score, futures_score, snapshots
             )
@@ -1606,8 +1624,14 @@ else:
                         ('afternoon', '오후'),
                         ('closing', '종가'),
                     ]
-                    summary_columns = st.columns(3)
-                    for column, (analysis_type, label) in zip(summary_columns, summary_types):
+                    session_scores = {}
+                    for analysis_type, _ in summary_types:
+                        rows = all_strength_groups[all_strength_groups['analysis_type'] == analysis_type].sort_values('snapshot_time')
+                        if not rows.empty:
+                            session_scores[analysis_type] = pd.to_numeric(rows.iloc[-1].get('market_strength_score'), errors='coerce')
+                    daily_score, daily_adjustment, daily_reason = calculate_daily_market_strength(session_scores)
+                    summary_columns = st.columns(4)
+                    for column, (analysis_type, label) in zip(summary_columns[:3], summary_types):
                         rows = all_strength_groups[
                             all_strength_groups['analysis_type'] == analysis_type
                         ].sort_values('snapshot_time')
@@ -1619,6 +1643,11 @@ else:
                         )
                         score_text = f"{int(score)}점" if pd.notna(score) else "-"
                         column.metric(label, score_text, market_strength_status(score))
+                    if daily_score is None:
+                        summary_columns[3].metric("하루 종합", "데이터 없음")
+                    else:
+                        summary_columns[3].metric("하루 종합", f"{daily_score}점", market_strength_status(daily_score))
+                        st.caption(f"하루 종합 · 오전 20% + 오후 30% + 종가 50% · {daily_reason}")
 
                 selected_group_label = st.selectbox(
                     "시장강도 흐름 선택",
@@ -1634,6 +1663,10 @@ else:
                 ].copy()
                 strength_selected = strength_selected.sort_values('snapshot_time')
                 latest_row = strength_selected.iloc[-1]
+                scorer = MarketStrengthAnalyzer.__new__(MarketStrengthAnalyzer)
+                scorer.snapshot_times = strength_selected['snapshot_time'].astype(str).tolist()
+                snapshot_map = {str(row['snapshot_time']): row.to_dict() for _, row in strength_selected.iterrows()}
+                basis_valid = scorer._basis_is_valid(snapshot_map)
                 total_score = pd.to_numeric(latest_row.get('market_strength_score'), errors='coerce')
                 status_text = market_strength_status(total_score)
 
@@ -1646,7 +1679,7 @@ else:
                     st.info(interpretation)
 
                 card1, card2, card3 = st.columns(3)
-                card1.metric("베이시스 점수", f"{int(latest_row.get('basis_score', 0))} / 35")
+                card1.metric("베이시스 점수", f"{int(latest_row.get('basis_score', 0))} / 35" if basis_valid else "제외")
                 card2.metric("프로그램매매 점수", f"{int(latest_row.get('program_score', 0))} / 35")
                 card3.metric("코스피200 선물 추세 점수", f"{int(latest_row.get('futures_trend_score', 0))} / 30")
 
@@ -1658,12 +1691,6 @@ else:
                 st.caption("등급 · 80점 이상 매우 좋음 · 70점 이상 좋음 · 60점 이상 보통 · 50점 이상 주의 · 50점 미만 위험")
 
                 table_df = strength_selected.copy()
-                scorer = MarketStrengthAnalyzer.__new__(MarketStrengthAnalyzer)
-                scorer.snapshot_times = table_df['snapshot_time'].astype(str).tolist()
-                snapshot_map = {
-                    str(row['snapshot_time']): row.to_dict()
-                    for _, row in table_df.iterrows()
-                }
                 try:
                     score_notes = scorer.explain_scores(snapshot_map)
                 except (KeyError, TypeError, ValueError):
@@ -1704,6 +1731,8 @@ else:
                     display_df[col] = pd.to_numeric(display_df[col], errors='coerce').round(0).astype('Int64')
                 for col in ['베이시스', '코스피200 선물']:
                     display_df[col] = pd.to_numeric(display_df[col], errors='coerce').round(2)
+                if not basis_valid:
+                    display_df['베이시스'] = '제외'
                 st.subheader("시간별 시장강도 흐름")
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
 

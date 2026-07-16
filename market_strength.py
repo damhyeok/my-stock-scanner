@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import math
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
@@ -350,8 +351,9 @@ class MarketStrengthAnalyzer:
             index_price = index_snapshots.get(snapshot_time)
             calculated_basis = price - index_price if index_price else None
             vwap = self._intraday_vwap(rows, self._time_to_hhmmss(snapshot_time))
+            valid_basis = calculated_basis if calculated_basis is not None and abs(calculated_basis) < 100 else None
             snapshots[snapshot_time] = {
-                "basis": calculated_basis if calculated_basis is not None and abs(calculated_basis) < 100 else basis_now,
+                "basis": valid_basis if valid_basis is not None else (basis_now if snapshot_time == self.snapshot_times[-1] else None),
                 "kospi200_futures_price": price,
                 "futures_day_high": day_high,
                 "futures_day_low": day_low,
@@ -410,6 +412,8 @@ class MarketStrengthAnalyzer:
 
     def _score_basis(self, snapshots):
         values = [snapshots[t]["basis"] for t in self.snapshot_times]
+        if not self._basis_is_valid(snapshots):
+            return 0
         delta = values[-1] - values[0]
         last = values[-1]
 
@@ -513,16 +517,30 @@ class MarketStrengthAnalyzer:
 
     @staticmethod
     def _has_basis_outlier(values):
+        values = [value for value in values if value is not None and math.isfinite(float(value))]
+        if len(values) < 2:
+            return False
         return any(
             abs(curr - prev) > 10 and abs(curr - prev) > 5 * max(abs(prev), 1)
             for prev, curr in zip(values, values[1:])
         )
 
+    def _basis_is_valid(self, snapshots):
+        basis = [snapshots[t].get("basis") for t in self.snapshot_times]
+        if any(value is None or not math.isfinite(float(value)) for value in basis):
+            return False
+        futures = [snapshots[t]["kospi200_futures_price"] for t in self.snapshot_times]
+        futures_move = (max(futures) - min(futures)) / max(abs(futures[0]), 1)
+        basis_is_flat = max(basis) - min(basis) < 1e-9
+        return not (basis_is_flat and futures_move >= 0.0005)
+
     def _data_quality_issues(self, snapshots):
         last = snapshots[self.snapshot_times[-1]]
         issues = []
         basis = [snapshots[t]["basis"] for t in self.snapshot_times]
-        if self._has_basis_outlier(basis):
+        if not self._basis_is_valid(snapshots):
+            issues.append("베이시스 시점값 누락/복제")
+        elif self._has_basis_outlier(basis):
             issues.append("베이시스 급변값")
         price = last["kospi200_futures_price"]
         if not self._is_valid_reference(last["futures_vwap"], price):
@@ -538,10 +556,13 @@ class MarketStrengthAnalyzer:
         futures = [snapshots[t]["kospi200_futures_price"] for t in self.snapshot_times]
         last = snapshots[self.snapshot_times[-1]]
 
-        basis_parts = ["양(+)의 베이시스로 선물 우위는 인정"] if basis[-1] > 0 else ["음(-)의 베이시스로 선물 우위 가점 없음"]
-        basis_parts.append("장 후반 확대 흐름도 가점" if basis[-1] - basis[0] >= 0.1 else "장 후반 확대 흐름이 약해 추세 가점 없음")
-        if self._has_basis_outlier(basis):
-            basis_parts.append("중간 급변값은 신뢰도가 낮아 감점")
+        if not self._basis_is_valid(snapshots):
+            basis_parts = ["시점별 값이 누락되거나 복제되어 점수에서 제외", "프로그램·선물 점수로 재환산"]
+        else:
+            basis_parts = ["양(+)의 베이시스로 선물 우위는 인정"] if basis[-1] > 0 else ["음(-)의 베이시스로 선물 우위 가점 없음"]
+            basis_parts.append("장 후반 확대 흐름도 가점" if basis[-1] - basis[0] >= 0.1 else "장 후반 확대 흐름이 약해 추세 가점 없음")
+            if self._has_basis_outlier(basis):
+                basis_parts.append("중간 급변값은 신뢰도가 낮아 감점")
 
         program_parts = []
         if program[-1] < 0:
@@ -586,13 +607,20 @@ class MarketStrengthAnalyzer:
         }
 
     def _build_interpretation(self, score, basis_score, program_score, futures_score, snapshots):
-        basis_delta = snapshots[self.snapshot_times[-1]]["basis"] - snapshots[self.snapshot_times[0]]["basis"]
+        basis_valid = self._basis_is_valid(snapshots)
+        basis_delta = (
+            snapshots[self.snapshot_times[-1]]["basis"] - snapshots[self.snapshot_times[0]]["basis"]
+            if basis_valid else 0
+        )
         program_delta = snapshots[self.snapshot_times[-1]]["program_net"] - snapshots[self.snapshot_times[0]]["program_net"]
         futures_start = snapshots[self.snapshot_times[0]]["kospi200_futures_price"]
         futures_last = snapshots[self.snapshot_times[-1]]["kospi200_futures_price"]
 
         parts = []
-        parts.append("베이시스가 장 막판 확대되었습니다" if basis_delta > 0 else "베이시스가 장 막판 축소되었습니다")
+        if basis_valid:
+            parts.append("베이시스가 장 막판 확대되었습니다" if basis_delta > 0 else "베이시스가 장 막판 축소되었습니다")
+        else:
+            parts.append("시점별 베이시스는 데이터 오류로 점수에서 제외했습니다")
         program_last = snapshots[self.snapshot_times[-1]]["program_net"]
         if program_last < 0:
             parts.append("프로그램 순매도가 이어지고 있습니다")
@@ -618,6 +646,32 @@ class MarketStrengthAnalyzer:
             tail = "장 막판 수급이 약해 종가베팅은 신중하게 접근하는 것이 좋습니다."
 
         return f"{', '.join(parts)}. {tail}"
+
+    def score_snapshots(self, snapshots):
+        basis_score = self._score_basis(snapshots)
+        program_score = self._score_program(snapshots)
+        futures_score = self._score_futures_trend(snapshots)
+        basis_valid = self._basis_is_valid(snapshots)
+        if basis_valid:
+            total_score = basis_score + program_score + futures_score
+        else:
+            total_score = round((program_score + futures_score) / 65 * 100)
+
+        issues = self._data_quality_issues(snapshots)
+        non_basis_issues = [issue for issue in issues if issue != "베이시스 시점값 누락/복제"]
+        if non_basis_issues:
+            total_score = min(total_score, 49)
+        elif not basis_valid:
+            total_score = min(total_score, 69)
+        if snapshots[self.snapshot_times[-1]]["program_net"] < 0:
+            total_score = min(total_score, 69)
+        return {
+            "market_strength_score": max(0, min(100, int(total_score))),
+            "basis_score": basis_score,
+            "program_score": program_score,
+            "futures_trend_score": futures_score,
+            "basis_valid": basis_valid,
+        }
 
     def _combine_snapshots(self, program_snapshots, futures_snapshots):
         snapshots = {}
@@ -691,20 +745,11 @@ class MarketStrengthAnalyzer:
         futures_snapshots = self._fetch_futures_snapshots()
         snapshots = self._combine_snapshots(program_snapshots, futures_snapshots)
 
-        basis_score = self._score_basis(snapshots)
-        program_score = self._score_program(snapshots)
-        futures_score = self._score_futures_trend(snapshots)
-        total_score = basis_score + program_score + futures_score
-        if self._data_quality_issues(snapshots):
-            total_score = min(total_score, 49)
-        if snapshots[self.snapshot_times[-1]]["program_net"] < 0:
-            total_score = min(total_score, 69)
-        scores = {
-            "market_strength_score": total_score,
-            "basis_score": basis_score,
-            "program_score": program_score,
-            "futures_trend_score": futures_score,
-        }
+        scores = self.score_snapshots(snapshots)
+        basis_score = scores["basis_score"]
+        program_score = scores["program_score"]
+        futures_score = scores["futures_trend_score"]
+        total_score = scores["market_strength_score"]
         interpretation_text = self._build_interpretation(
             total_score, basis_score, program_score, futures_score, snapshots
         )

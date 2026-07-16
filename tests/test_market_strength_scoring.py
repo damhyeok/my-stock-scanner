@@ -64,3 +64,16 @@ def test_score_explanation_describes_why_points_were_limited(tmp_path):
     assert "급변값은 신뢰도가 낮아 감점" in notes["basis"]
     assert "순매도라 절대 수급 가점 없음" in notes["program"]
     assert "마지막 반등은 보조점수만 인정" in notes["futures"]
+
+
+def test_repeated_basis_is_excluded_and_other_scores_are_reweighted(tmp_path):
+    analyzer = make_analyzer(tmp_path)
+    snapshots = suspicious_snapshots()
+    for row in snapshots.values():
+        row["basis"] = 1.89
+    scores = analyzer.score_snapshots(snapshots)
+    assert scores["basis_valid"] is False
+    assert scores["basis_score"] == 0
+    assert scores["market_strength_score"] == round(
+        (scores["program_score"] + scores["futures_trend_score"]) / 65 * 100
+    )
