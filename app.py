@@ -1885,7 +1885,7 @@ else:
 
         st.divider()
         st.subheader("3번 모델 · MACD + RSI 동시 매수신호")
-        st.caption("시총 1조원 이상 · 당일 상승률 +10% 이하 · 거래량 20일 평균의 0.7~1.5배 · MA20 5일 변화율 +1% 이하 · 전일 수익률 -3% 이상. A등급은 전일 보합/상승, B등급은 전일 -3%~0%입니다.")
+        st.caption("시총 1조원 이상 · 당일 상승률 +10% 이하 · 거래량 20일 평균의 0.7~1.5배 · 전일 수익률 -3% 이상. MA20 5일 변화율 +1% 이하는 필터링하지 않고 하락·횡보로 표시합니다. A등급은 전일 보합/상승, B등급은 전일 -3%~0%입니다.")
         model3_run = df_close_bet_model3_runs[
             (df_close_bet_model3_runs['trade_date'].astype(str) == str(selected_date))
             & (df_close_bet_model3_runs['session'].astype(str) == str(selected_session))
@@ -1918,16 +1918,18 @@ else:
                     )
                 model3['ticker'] = model3['ticker'].astype(str).str.zfill(6)
                 model3['top60_check'] = model3['ticker'].isin(top60_tickers).map({True: '✓ Top 60', False: ''})
+                model3['sideways_check'] = (pd.to_numeric(model3['ma20_change_5d'], errors='coerce') <= 1).map({True: '✓ 하락·횡보', False: ''})
                 model3['is_top60'] = model3['ticker'].isin(top60_tickers)
                 model3['grade_order'] = model3['grade'].map({'A': 0, 'B': 1}).fillna(9)
                 model3 = model3.sort_values(['grade_order', 'is_top60', 'market_cap'], ascending=[True, False, False])
                 display = model3[[
-                    'top60_check', 'grade', 'name', 'market_cap', 'current_price',
+                    'top60_check', 'sideways_check', 'grade', 'name', 'market_cap', 'current_price',
                     'fluctuation_rate', 'previous_return', 'volume_ratio', 'rsi', 'ma20_change_5d'
                 ]].copy()
                 display['market_cap'] = display['market_cap'].apply(format_won_to_eok)
                 display = display.rename(columns={
-                    'top60_check': '거래대금 Top 60', 'grade': '등급', 'name': '종목명',
+                    'top60_check': '거래대금 Top 60', 'sideways_check': 'MA20 하락·횡보',
+                    'grade': '등급', 'name': '종목명',
                     'market_cap': '시가총액(억)', 'current_price': '현재가',
                     'fluctuation_rate': '당일 등락률(%)', 'previous_return': '전일 수익률(%)',
                     'volume_ratio': '20일 거래량 배수', 'rsi': 'RSI',

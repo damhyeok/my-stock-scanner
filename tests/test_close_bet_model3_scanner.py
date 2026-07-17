@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from close_bet_model3_scanner import CloseBetModel3Scanner
@@ -14,6 +15,11 @@ class Model3SignalTests(unittest.TestCase):
     def test_volume_average_excludes_signal_day(self):
         frame = pd.DataFrame({"stck_clpr": np.linspace(100, 110, 65), "acml_vol": [100.0] * 64 + [150.0]})
         self.assertAlmostEqual(CloseBetModel3Scanner._signal(frame)["volume_ratio"], 1.5)
+
+    def test_ma20_change_is_reported_without_being_a_required_filter(self):
+        source = Path("close_bet_model3_scanner.py").read_text(encoding="utf-8")
+        filter_block = source.split("if not (", 1)[1].split("):", 1)[0]
+        self.assertNotIn('signal["ma20_change_5d"] <= 1', filter_block)
 
 
 if __name__ == "__main__":

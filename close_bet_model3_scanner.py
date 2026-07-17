@@ -59,7 +59,6 @@ class CloseBetModel3Scanner(CloseBetScanner):
         if not (signal["rsi_buy"] and signal["macd_buy"]
                 and signal["today_return"] <= 10
                 and 0.7 <= signal["volume_ratio"] <= 1.5
-                and signal["ma20_change_5d"] <= 1
                 and signal["previous_return"] >= -3):
             return None
         return {
