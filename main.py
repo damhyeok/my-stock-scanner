@@ -87,6 +87,10 @@ def main():
     scheduled_cron = os.environ.get("GITHUB_EVENT_SCHEDULE", "").strip()
     run_mode = os.environ.get("ANALYSIS_RUN_MODE", "").strip()
 
+    # GitHub Actions의 15:40 KST 예약 실행은 무거운 바닥후보 모델만 수행한다.
+    if scheduled_cron == "40 6 * * 1-5":
+        run_mode = "bottom_model"
+
     if run_mode == "market_strength_only":
         print("\n[Market Strength Only] 수동 시장강도 데이터를 수집합니다.")
         run_market_strength()
