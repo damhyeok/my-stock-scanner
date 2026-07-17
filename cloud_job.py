@@ -170,6 +170,7 @@ def main():
                 run_market_strength("afternoon")
             elif args.task == "closing-strength":
                 run_market_strength("closing")
+                run_bottom_model()
             elif args.task == "sector-flow":
                 run_sector_flow()
             elif args.task == "bottom-model":
