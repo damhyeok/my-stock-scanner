@@ -121,6 +121,13 @@ def run_sector_flow():
     SectorFlowCollector(db_path=str(PROJECT_DIR / "stock_data.db")).run()
 
 
+def run_bottom_model():
+    env = os.environ.copy()
+    env["ANALYSIS_RUN_MODE"] = "bottom_model"
+    env.pop("GITHUB_EVENT_SCHEDULE", None)
+    run_command([sys.executable, "main.py"], env=env)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -135,6 +142,7 @@ def main():
             "closing-collector",
             "closing-strength",
             "sector-flow",
+            "bottom-model",
         ],
     )
     args = parser.parse_args()
@@ -164,6 +172,8 @@ def main():
                 run_market_strength("closing")
             elif args.task == "sector-flow":
                 run_sector_flow()
+            elif args.task == "bottom-model":
+                run_bottom_model()
             push_outputs(args.task)
 
 

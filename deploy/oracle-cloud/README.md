@@ -69,6 +69,7 @@ Oracle VCN 보안 목록의 수신 규칙에서 TCP `8765` 포트를 허용해�
 - 14:01: 오후 시장강도 계산
 - 14:20: 종가 프로그램 매매 WebSocket 연결
 - 15:40: 종가 시장강도 계산
+- 15:45: 바닥후보 데이터 및 신호 갱신
 - 16:00: 정규장 전체 분석
 
 섹터 순환매 분봉 집계는 11:05·13:05·15:05·15:35에 실행해 각각
@@ -77,7 +78,7 @@ Oracle VCN 보안 목록의 수신 규칙에서 TCP `8765` 포트를 허용해�
 ## 5. 상태 확인
 
 ```bash
-systemctl list-timers --all | grep -E 'morning-|afternoon-|closing-|sector-flow|stock-analysis'
+systemctl list-timers --all | grep -E 'morning-|afternoon-|closing-|bottom-model|sector-flow|stock-analysis'
 journalctl -u 'stock-scanner@*' --since today
 ```
 

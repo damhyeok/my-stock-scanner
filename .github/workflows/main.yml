@@ -1,11 +1,6 @@
 name: Daily Stock Analysis Automation
 
 on:
-  schedule:
-    # 평일 15:40 KST: 바닥후보 모델 전용 실행 (UTC 06:40)
-    - cron: '40 6 * * 1-5'
-    # 평일 17:30 KST: 기존 일일 전체 분석 (UTC 08:30)
-    - cron: '30 8 * * 1-5'
   workflow_dispatch: # 깃허브 웹사이트에서 수동 실행 버튼 허용
     inputs:
       run_mode:
