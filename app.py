@@ -25,6 +25,7 @@ from model_schema import init_model_tables
 from stock_chart_analyzer import StockChartAnalyzer
 from model_1_scanner import scan_model_tables
 from market_strength import MarketStrengthAnalyzer
+from close_bet_staged.rule_model_ui import render_rule_model_section
 
 # Make local desktop runs read this project's .env regardless of the launch cwd.
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"), override=False)
@@ -674,6 +675,19 @@ def get_close_bet_model3_runs():
         return pd.DataFrame()
 
 @st.cache_data(ttl=60)
+def get_close_bet_rule_model_data():
+    try:
+        db_path, _ = get_database_path()
+        with sqlite3.connect(db_path) as conn:
+            return pd.read_sql(
+                "SELECT * FROM close_bet_rule_model_evaluations "
+                "ORDER BY trade_date DESC, technical_pass DESC, ticker",
+                conn,
+            )
+    except Exception:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=60)
 def get_bottom_candidate_data(selected_date):
     try:
         db_path, _ = get_database_path()
@@ -750,6 +764,7 @@ with st.spinner("데이터를 불러오고 있습니다..."):
     df_close_bet_runs = get_close_bet_runs()
     df_close_bet_model3 = get_close_bet_model3_data()
     df_close_bet_model3_runs = get_close_bet_model3_runs()
+    df_close_bet_rule_model = get_close_bet_rule_model_data()
 
 if df_analyzed is None or df_raw.empty:
     st.warning("⚠️ 분석할 데이터가 없습니다. 먼저 `crawler.py`를 실행하여 데이터를 수집해주세요.")
@@ -1937,6 +1952,9 @@ else:
                     'ma20_change_5d': 'MA20 5일 변화(%)',
                 })
                 display_integer_table(display, use_container_width=True)
+
+        st.divider()
+    render_rule_model_section(df_close_bet_rule_model, selected_date)
 
     with tab10:
         st.header(f"🧭 오늘 섹터 자금 이동 ({selected_date})")

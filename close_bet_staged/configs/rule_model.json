@@ -1,0 +1,35 @@
+{
+  "price_action": {
+    "min_clv": 0.65,
+    "max_upper_wick_ratio": 0.25,
+    "min_lower_wick_ratio": 0.25,
+    "support_break_tolerance": 0.005,
+    "max_support_distance": 0.03,
+    "min_recovery_volume_ratio": 1.2
+  },
+  "location": {
+    "minimum_avwaps_above": 1,
+    "require_sampled_poc_recovery": true
+  },
+  "afternoon_flow": {
+    "min_conditions": 3,
+    "min_return_after_1430": 0.0,
+    "max_new_low_count": 0,
+    "min_up_down_volume_ratio": 1.0,
+    "min_sampled_clv": 0.65
+  },
+  "relative_strength": {
+    "min_sector_percentile": 0.60,
+    "min_market_percentile": 0.60,
+    "minimum_sector_members": 3
+  },
+  "volatility": {
+    "min_atr_percentile": 0.15,
+    "max_atr_percentile": 0.85,
+    "max_atr_pct": 0.08
+  },
+  "liquidity": {
+    "min_prior_value_percentile": 0.20,
+    "min_today_value_ratio_percentile": 0.10
+  }
+}

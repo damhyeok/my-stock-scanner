@@ -1,0 +1,25 @@
+{
+  "timezone": "Asia/Seoul",
+  "database": {
+    "path": "C:\\Users\\DamHyeok\\AppData\\Local\\StockAI\\close_bet_data.db",
+    "daily_table": "model_ohlcv_daily",
+    "market_table": "market_strength_snapshots"
+  },
+  "universe_type": "market_cap_10000eok_plus",
+  "analysis_start": "2025-07-07",
+  "split": {
+    "train_end": "2026-03-20",
+    "validation_end": "2026-05-14",
+    "locked_test_end": "2026-07-08"
+  },
+  "features": {
+    "liquidity_window": 20,
+    "breakout_windows": [5, 10, 20, 60],
+    "swing_left_bars": 2,
+    "swing_confirmation_bars": 2
+  },
+  "outcomes": {
+    "profit_target": 0.02,
+    "stop_loss": -0.02
+  }
+}

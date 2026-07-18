@@ -11,6 +11,7 @@ from news_collector import NewsCollector
 from market_strength import MarketStrengthAnalyzer
 from close_bet_scanner import CloseBetScanner
 from close_bet_model3_scanner import CloseBetModel3Scanner
+from close_bet_staged.rule_model_runner import run as run_close_bet_rule_model
 from bottom_detector import BottomDetector
 from model_1_scanner import save_model_scan_history
 from model_data_collector import ModelDataCollector
@@ -126,6 +127,12 @@ def main():
     print("\n[Step 1-0] 종가베팅 스캐너를 실행합니다.")
     try:
         CloseBetScanner(crawler).run()
+        rule_result = run_close_bet_rule_model(crawler.db_path, persist=True)
+        print(
+            f"[Close Bet Rule Model] technical_pass="
+            f"{int(rule_result['technical_pass'].sum())}/{len(rule_result)} "
+            "market_state=pending"
+        )
     except Exception as e:
         print(f"[Close Bet Warning] 종가베팅 스캔 중 오류가 발생했지만 주 분석은 계속합니다: {e}")
 
