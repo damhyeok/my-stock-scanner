@@ -77,3 +77,70 @@ def test_repeated_basis_is_excluded_and_other_scores_are_reweighted(tmp_path):
     assert scores["market_strength_score"] == round(
         (scores["program_score"] + scores["futures_trend_score"]) / 65 * 100
     )
+
+
+def test_strict_minute_match_rejects_distant_or_future_rows(tmp_path):
+    analyzer = make_analyzer(tmp_path)
+    rows = [
+        {"stck_cntg_hour": "142800", "value": "too_old"},
+        {"stck_cntg_hour": "143100", "value": "future"},
+    ]
+    assert analyzer._nearest_row(
+        rows,
+        "143000",
+        "stck_cntg_hour",
+        max_gap_seconds=60,
+        allow_future=False,
+    ) == {}
+
+
+def test_backward_pages_reach_earliest_afternoon_snapshot(tmp_path):
+    analyzer = MarketStrengthAnalyzer(
+        db_path=str(tmp_path / "market.db"), analysis_type="afternoon"
+    )
+    requested = []
+
+    def fake_kis_get(path, tr_id, params):
+        cursor = params["FID_INPUT_HOUR_1"]
+        requested.append(cursor)
+        if cursor == "140000":
+            rows = [
+                {"stck_cntg_hour": "140000", "bstp_nmix_prpr": "100"},
+                {"stck_cntg_hour": "134500", "bstp_nmix_prpr": "99"},
+            ]
+        else:
+            rows = [
+                {"stck_cntg_hour": "134400", "bstp_nmix_prpr": "98.5"},
+                {"stck_cntg_hour": "133000", "bstp_nmix_prpr": "98"},
+            ]
+        return {"rt_cd": "0", "output1": {}, "output2": rows}
+
+    analyzer._kis_get = fake_kis_get
+    snapshots = analyzer._fetch_index_snapshots()
+    assert requested == ["140000", "134400"]
+    assert snapshots == {"13:30": 98.0, "13:45": 99.0, "14:00": 100.0}
+
+
+def test_missing_index_does_not_fallback_to_current_basis(tmp_path):
+    analyzer = make_analyzer(tmp_path)
+    analyzer._fetch_active_futures_code = lambda: "101V09"
+    analyzer._fetch_index_snapshots = lambda: {}
+    analyzer._fetch_backward_pages = lambda *args, **kwargs: (
+        [
+            {"stck_cntg_hour": "143000", "futs_prpr": "100", "cntg_vol": "1"},
+            {"stck_cntg_hour": "150000", "futs_prpr": "101", "cntg_vol": "1"},
+            {"stck_cntg_hour": "152000", "futs_prpr": "102", "cntg_vol": "1"},
+            {"stck_cntg_hour": "153000", "futs_prpr": "103", "cntg_vol": "1"},
+        ],
+        {"output1": {"basis": "1.89", "futs_hgpr": "104", "futs_lwpr": "99"}},
+    )
+    snapshots = analyzer._fetch_futures_snapshots()
+    assert all(row["basis"] is None for row in snapshots.values())
+    assert analyzer._basis_is_valid(snapshots) is False
+
+
+def test_basis_outside_safe_range_is_invalid(tmp_path):
+    analyzer = make_analyzer(tmp_path)
+    snapshots = suspicious_snapshots()
+    snapshots["14:30"]["basis"] = analyzer.BASIS_MAX_ABS + 0.01
+    assert analyzer._basis_is_valid(snapshots) is False

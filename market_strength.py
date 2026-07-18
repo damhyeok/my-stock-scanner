@@ -15,6 +15,8 @@ class MarketStrengthAnalyzer:
     MORNING_SNAPSHOT_TIMES = ["09:15", "09:30", "09:45"]
     AFTERNOON_SNAPSHOT_TIMES = ["13:30", "13:45", "14:00"]
     CLOSING_SNAPSHOT_TIMES = ["14:30", "15:00", "15:20", "15:30"]
+    BASIS_MAX_ABS = 20.0
+    BASIS_MAX_TIME_GAP_SECONDS = 60
 
     def __init__(self, db_path="stock_data.db", analysis_type=None, snapshot_times=None, requested_at_kst=None):
         self.db_path = db_path
@@ -217,26 +219,88 @@ class MarketStrengthAnalyzer:
         return snapshot_time.replace(":", "") + "00"
 
     @staticmethod
-    def _nearest_row(rows, time_key, time_field):
-        target = int(time_key)
+    def _hhmmss_to_seconds(value):
+        text = str(value).zfill(6)
+        if not text.isdigit() or len(text) != 6:
+            return None
+        hour, minute, second = int(text[:2]), int(text[2:4]), int(text[4:6])
+        if hour > 23 or minute > 59 or second > 59:
+            return None
+        return hour * 3600 + minute * 60 + second
+
+    @staticmethod
+    def _seconds_to_hhmmss(value):
+        value = max(0, int(value))
+        hour, remainder = divmod(value, 3600)
+        minute, second = divmod(remainder, 60)
+        return f"{hour:02d}{minute:02d}{second:02d}"
+
+    @classmethod
+    def _nearest_row(
+        cls, rows, time_key, time_field, max_gap_seconds=None, allow_future=True
+    ):
+        target = cls._hhmmss_to_seconds(time_key)
+        if target is None:
+            return {}
         candidates = []
         for row in rows:
-            raw_time = str(row.get(time_field, "")).zfill(6)
-            if not raw_time.isdigit():
+            row_time = cls._hhmmss_to_seconds(row.get(time_field, ""))
+            if row_time is None:
                 continue
-            row_time = int(raw_time)
             if row_time <= target:
                 candidates.append((row_time, row))
         if candidates:
-            return max(candidates, key=lambda item: item[0])[1]
+            row_time, row = max(candidates, key=lambda item: item[0])
+            if max_gap_seconds is None or target - row_time <= max_gap_seconds:
+                return row
+            return {}
+        if not allow_future:
+            return {}
         valid_rows = [
-            (int(str(row.get(time_field, "")).zfill(6)), row)
+            (cls._hhmmss_to_seconds(row.get(time_field, "")), row)
             for row in rows
-            if str(row.get(time_field, "")).zfill(6).isdigit()
+            if cls._hhmmss_to_seconds(row.get(time_field, "")) is not None
         ]
         if not valid_rows:
             return {}
-        return min(valid_rows, key=lambda item: abs(item[0] - target))[1]
+        row_time, row = min(valid_rows, key=lambda item: abs(item[0] - target))
+        if max_gap_seconds is not None and abs(row_time - target) > max_gap_seconds:
+            return {}
+        return row
+
+    def _fetch_backward_pages(self, path, tr_id, base_params, time_field):
+        """Collect KIS intraday pages until the earliest requested snapshot is covered."""
+        earliest = self._hhmmss_to_seconds(self._time_to_hhmmss(self.snapshot_times[0]))
+        cursor = self._hhmmss_to_seconds(self._time_to_hhmmss(self.snapshot_times[-1]))
+        collected = {}
+        seen_pages = set()
+        first_data = None
+        for _ in range(20):
+            params = dict(base_params)
+            params["FID_INPUT_HOUR_1"] = self._seconds_to_hhmmss(cursor)
+            data = self._kis_get(path, tr_id, params)
+            if first_data is None:
+                first_data = data
+            rows = data.get("output2", []) or []
+            page_times = tuple(str(row.get(time_field, "")).zfill(6) for row in rows)
+            if not rows or page_times in seen_pages:
+                break
+            seen_pages.add(page_times)
+            oldest = None
+            for row in rows:
+                raw_time = str(row.get(time_field, "")).zfill(6)
+                row_seconds = self._hhmmss_to_seconds(raw_time)
+                if row_seconds is None:
+                    continue
+                collected[raw_time] = row
+                oldest = row_seconds if oldest is None else min(oldest, row_seconds)
+            if oldest is None or oldest <= earliest:
+                break
+            next_cursor = oldest - 60
+            if next_cursor >= cursor:
+                break
+            cursor = next_cursor
+        return list(collected.values()), (first_data or {})
 
     def _intraday_vwap(self, rows, time_key):
         target = int(time_key)
@@ -323,8 +387,7 @@ class MarketStrengthAnalyzer:
 
     def _fetch_futures_snapshots(self):
         futures_code = self._fetch_active_futures_code()
-        query_end_time = self._time_to_hhmmss(self.snapshot_times[-1])
-        data = self._kis_get(
+        rows, data = self._fetch_backward_pages(
             "/uapi/domestic-futureoption/v1/quotations/inquire-time-fuopchartprice",
             "FHKIF03020200",
             {
@@ -334,26 +397,34 @@ class MarketStrengthAnalyzer:
                 "FID_PW_DATA_INCU_YN": "Y",
                 "FID_FAKE_TICK_INCU_YN": "N",
                 "FID_INPUT_DATE_1": self.target_date,
-                "FID_INPUT_HOUR_1": query_end_time,
             },
+            "stck_cntg_hour",
         )
         current_info = data.get("output1", {}) or {}
-        rows = data.get("output2", []) or []
         index_snapshots = self._fetch_index_snapshots()
         day_high = self._to_float(current_info.get("futs_hgpr"))
         day_low = self._to_float(current_info.get("futs_lwpr"))
-        basis_now = self._to_float(current_info.get("basis"))
 
         snapshots = {}
         for snapshot_time in self.snapshot_times:
-            row = self._nearest_row(rows, self._time_to_hhmmss(snapshot_time), "stck_cntg_hour")
+            row = self._nearest_row(
+                rows,
+                self._time_to_hhmmss(snapshot_time),
+                "stck_cntg_hour",
+                max_gap_seconds=self.BASIS_MAX_TIME_GAP_SECONDS,
+                allow_future=False,
+            )
             price = self._to_float(row.get("futs_prpr"))
             index_price = index_snapshots.get(snapshot_time)
             calculated_basis = price - index_price if index_price else None
             vwap = self._intraday_vwap(rows, self._time_to_hhmmss(snapshot_time))
-            valid_basis = calculated_basis if calculated_basis is not None and abs(calculated_basis) < 100 else None
+            valid_basis = (
+                calculated_basis
+                if calculated_basis is not None and abs(calculated_basis) <= self.BASIS_MAX_ABS
+                else None
+            )
             snapshots[snapshot_time] = {
-                "basis": valid_basis if valid_basis is not None else (basis_now if snapshot_time == self.snapshot_times[-1] else None),
+                "basis": valid_basis,
                 "kospi200_futures_price": price,
                 "futures_day_high": day_high,
                 "futures_day_low": day_low,
@@ -382,33 +453,35 @@ class MarketStrengthAnalyzer:
         return 0.0
 
     def _fetch_index_snapshots(self):
-        # KIS 업종 분봉조회는 환경별 코드 표기가 다를 수 있어 KOSPI200 후보를 순차 시도합니다.
-        query_end_time = self._time_to_hhmmss(self.snapshot_times[-1])
-        for index_code in ["2001", "0002", "0001"]:
-            try:
-                data = self._kis_get(
-                    "/uapi/domestic-stock/v1/quotations/inquire-time-indexchartprice",
-                    "FHKUP03500200",
-                    {
-                        "FID_COND_MRKT_DIV_CODE": "U",
-                        "FID_ETC_CLS_CODE": "0",
-                        "FID_INPUT_ISCD": index_code,
-                        "FID_INPUT_HOUR_1": query_end_time,
-                        "FID_PW_DATA_INCU_YN": "Y",
-                    },
-                )
-                rows = data.get("output2", []) or []
-                snapshots = {}
-                for snapshot_time in self.snapshot_times:
-                    row = self._nearest_row(rows, self._time_to_hhmmss(snapshot_time), "stck_cntg_hour")
-                    price = self._extract_index_price(row)
-                    if price:
-                        snapshots[snapshot_time] = price
-                if len(snapshots) == len(self.snapshot_times):
-                    return snapshots
-            except Exception as e:
-                print(f"[Market Strength Warning] KOSPI200 지수 분봉 조회 실패(code={index_code}): {e}")
-        return {}
+        # 베이시스는 반드시 KOSPI200(2001)과 KOSPI200 선물의 동일 시각 값으로 계산합니다.
+        try:
+            rows, _ = self._fetch_backward_pages(
+                "/uapi/domestic-stock/v1/quotations/inquire-time-indexchartprice",
+                "FHKUP03500200",
+                {
+                    "FID_COND_MRKT_DIV_CODE": "U",
+                    "FID_ETC_CLS_CODE": "0",
+                    "FID_INPUT_ISCD": "2001",
+                    "FID_PW_DATA_INCU_YN": "Y",
+                },
+                "stck_cntg_hour",
+            )
+        except Exception as e:
+            print(f"[Market Strength Warning] KOSPI200 지수 분봉 조회 실패(code=2001): {e}")
+            return {}
+        snapshots = {}
+        for snapshot_time in self.snapshot_times:
+            row = self._nearest_row(
+                rows,
+                self._time_to_hhmmss(snapshot_time),
+                "stck_cntg_hour",
+                max_gap_seconds=self.BASIS_MAX_TIME_GAP_SECONDS,
+                allow_future=False,
+            )
+            price = self._extract_index_price(row)
+            if price:
+                snapshots[snapshot_time] = price
+        return snapshots
 
     def _score_basis(self, snapshots):
         values = [snapshots[t]["basis"] for t in self.snapshot_times]
@@ -529,6 +602,8 @@ class MarketStrengthAnalyzer:
         basis = [snapshots[t].get("basis") for t in self.snapshot_times]
         if any(value is None or not math.isfinite(float(value)) for value in basis):
             return False
+        if any(abs(float(value)) > self.BASIS_MAX_ABS for value in basis):
+            return False
         futures = [snapshots[t]["kospi200_futures_price"] for t in self.snapshot_times]
         futures_move = (max(futures) - min(futures)) / max(abs(futures[0]), 1)
         basis_is_flat = max(basis) - min(basis) < 1e-9
@@ -538,10 +613,16 @@ class MarketStrengthAnalyzer:
         last = snapshots[self.snapshot_times[-1]]
         issues = []
         basis = [snapshots[t]["basis"] for t in self.snapshot_times]
-        if not self._basis_is_valid(snapshots):
-            issues.append("베이시스 시점값 누락/복제")
-        elif self._has_basis_outlier(basis):
+        basis_complete = all(
+            value is not None and math.isfinite(float(value)) for value in basis
+        )
+        basis_out_of_range = basis_complete and any(
+            abs(float(value)) > self.BASIS_MAX_ABS for value in basis
+        )
+        if basis_complete and (basis_out_of_range or self._has_basis_outlier(basis)):
             issues.append("베이시스 급변값")
+        elif not self._basis_is_valid(snapshots):
+            issues.append("베이시스 시점값 누락/복제")
         price = last["kospi200_futures_price"]
         if not self._is_valid_reference(last["futures_vwap"], price):
             issues.append("선물 VWAP 오류")
@@ -556,7 +637,15 @@ class MarketStrengthAnalyzer:
         futures = [snapshots[t]["kospi200_futures_price"] for t in self.snapshot_times]
         last = snapshots[self.snapshot_times[-1]]
 
-        if not self._basis_is_valid(snapshots):
+        basis_complete = all(
+            value is not None and math.isfinite(float(value)) for value in basis
+        )
+        basis_out_of_range = basis_complete and any(
+            abs(float(value)) > self.BASIS_MAX_ABS for value in basis
+        )
+        if basis_complete and (basis_out_of_range or self._has_basis_outlier(basis)):
+            basis_parts = ["급변값은 신뢰도가 낮아 감점", "베이시스 점수에서 제외"]
+        elif not self._basis_is_valid(snapshots):
             basis_parts = ["시점별 값이 누락되거나 복제되어 점수에서 제외", "프로그램·선물 점수로 재환산"]
         else:
             basis_parts = ["양(+)의 베이시스로 선물 우위는 인정"] if basis[-1] > 0 else ["음(-)의 베이시스로 선물 우위 가점 없음"]
