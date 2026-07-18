@@ -12,6 +12,7 @@ from market_strength import MarketStrengthAnalyzer
 from close_bet_scanner import CloseBetScanner
 from close_bet_model3_scanner import CloseBetModel3Scanner
 from close_bet_staged.rule_model_runner import run as run_close_bet_rule_model
+from intraday_relative_strength import IntradayRelativeStrengthScanner
 from bottom_detector import BottomDetector
 from model_1_scanner import save_model_scan_history
 from model_data_collector import ModelDataCollector
@@ -123,6 +124,15 @@ def main():
     elif crawler.run() is False:
         print("[Skip] 시간외 데이터는 분석 대상에서 제외되어 이후 단계를 실행하지 않습니다.")
         return
+
+    print("\n[Step 1-0-0] 장중 지수 대비 상대강도를 증분 분석합니다.")
+    if use_latest_regular_data:
+        print("[Intraday RS] 비거래일 수동 실행에서는 당일 분봉 수집을 건너뜁니다.")
+    else:
+        try:
+            IntradayRelativeStrengthScanner(crawler).run()
+        except Exception as e:
+            print(f"[Intraday RS Warning] 상대강도 분석 오류가 발생했지만 주 분석은 계속합니다: {e}")
 
     print("\n[Step 1-0] 종가베팅 스캐너를 실행합니다.")
     try:

@@ -548,6 +548,19 @@ def get_raw_data():
         return pd.DataFrame()
 
 @st.cache_data(ttl=60)
+def get_intraday_relative_strength_data():
+    try:
+        db_path, _ = get_database_path()
+        with sqlite3.connect(db_path) as conn:
+            return pd.read_sql_query(
+                "SELECT * FROM intraday_relative_strength_snapshots "
+                "ORDER BY trade_date DESC, session, rank",
+                conn,
+            )
+    except Exception:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=60)
 def get_news_data():
     try:
         db_path, _ = get_database_path()
@@ -757,6 +770,7 @@ def collect_and_build_single_stock(query, db_path):
 with st.spinner("데이터를 불러오고 있습니다..."):
     df_analyzed = get_analyzed_data()
     df_raw = get_raw_data()
+    df_intraday_relative_strength = get_intraday_relative_strength_data()
     df_news = get_news_data()
     df_market_strength = get_market_strength_data()
     df_sector_flow = get_sector_flow_data()
@@ -858,7 +872,7 @@ else:
 
     # 탭으로 분리
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13 = st.tabs([
-        "🏆 종합 추천종목", 
+        "🚀 지수대비 강한 종목",
         "🔥 거래대금 Top", 
         "🟢 외인 순매수", 
         "🔴 기관 순매수",
@@ -1041,9 +1055,9 @@ else:
                     else:
                         st.info("큰 리스크 감점 요인이 없습니다.")
 
-    # 탭 1: 종합 추천
+    # 탭 1: 분석 시각까지의 분봉으로 계산한 지수 대비 상대강도
     with tab1:
-        st.header(f"🏆 {selected_session_label} 기준 추천 종목 Top 10")
+        st.header(f"🚀 {selected_session_label} 지수 대비 강한 종목")
         st.warning("""
         **⚠️ 매매 주의사항**
 
@@ -1051,18 +1065,60 @@ else:
         2. **나스닥 선물이 상승하면 종가베팅 후 다음 날 시가 매도를 고려합니다.** 힘이 좋은 종목이 장 후반에 살짝 밀릴 때, **지지선이 형성되는 것을 확인한 뒤** 매수합니다.
         3. **나스닥 선물이 하락하면 종가베팅을 피합니다.** 다음 날 시초에 갭하락이 나왔을 때 매수해 장중 매도를 고려합니다.
         """)
-        st.info("""
-        💡 **분석 지표 설명**
-        - **주도주 지표**: 최근 5거래일 동안 '거래대금' 또는 '수급' 상위권에 얼마나 자주 등장했는지(지속성)를 나타냅니다.
-        - **수급 보존율**: 최근 5일간 전체 거래대금 중 외인/기관의 순매수금이 차지하는 비율로, 큰손들의 자금이 얼마나 잔존해 있는지를 뜻합니다.
-        """)
-        with st.expander("🧐 스코어(점수) 상세 산출 공식 보기"):
-            st.markdown("""
-            1. **주도주 지표 (10점/회)**: 시장의 관심을 지속적으로 받는 종목에 가점.
-            2. **수급 보존율 (%)**: 수치 그대로 점수에 반영하여 자금 유입 강도 측정.
-            3. **눌림목 가산점 (+20점)**: 급등 후 거래량 감소와 함께 소폭 조정 중인 '매수 적기' 패턴에 보너스.
-            """)
-        display_formatted_df(df_analyzed.head(10))
+        st.caption(
+            "각 자동 분석 시각까지 저장된 1분봉만 사용합니다. 이전 분봉은 재사용하고 "
+            "마지막 저장 시각 이후 분봉만 추가하며, 16:00 결과는 15:30 정규장 마감까지 보정합니다."
+        )
+        snapshot = df_intraday_relative_strength[
+            (df_intraday_relative_strength['trade_date'].astype(str) == str(selected_date))
+            & (df_intraday_relative_strength['session'].astype(str) == str(selected_session))
+        ].copy() if not df_intraday_relative_strength.empty else pd.DataFrame()
+        if snapshot.empty:
+            st.info(
+                "선택한 시각의 분봉 상대강도 결과가 아직 없습니다. "
+                "새 분석기가 다음 자동 실행부터 시간대별 결과를 저장합니다."
+            )
+        else:
+            strong_labels = ["상승장 주도", "하락장 역행", "하락장 방어"]
+            candidates = snapshot[snapshot['classification'].isin(strong_labels)].copy()
+            if candidates.empty:
+                st.info("이 시각에는 지수보다 확실히 강한 후보가 없어 상대강도 상위 종목을 표시합니다.")
+                candidates = snapshot.head(10).copy()
+            else:
+                candidates = candidates.head(20).copy()
+            display = candidates[[
+                'rank', 'name', 'market', 'classification', 'stock_return',
+                'index_return', 'excess_return', 'open_relative_return',
+                'strength_persistence', 'recent_30m_change',
+                'drawdown_from_high', 'trading_value', 'matched_bars'
+            ]].rename(columns={
+                'rank': '순위', 'name': '종목명', 'market': '비교 지수',
+                'classification': '판정', 'stock_return': '종목 등락률(%)',
+                'index_return': '지수 등락률(%)', 'excess_return': '초과수익률(%p)',
+                'open_relative_return': '시가 이후 상대강도(%p)',
+                'strength_persistence': '강도 유지율(%)',
+                'recent_30m_change': '최근 30분 변화(%p)',
+                'drawdown_from_high': '고점 대비 밀림(%)',
+                'trading_value': '거래대금(억원)', 'matched_bars': '비교 분봉 수',
+            })
+            display['거래대금(억원)'] = pd.to_numeric(
+                display['거래대금(억원)'], errors='coerce'
+            ).fillna(0) / 100_000_000
+            numeric_columns = [
+                '종목 등락률(%)', '지수 등락률(%)', '초과수익률(%p)',
+                '시가 이후 상대강도(%p)', '강도 유지율(%)',
+                '최근 30분 변화(%p)', '고점 대비 밀림(%)', '거래대금(억원)'
+            ]
+            for column in numeric_columns:
+                display[column] = pd.to_numeric(display[column], errors='coerce').round(2)
+            st.dataframe(display, use_container_width=True, hide_index=True)
+            with st.expander("판정 기준 보기"):
+                st.markdown("""
+                - **상승장 주도**: 지수가 상승하는 동안 종목의 초과수익률이 양수이고, 전체 분봉의 절반 이상에서 지수보다 강한 종목
+                - **하락장 역행**: 지수가 하락하는데도 종목은 상승한 경우
+                - **하락장 방어**: 종목도 하락했지만 지수보다 낙폭이 작은 경우
+                - **최근 30분 변화**가 양수면 장 후반으로 갈수록 상대강도가 좋아지고 있다는 뜻입니다.
+                """)
 
     # 탭 2, 3, 4: 각 카테고리별 데이터
     with tab2:
