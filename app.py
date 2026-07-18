@@ -1954,7 +1954,7 @@ else:
                 display_integer_table(display, use_container_width=True)
 
         st.divider()
-    render_rule_model_section(df_close_bet_rule_model, selected_date)
+        render_rule_model_section(df_close_bet_rule_model, selected_date)
 
     with tab10:
         st.header(f"🧭 오늘 섹터 자금 이동 ({selected_date})")
