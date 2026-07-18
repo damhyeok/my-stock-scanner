@@ -94,7 +94,6 @@ def run_full_analysis(manual=False):
             (9 * 60 + 50, "50 0 * * 1-5"),
             (11 * 60 + 30, "30 2 * * 1-5"),
             (14 * 60, "0 5 * * 1-5"),
-            (15 * 60 + 30, "30 6 * * 1-5"),
             (16 * 60, "0 7 * * 1-5"),
         ]
         _, scheduled_cron = min(schedule_slots, key=lambda item: abs(item[0] - current_minutes))
