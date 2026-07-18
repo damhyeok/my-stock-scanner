@@ -1884,8 +1884,9 @@ else:
                     st.caption(f"스캔 완료 시각: {latest_scan_time} KST")
 
         st.divider()
-        st.subheader("3번 모델 · MACD + RSI 동시 매수신호")
+        st.subheader("③ MACD+RSI 동시 매수신호")
         st.caption("시총 1조원 이상 · 당일 상승률 +10% 이하 · 거래량 20일 평균의 0.7~1.5배 · 전일 수익률 -3% 이상. MA20 5일 변화율 +1% 이하는 필터링하지 않고 하락·횡보로 표시합니다. A등급은 전일 보합/상승, B등급은 전일 -3%~0%입니다.")
+        st.caption("전략 의도: 이미 크게 오른 과열 종목보다는 당일 상승폭이 크지 않고 거래량도 평소 수준인 종목을 찾습니다. 특히 하락하거나 횡보하던 흐름에서 MACD와 RSI 매수신호가 동시에 발생해 상승 전환을 시도하는 종목을 우선 확인합니다.")
         model3_run = df_close_bet_model3_runs[
             (df_close_bet_model3_runs['trade_date'].astype(str) == str(selected_date))
             & (df_close_bet_model3_runs['session'].astype(str) == str(selected_session))
