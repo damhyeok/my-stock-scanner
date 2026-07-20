@@ -6,7 +6,6 @@ from pathlib import Path
 from crawler import StockCrawler
 from analyzer import StockAnalyzer
 from excel_manager import ExcelManager
-from telegram_bot import TelegramNotifier
 from news_collector import NewsCollector
 from market_strength import MarketStrengthAnalyzer
 from close_bet_scanner import CloseBetScanner
@@ -178,12 +177,6 @@ def main():
     print("\n[Step 3] 엑셀 리포트를 생성합니다.")
     excel_mgr = ExcelManager()
     excel_mgr.export_to_excel(df_analyzed)
-    
-    # 4. 텔레그램 요약 전송 (직전 세션 비교 브리핑 리포트 생성 및 전송)
-    print("\n[Step 4] 텔레그램 브리핑 리포트를 생성 및 전송합니다.")
-    report_text = analyzer.generate_telegram_report()
-    notifier = TelegramNotifier()
-    notifier.send_summary(report_text)
     
     print("\n=== 모든 자동화 프로세스가 완료되었습니다! ===")
 
