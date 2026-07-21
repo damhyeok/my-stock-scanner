@@ -954,105 +954,16 @@ else:
         st.rerun()
 
     # 상단 KPI
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2 = st.columns(2)
     col1.metric("선택된 날짜", selected_date)
     selected_session_label = display_session_name(selected_session)
     col2.metric("선택된 시간", selected_session_label)
-    col3.metric("분석 대상 종목 수", f"{len(df_analyzed)}개")
-    col4.metric("오늘의 눌림목 포착", f"{len(df_analyzed[df_analyzed['is_pullback'] == True])}개")
-    
-    st.divider()
-
-    st.header("⭐ 내 관심종목 수익률")
-    st.caption(
-        "종목을 추가한 날의 정규장 종가를 기준가격으로 저장합니다. "
-        "장중에 추가하면 당일 장 마감 후 기준가격이 확정되며, 이후 자동 분석 때마다 "
-        "현재 종가·당일 등락률·추가 이후 누적 수익률이 갱신됩니다."
-    )
-    stock_catalog = get_stock_catalog()
-    watchlist_df = get_watchlist_performance()
-    add_col, button_col = st.columns([5, 1])
-    catalog_options = [
-        (row.ticker, row.name, int(row.market_cap or 0))
-        for row in stock_catalog.itertuples(index=False)
-    ]
-    with add_col:
-        selected_watch_stock = st.selectbox(
-            "관심종목 추가",
-            options=catalog_options,
-            format_func=lambda item: f"{item[1]} ({item[0]})",
-            index=None,
-            placeholder="종목명 또는 종목코드를 입력해 선택하세요",
-        )
-    with button_col:
-        st.write("")
-        st.write("")
-        add_watchlist_clicked = st.button(
-            "추가",
-            use_container_width=True,
-            disabled=selected_watch_stock is None,
-        )
-    if add_watchlist_clicked and selected_watch_stock:
-        ticker, name, market_cap = selected_watch_stock
-        with st.spinner(f"{name} 관심종목 추가 요청 중..."):
-            ok, message = update_oracle_watchlist("add", ticker, name, market_cap)
-        if ok:
-            st.success(f"{message} 완료 후 페이지가 자동 갱신되며, 필요하면 데이터 새로고침을 눌러주세요.")
-        else:
-            st.error(message)
-
-    if watchlist_df.empty:
-        st.info("아직 추가한 관심종목이 없습니다.")
-    else:
-        watchlist_display = watchlist_df.rename(columns={
-            "name": "종목명",
-            "ticker": "종목코드",
-            "added_date": "추가한 날",
-            "entry_date": "기준 종가일",
-            "entry_price": "추가 가격",
-            "current_date": "현재 가격일",
-            "current_price": "현재 가격",
-            "daily_return": "당일 등락률(%)",
-            "total_return": "총 수익률(%)",
-        })[[
-            "종목명", "종목코드", "추가한 날", "기준 종가일", "추가 가격",
-            "현재 가격일", "현재 가격", "당일 등락률(%)", "총 수익률(%)",
-        ]]
-        st.dataframe(
-            watchlist_display.style.format({
-                "추가 가격": "{:,.0f}원",
-                "현재 가격": "{:,.0f}원",
-                "당일 등락률(%)": "{:+.2f}%",
-                "총 수익률(%)": "{:+.2f}%",
-            }, na_rep="-"),
-            use_container_width=True,
-            hide_index=True,
-        )
-        pending_count = int(watchlist_df["entry_price"].isna().sum())
-        if pending_count:
-            st.info(f"장 마감 종가 확정 대기 종목이 {pending_count}개 있습니다.")
-        remove_options = [
-            (str(row.ticker), str(row.name)) for row in watchlist_df.itertuples(index=False)
-        ]
-        remove_stock = st.selectbox(
-            "관심종목 삭제",
-            options=remove_options,
-            format_func=lambda item: f"{item[1]} ({item[0]})",
-            index=None,
-            placeholder="삭제할 종목을 선택하세요",
-        )
-        if st.button("선택 종목 삭제", disabled=remove_stock is None):
-            with st.spinner("관심종목 삭제 요청 중..."):
-                ok, message = update_oracle_watchlist("remove", remove_stock[0])
-            if ok:
-                st.success(f"{message} 완료 후 목록에서 사라집니다.")
-            else:
-                st.error(message)
 
     st.divider()
 
     # 탭으로 분리
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13 = st.tabs([
+    watchlist_tab, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13 = st.tabs([
+        "⭐ 내 관심종목",
         "🚀 지수대비 강한 종목",
         "🔥 거래대금 Top", 
         "🟢 외인 순매수", 
@@ -1072,6 +983,93 @@ else:
         df_selected = df_raw[(df_raw['date'] == selected_date) & (df_raw['session'] == selected_session)].copy()
     else:
         df_selected = df_raw[df_raw['date'] == selected_date].copy()
+
+    with watchlist_tab:
+        st.header("⭐ 내 관심종목 수익률")
+        st.caption(
+            "종목을 추가한 날의 정규장 종가를 기준가격으로 저장합니다. "
+            "장중에 추가하면 당일 장 마감 후 기준가격이 확정되며, 이후 자동 분석 때마다 "
+            "현재 종가·당일 등락률·추가 이후 누적 수익률이 갱신됩니다."
+        )
+        stock_catalog = get_stock_catalog()
+        watchlist_df = get_watchlist_performance()
+        add_col, button_col = st.columns([5, 1])
+        catalog_options = [
+            (row.ticker, row.name, int(row.market_cap or 0))
+            for row in stock_catalog.itertuples(index=False)
+        ]
+        with add_col:
+            selected_watch_stock = st.selectbox(
+                "관심종목 추가",
+                options=catalog_options,
+                format_func=lambda item: f"{item[1]} ({item[0]})",
+                index=None,
+                placeholder="종목명 또는 종목코드를 입력해 선택하세요",
+            )
+        with button_col:
+            st.write("")
+            st.write("")
+            add_watchlist_clicked = st.button(
+                "추가",
+                use_container_width=True,
+                disabled=selected_watch_stock is None,
+            )
+        if add_watchlist_clicked and selected_watch_stock:
+            ticker, name, market_cap = selected_watch_stock
+            with st.spinner(f"{name} 관심종목 추가 요청 중..."):
+                ok, message = update_oracle_watchlist("add", ticker, name, market_cap)
+            if ok:
+                st.success(f"{message} 완료 후 페이지가 자동 갱신되며, 필요하면 데이터 새로고침을 눌러주세요.")
+            else:
+                st.error(message)
+
+        if watchlist_df.empty:
+            st.info("아직 추가한 관심종목이 없습니다.")
+        else:
+            watchlist_display = watchlist_df.rename(columns={
+                "name": "종목명",
+                "ticker": "종목코드",
+                "added_date": "추가한 날",
+                "entry_date": "기준 종가일",
+                "entry_price": "추가 가격",
+                "current_date": "현재 가격일",
+                "current_price": "현재 가격",
+                "daily_return": "당일 등락률(%)",
+                "total_return": "총 수익률(%)",
+            })[[
+                "종목명", "종목코드", "추가한 날", "기준 종가일", "추가 가격",
+                "현재 가격일", "현재 가격", "당일 등락률(%)", "총 수익률(%)",
+            ]]
+            st.dataframe(
+                watchlist_display.style.format({
+                    "추가 가격": "{:,.0f}원",
+                    "현재 가격": "{:,.0f}원",
+                    "당일 등락률(%)": "{:+.2f}%",
+                    "총 수익률(%)": "{:+.2f}%",
+                }, na_rep="-"),
+                use_container_width=True,
+                hide_index=True,
+            )
+            pending_count = int(watchlist_df["entry_price"].isna().sum())
+            if pending_count:
+                st.info(f"장 마감 종가 확정 대기 종목이 {pending_count}개 있습니다.")
+            remove_options = [
+                (str(row.ticker), str(row.name)) for row in watchlist_df.itertuples(index=False)
+            ]
+            remove_stock = st.selectbox(
+                "관심종목 삭제",
+                options=remove_options,
+                format_func=lambda item: f"{item[1]} ({item[0]})",
+                index=None,
+                placeholder="삭제할 종목을 선택하세요",
+            )
+            if st.button("선택 종목 삭제", disabled=remove_stock is None):
+                with st.spinner("관심종목 삭제 요청 중..."):
+                    ok, message = update_oracle_watchlist("remove", remove_stock[0])
+                if ok:
+                    st.success(f"{message} 완료 후 목록에서 사라집니다.")
+                else:
+                    st.error(message)
 
     with tab12:
         st.header("🧱 바닥 후보 종목")

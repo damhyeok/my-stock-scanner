@@ -212,15 +212,17 @@ class IntradayRelativeStrengthScanner:
             "custtype": "P",
         }
 
-    def _request(self, url, tr_id, params):
+    def _request(self, url, tr_id, params, tr_cont=""):
         last_error = None
         for attempt in range(3):
             try:
-                response = requests.get(
-                    url, headers=self._headers(tr_id), params=params, timeout=12
-                )
+                headers = self._headers(tr_id)
+                headers["tr_cont"] = tr_cont
+                response = requests.get(url, headers=headers, params=params, timeout=12)
                 body = response.json() if response.status_code == 200 else {}
                 if response.status_code == 200 and body.get("rt_cd") == "0":
+                    body = dict(body)
+                    body["_response_tr_cont"] = response.headers.get("tr_cont", "")
                     time.sleep(self.request_interval)
                     return body
                 last_error = RuntimeError(body.get("msg1") or response.text)
@@ -316,10 +318,12 @@ class IntradayRelativeStrengthScanner:
 
     def _fetch_index_delta(self, trade_date, index_name, start_time, cutoff_time):
         start = datetime.strptime(start_time, "%H:%M")
-        cursor = datetime.strptime(cutoff_time, "%H:%M")
+        cutoff = datetime.strptime(cutoff_time, "%H:%M")
         rows = {}
         previous_close = None
-        while cursor >= start:
+        seen_pages = set()
+        request_tr_cont = ""
+        for _ in range(20):
             body = self._request(
                 self.index_url,
                 "FHKUP03500200",
@@ -327,9 +331,11 @@ class IntradayRelativeStrengthScanner:
                     "FID_COND_MRKT_DIV_CODE": "U",
                     "FID_ETC_CLS_CODE": "0",
                     "FID_INPUT_ISCD": INDEX_CODES[index_name],
-                    "FID_INPUT_HOUR_1": cursor.strftime("%H%M%S"),
+                    # 지수 분봉 API에서 이 필드는 조회시각이 아니라 봉 간격(초)입니다.
+                    "FID_INPUT_HOUR_1": "60",
                     "FID_PW_DATA_INCU_YN": "Y",
                 },
+                tr_cont=request_tr_cont,
             )
             summary = body.get("output1", {}) or {}
             previous_close = _number(summary.get("prdy_nmix"), previous_close)
@@ -339,18 +345,30 @@ class IntradayRelativeStrengthScanner:
                 if current and current_rate is not None and current_rate > -100:
                     previous_close = current / (1 + current_rate / 100)
             output = body.get("output2", []) or []
+            page_key = tuple(
+                str(row.get("stck_cntg_hour", "")).zfill(6) for row in output
+            )
+            if not output or page_key in seen_pages:
+                break
+            seen_pages.add(page_key)
             oldest = None
             for row in output:
+                row_date = str(row.get("stck_bsop_date", "")).strip()
+                if row_date and row_date != trade_date:
+                    continue
                 raw_time = str(row.get("stck_cntg_hour", "")).zfill(6)[:6]
                 if not raw_time.isdigit():
                     continue
                 bar_dt = datetime.strptime(raw_time, "%H%M%S")
                 oldest = bar_dt if oldest is None or bar_dt < oldest else oldest
-                if start <= bar_dt <= datetime.strptime(cutoff_time, "%H:%M"):
+                if start <= bar_dt <= cutoff:
                     rows[bar_dt.strftime("%H:%M")] = row
-            if not output or oldest is None or oldest <= start:
+            if oldest is not None and oldest <= start:
                 break
-            cursor = oldest - timedelta(minutes=1)
+            response_tr_cont = str(body.get("_response_tr_cont", "")).upper()
+            if response_tr_cont not in {"M", "F"}:
+                break
+            request_tr_cont = "N"
         collected_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         values = []
         for bar_time, row in rows.items():
