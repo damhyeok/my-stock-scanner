@@ -94,31 +94,61 @@ def test_strict_minute_match_rejects_distant_or_future_rows(tmp_path):
     ) == {}
 
 
-def test_backward_pages_reach_earliest_afternoon_snapshot(tmp_path):
+def test_index_pages_use_minute_interval_and_reach_earliest_snapshot(tmp_path):
     analyzer = MarketStrengthAnalyzer(
         db_path=str(tmp_path / "market.db"), analysis_type="afternoon"
     )
     requested = []
 
-    def fake_kis_get(path, tr_id, params):
-        cursor = params["FID_INPUT_HOUR_1"]
-        requested.append(cursor)
-        if cursor == "140000":
+    def fake_kis_get(path, tr_id, params, tr_cont=""):
+        requested.append((params["FID_INPUT_HOUR_1"], tr_cont))
+        if not tr_cont:
             rows = [
                 {"stck_cntg_hour": "140000", "bstp_nmix_prpr": "100"},
                 {"stck_cntg_hour": "134500", "bstp_nmix_prpr": "99"},
             ]
+            response_tr_cont = "M"
         else:
             rows = [
                 {"stck_cntg_hour": "134400", "bstp_nmix_prpr": "98.5"},
                 {"stck_cntg_hour": "133000", "bstp_nmix_prpr": "98"},
             ]
-        return {"rt_cd": "0", "output1": {}, "output2": rows}
+            response_tr_cont = ""
+        return {
+            "rt_cd": "0",
+            "output1": {},
+            "output2": rows,
+            "_response_tr_cont": response_tr_cont,
+        }
 
     analyzer._kis_get = fake_kis_get
     snapshots = analyzer._fetch_index_snapshots()
-    assert requested == ["140000", "134400"]
+    assert requested == [("60", ""), ("60", "N")]
     assert snapshots == {"13:30": 98.0, "13:45": 99.0, "14:00": 100.0}
+
+
+def test_index_single_page_ignores_invalid_time_and_matches_closing_minutes(tmp_path):
+    analyzer = make_analyzer(tmp_path)
+    rows = [
+        {"stck_bsop_date": analyzer.target_date, "stck_cntg_hour": "999999", "bstp_nmix_prpr": "0"},
+        {"stck_bsop_date": analyzer.target_date, "stck_cntg_hour": "143000", "bstp_nmix_prpr": "1074.5"},
+        {"stck_bsop_date": analyzer.target_date, "stck_cntg_hour": "150000", "bstp_nmix_prpr": "1073.8"},
+        {"stck_bsop_date": analyzer.target_date, "stck_cntg_hour": "152000", "bstp_nmix_prpr": "1073.7"},
+        {"stck_bsop_date": analyzer.target_date, "stck_cntg_hour": "153000", "bstp_nmix_prpr": "1074.1"},
+    ]
+
+    def fake_kis_get(path, tr_id, params, tr_cont=""):
+        assert params["FID_INPUT_HOUR_1"] == "60"
+        assert tr_cont == ""
+        return {"rt_cd": "0", "output2": rows, "_response_tr_cont": ""}
+
+    analyzer._kis_get = fake_kis_get
+    assert analyzer._fetch_index_snapshots() == {
+        "14:30": 1074.5,
+        "15:00": 1073.8,
+        "15:20": 1073.7,
+        "15:30": 1074.1,
+    }
 
 
 def test_missing_index_does_not_fallback_to_current_basis(tmp_path):

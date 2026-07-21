@@ -183,7 +183,7 @@ class MarketStrengthAnalyzer:
         self.access_token = res.json().get("access_token")
         return self.access_token
 
-    def _kis_get(self, path, tr_id, params):
+    def _kis_get(self, path, tr_id, params, tr_cont=""):
         token = self._get_kis_access_token()
         res = requests.get(
             f"{self.kis_base_url}{path}",
@@ -193,6 +193,7 @@ class MarketStrengthAnalyzer:
                 "appkey": self.kis_app_key,
                 "appsecret": self.kis_app_secret,
                 "tr_id": tr_id,
+                "tr_cont": tr_cont,
                 "custtype": "P",
             },
             params=params,
@@ -203,6 +204,8 @@ class MarketStrengthAnalyzer:
         data = res.json()
         if data.get("rt_cd") not in (None, "0"):
             raise Exception(f"KIS API 응답 오류({tr_id}): {res.text}")
+        data = dict(data)
+        data["_response_tr_cont"] = res.headers.get("tr_cont", "")
         return data
 
     @staticmethod
@@ -455,17 +458,7 @@ class MarketStrengthAnalyzer:
     def _fetch_index_snapshots(self):
         # 베이시스는 반드시 KOSPI200(2001)과 KOSPI200 선물의 동일 시각 값으로 계산합니다.
         try:
-            rows, _ = self._fetch_backward_pages(
-                "/uapi/domestic-stock/v1/quotations/inquire-time-indexchartprice",
-                "FHKUP03500200",
-                {
-                    "FID_COND_MRKT_DIV_CODE": "U",
-                    "FID_ETC_CLS_CODE": "0",
-                    "FID_INPUT_ISCD": "2001",
-                    "FID_PW_DATA_INCU_YN": "Y",
-                },
-                "stck_cntg_hour",
-            )
+            rows = self._fetch_index_minute_rows()
         except Exception as e:
             print(f"[Market Strength Warning] KOSPI200 지수 분봉 조회 실패(code=2001): {e}")
             return {}
@@ -482,6 +475,53 @@ class MarketStrengthAnalyzer:
             if price:
                 snapshots[snapshot_time] = price
         return snapshots
+
+    def _fetch_index_minute_rows(self):
+        """Collect KOSPI200 one-minute bars using the index API continuation header."""
+        earliest = self._hhmmss_to_seconds(self._time_to_hhmmss(self.snapshot_times[0]))
+        params = {
+            "FID_COND_MRKT_DIV_CODE": "U",
+            "FID_ETC_CLS_CODE": "0",
+            "FID_INPUT_ISCD": "2001",
+            # This field is the bar interval, not an HHMMSS query cursor.
+            "FID_INPUT_HOUR_1": "60",
+            "FID_PW_DATA_INCU_YN": "Y",
+        }
+        collected = {}
+        seen_pages = set()
+        request_tr_cont = ""
+        for _ in range(20):
+            data = self._kis_get(
+                "/uapi/domestic-stock/v1/quotations/inquire-time-indexchartprice",
+                "FHKUP03500200",
+                params,
+                tr_cont=request_tr_cont,
+            )
+            rows = data.get("output2", []) or []
+            page_times = tuple(str(row.get("stck_cntg_hour", "")).zfill(6) for row in rows)
+            if not rows or page_times in seen_pages:
+                break
+            seen_pages.add(page_times)
+
+            oldest = None
+            for row in rows:
+                row_date = str(row.get("stck_bsop_date", "")).strip()
+                if row_date and row_date != self.target_date:
+                    continue
+                raw_time = str(row.get("stck_cntg_hour", "")).zfill(6)
+                row_seconds = self._hhmmss_to_seconds(raw_time)
+                if row_seconds is None:
+                    continue
+                collected[raw_time] = row
+                oldest = row_seconds if oldest is None else min(oldest, row_seconds)
+            if oldest is not None and oldest <= earliest:
+                break
+
+            response_tr_cont = str(data.get("_response_tr_cont", "")).upper()
+            if response_tr_cont not in {"M", "F"}:
+                break
+            request_tr_cont = "N"
+        return list(collected.values())
 
     def _score_basis(self, snapshots):
         values = [snapshots[t]["basis"] for t in self.snapshot_times]
