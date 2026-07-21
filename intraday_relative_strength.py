@@ -33,6 +33,18 @@ def _number(value, default=None):
     return default if pd.isna(parsed) else float(parsed)
 
 
+def _parse_intraday_time(value):
+    """Normalize KIS HHMMSS values that may include separators or milliseconds."""
+    digits = re.sub(r"\D", "", str(value or "").strip())
+    if len(digits) < 4:
+        return None
+    normalized = (digits[:6] if len(digits) >= 6 else f"{digits[:4]}00")
+    try:
+        return datetime.strptime(normalized, "%H%M%S")
+    except ValueError:
+        return None
+
+
 def classify_relative_strength(index_return, stock_return, excess_return, persistence):
     """Classify a stock using only information available at the cutoff."""
     if index_return >= 0:
@@ -252,12 +264,17 @@ class IntradayRelativeStrengthScanner:
 
     @staticmethod
     def _next_minute(value):
-        parsed = datetime.strptime(value, "%H:%M") + timedelta(minutes=1)
+        parsed = _parse_intraday_time(value)
+        if parsed is None:
+            return REGULAR_OPEN
+        parsed += timedelta(minutes=1)
         return parsed.strftime("%H:%M")
 
     def _fetch_stock_delta(self, trade_date, ticker, name, start_time, cutoff_time):
-        start = datetime.strptime(start_time, "%H:%M")
-        cursor = datetime.strptime(cutoff_time, "%H:%M")
+        start = _parse_intraday_time(start_time)
+        cursor = _parse_intraday_time(cutoff_time)
+        if start is None or cursor is None:
+            raise ValueError(f"잘못된 종목 분봉 시간 범위: {start_time}~{cutoff_time}")
         rows = {}
         market = "KOSPI"
         while cursor >= start:
@@ -279,9 +296,11 @@ class IntradayRelativeStrengthScanner:
                 raw_time = str(row.get("stck_cntg_hour", "")).zfill(6)[:6]
                 if not raw_time.isdigit():
                     continue
-                bar_dt = datetime.strptime(raw_time, "%H%M%S")
+                bar_dt = _parse_intraday_time(raw_time)
+                if bar_dt is None:
+                    continue
                 oldest = bar_dt if oldest is None or bar_dt < oldest else oldest
-                if start <= bar_dt <= datetime.strptime(cutoff_time, "%H:%M"):
+                if start <= bar_dt <= cursor:
                     rows[bar_dt.strftime("%H:%M")] = row
             if not output or oldest is None or oldest <= start:
                 break
@@ -317,8 +336,10 @@ class IntradayRelativeStrengthScanner:
         return 0.0
 
     def _fetch_index_delta(self, trade_date, index_name, start_time, cutoff_time):
-        start = datetime.strptime(start_time, "%H:%M")
-        cutoff = datetime.strptime(cutoff_time, "%H:%M")
+        start = _parse_intraday_time(start_time)
+        cutoff = _parse_intraday_time(cutoff_time)
+        if start is None or cutoff is None:
+            raise ValueError(f"잘못된 지수 분봉 시간 범위: {start_time}~{cutoff_time}")
         rows = {}
         previous_close = None
         seen_pages = set()
@@ -356,10 +377,10 @@ class IntradayRelativeStrengthScanner:
                 row_date = str(row.get("stck_bsop_date", "")).strip()
                 if row_date and row_date != trade_date:
                     continue
-                raw_time = str(row.get("stck_cntg_hour", "")).zfill(6)[:6]
-                if not raw_time.isdigit():
+                raw_time = str(row.get("stck_cntg_hour", ""))
+                bar_dt = _parse_intraday_time(raw_time)
+                if bar_dt is None:
                     continue
-                bar_dt = datetime.strptime(raw_time, "%H%M%S")
                 oldest = bar_dt if oldest is None or bar_dt < oldest else oldest
                 if start <= bar_dt <= cutoff:
                     rows[bar_dt.strftime("%H:%M")] = row

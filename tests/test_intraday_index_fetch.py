@@ -3,10 +3,14 @@ import tempfile
 from pathlib import Path
 from unittest import TestCase
 
-from intraday_relative_strength import IntradayRelativeStrengthScanner
+from intraday_relative_strength import IntradayRelativeStrengthScanner, _parse_intraday_time
 
 
 class IntradayIndexFetchTests(TestCase):
+    def test_kis_millisecond_time_is_normalized(self):
+        self.assertEqual(_parse_intraday_time("153000999").strftime("%H:%M:%S"), "15:30:00")
+        self.assertEqual(_parse_intraday_time("15:30:00.999").strftime("%H:%M:%S"), "15:30:00")
+
     def test_index_api_uses_sixty_second_interval_and_continuation(self):
         with tempfile.TemporaryDirectory() as directory:
             scanner = IntradayRelativeStrengthScanner.__new__(
