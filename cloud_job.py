@@ -13,6 +13,7 @@ from market_strength import MarketStrengthAnalyzer
 from program_ws_collector import ProgramTradeCollector
 from sector_flow_collector import SectorFlowCollector
 from web_database import build_web_database, restore_working_database
+from watchlist import WatchlistManager, refresh_watchlist
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -55,6 +56,12 @@ def pull_latest():
 
 
 def push_outputs(task_name):
+    watchlist_summary = refresh_watchlist(PROJECT_DIR / "stock_data.db")
+    print(
+        "[Watchlist] "
+        f"updated={watchlist_summary['updated']}, "
+        f"failures={len(watchlist_summary['failures'])}"
+    )
     build_web_database(PROJECT_DIR / "stock_data.db", PROJECT_DIR / "web_data.db")
     with file_lock(".cloud_git.lock"):
         run_command(["git", "add", "--", "web_data.db"])
@@ -143,8 +150,13 @@ def main():
             "closing-strength",
             "sector-flow",
             "bottom-model",
+            "watchlist-add",
+            "watchlist-remove",
         ],
     )
+    parser.add_argument("--ticker")
+    parser.add_argument("--name")
+    parser.add_argument("--market-cap", type=int, default=0)
     args = parser.parse_args()
 
     if args.task == "morning-collector":
@@ -175,6 +187,12 @@ def main():
                 run_sector_flow()
             elif args.task == "bottom-model":
                 run_bottom_model()
+            elif args.task == "watchlist-add":
+                WatchlistManager(PROJECT_DIR / "stock_data.db").add(
+                    args.ticker, args.name, args.market_cap
+                )
+            elif args.task == "watchlist-remove":
+                WatchlistManager(PROJECT_DIR / "stock_data.db").remove(args.ticker)
             push_outputs(args.task)
 
 

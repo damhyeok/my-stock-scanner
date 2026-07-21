@@ -116,7 +116,7 @@ def watch_process(process, log_file, run_id):
         ACTIVE_PROCESS = None
 
 
-def start_analysis():
+def start_job(task="manual-analysis", arguments=None, message=None):
     global ACTIVE_PROCESS
     with STATE_LOCK:
         if ACTIVE_PROCESS is not None and ACTIVE_PROCESS.poll() is None:
@@ -124,10 +124,12 @@ def start_analysis():
 
         run_id = uuid.uuid4().hex
         log_file = LOG_PATH.open("a", encoding="utf-8")
-        log_file.write(f"\n[{now_iso()}] manual run {run_id}\n")
+        log_file.write(f"\n[{now_iso()}] {task} {run_id}\n")
         log_file.flush()
+        command = [sys.executable, str(PROJECT_DIR / "cloud_job.py"), task]
+        command.extend(arguments or [])
         process = subprocess.Popen(
-            [sys.executable, str(PROJECT_DIR / "cloud_job.py"), "manual-analysis"],
+            command,
             cwd=PROJECT_DIR,
             stdout=log_file,
             stderr=subprocess.STDOUT,
@@ -138,7 +140,7 @@ def start_analysis():
             run_id=run_id,
             state="running",
             progress=20,
-            message="현재 시각 기준으로 주가 데이터 수집과 분석을 진행 중입니다.",
+            message=message or "현재 시각 기준으로 주가 데이터 수집과 분석을 진행 중입니다.",
             requested_at=now_iso(),
             started_at=now_iso(),
             finished_at=None,
@@ -149,6 +151,10 @@ def start_analysis():
             daemon=True,
         ).start()
         return True, status
+
+
+def start_analysis():
+    return start_job()
 
 
 class TriggerHandler(BaseHTTPRequestHandler):
@@ -166,13 +172,48 @@ class TriggerHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length)
-        if self.path != "/run":
+        if self.path not in ("/run", "/watchlist"):
             self.send_json(404, {"error": "not_found"})
             return
         if not is_authorized(self, body):
             self.send_json(401, {"error": "unauthorized"})
             return
-        started, status = start_analysis()
+        if self.path == "/run":
+            started, status = start_analysis()
+        else:
+            try:
+                payload = json.loads(body.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                self.send_json(400, {"error": "invalid_json"})
+                return
+            action = str(payload.get("action", ""))
+            ticker = str(payload.get("ticker", "")).strip().zfill(6)
+            if len(ticker) != 6 or not ticker.isdigit():
+                self.send_json(400, {"error": "invalid_ticker"})
+                return
+            if action == "add":
+                name = str(payload.get("name", "")).strip()
+                if not name:
+                    self.send_json(400, {"error": "invalid_name"})
+                    return
+                arguments = ["--ticker", ticker, "--name", name]
+                market_cap = payload.get("market_cap")
+                if market_cap is not None:
+                    arguments.extend(["--market-cap", str(int(market_cap))])
+                started, status = start_job(
+                    "watchlist-add",
+                    arguments,
+                    f"{name}을(를) 관심종목에 추가하고 기준 종가를 확인 중입니다.",
+                )
+            elif action == "remove":
+                started, status = start_job(
+                    "watchlist-remove",
+                    ["--ticker", ticker],
+                    f"{ticker} 관심종목을 삭제 중입니다.",
+                )
+            else:
+                self.send_json(400, {"error": "invalid_action"})
+                return
         self.send_json(202 if started else 409, status)
 
     def do_GET(self):

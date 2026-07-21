@@ -341,7 +341,7 @@ def trigger_github_workflow(run_mode="full", market_strength_mode="manual", requ
         return True, "GitHub Actions 실행을 요청했습니다. 실제 시작시각 기준으로 분석하며, 완료 후 새로고침하면 최신 데이터가 보입니다."
     return False, f"GitHub Actions 실행 요청 실패: {response.status_code} {response.text}"
 
-def oracle_request(method, path):
+def oracle_request(method, path, json_body=None):
     base_url = get_config_value("ORACLE_TRIGGER_URL", "http://161.33.27.132:8765").rstrip("/")
     secret = get_config_value("ORACLE_TRIGGER_SECRET")
     if not secret:
@@ -349,7 +349,10 @@ def oracle_request(method, path):
 
     timestamp = str(int(time.time()))
     nonce = uuid.uuid4().hex
-    body = b"{}" if method == "POST" else b""
+    body = (
+        json.dumps(json_body if json_body is not None else {}, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        if method == "POST" else b""
+    )
     body_hash = hashlib.sha256(body).hexdigest()
     payload = f"{method}\n{path}\n{timestamp}\n{nonce}\n{body_hash}".encode("utf-8")
     signature = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
@@ -385,6 +388,18 @@ def trigger_oracle_analysis():
     if status.get("state") == "running":
         return True, status.get("message", "Oracle 서버에서 분석을 시작했습니다."), status
     return False, "현재 실행 상태를 확인할 수 없습니다.", status
+
+
+def update_oracle_watchlist(action, ticker, name="", market_cap=0):
+    payload = {"action": action, "ticker": ticker}
+    if action == "add":
+        payload.update({"name": name, "market_cap": int(market_cap or 0)})
+    status, error = oracle_request("POST", "/watchlist", json_body=payload)
+    if error:
+        return False, error
+    if status.get("state") == "running":
+        return True, status.get("message", "관심종목 변경을 처리 중입니다.")
+    return False, "현재 다른 작업이 실행 중입니다. 완료 후 다시 시도해주세요."
 
 def display_oracle_run_status(container):
     status, error = oracle_request("GET", "/status")
@@ -753,6 +768,84 @@ def get_bottom_candidate_data(selected_date):
     except Exception:
         return pd.DataFrame()
 
+
+@st.cache_data(ttl=60)
+def get_stock_catalog():
+    try:
+        db_path, _ = get_database_path()
+        with sqlite3.connect(db_path) as conn:
+            tables = {
+                row[0] for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            queries = []
+            if "model_universe_snapshots" in tables:
+                queries.append(
+                    "SELECT ticker, name, MAX(COALESCE(market_cap, 0)) AS market_cap "
+                    "FROM model_universe_snapshots GROUP BY ticker, name"
+                )
+            if "daily_stocks" in tables:
+                queries.append(
+                    "SELECT ticker, name, MAX(COALESCE(market_cap, 0)) AS market_cap "
+                    "FROM daily_stocks GROUP BY ticker, name"
+                )
+            if not queries:
+                return pd.DataFrame(columns=["ticker", "name", "market_cap"])
+            catalog = pd.read_sql_query(" UNION ALL ".join(queries), conn)
+        catalog["ticker"] = catalog["ticker"].astype(str).str.zfill(6)
+        catalog["market_cap"] = pd.to_numeric(catalog["market_cap"], errors="coerce").fillna(0)
+        return (
+            catalog.sort_values("market_cap", ascending=False)
+            .drop_duplicates("ticker")
+            .sort_values(["name", "ticker"])
+            .reset_index(drop=True)
+        )
+    except Exception:
+        return pd.DataFrame(columns=["ticker", "name", "market_cap"])
+
+
+@st.cache_data(ttl=60)
+def get_watchlist_performance():
+    try:
+        db_path, _ = get_database_path()
+        with sqlite3.connect(db_path) as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='watchlist_items'"
+            ).fetchone()
+            if not exists:
+                return pd.DataFrame()
+            frame = pd.read_sql_query(
+                """
+                WITH daily AS (
+                    SELECT ticker, date, MAX(close) AS close,
+                           MAX(change_rate) AS change_rate
+                    FROM model_ohlcv_daily
+                    GROUP BY ticker, date
+                ), latest AS (
+                    SELECT ticker, date, close, change_rate,
+                           ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) AS row_num
+                    FROM daily
+                )
+                SELECT w.ticker, w.name, w.added_date, w.entry_date, w.entry_price,
+                       l.date AS current_date, l.close AS current_price,
+                       l.change_rate AS daily_return
+                FROM watchlist_items w
+                LEFT JOIN latest l ON l.ticker = w.ticker AND l.row_num = 1
+                ORDER BY w.added_at_kst
+                """,
+                conn,
+            )
+        frame["entry_price"] = pd.to_numeric(frame["entry_price"], errors="coerce")
+        frame["current_price"] = pd.to_numeric(frame["current_price"], errors="coerce")
+        frame["daily_return"] = pd.to_numeric(frame["daily_return"], errors="coerce")
+        frame["total_return"] = (
+            (frame["current_price"] / frame["entry_price"] - 1) * 100
+        )
+        return frame
+    except Exception:
+        return pd.DataFrame()
+
 def collect_and_build_single_stock(query, db_path):
     configure_model_runtime_secrets()
     collector = ModelDataCollector(db_path=db_path)
@@ -868,6 +961,94 @@ else:
     col3.metric("분석 대상 종목 수", f"{len(df_analyzed)}개")
     col4.metric("오늘의 눌림목 포착", f"{len(df_analyzed[df_analyzed['is_pullback'] == True])}개")
     
+    st.divider()
+
+    st.header("⭐ 내 관심종목 수익률")
+    st.caption(
+        "종목을 추가한 날의 정규장 종가를 기준가격으로 저장합니다. "
+        "장중에 추가하면 당일 장 마감 후 기준가격이 확정되며, 이후 자동 분석 때마다 "
+        "현재 종가·당일 등락률·추가 이후 누적 수익률이 갱신됩니다."
+    )
+    stock_catalog = get_stock_catalog()
+    watchlist_df = get_watchlist_performance()
+    add_col, button_col = st.columns([5, 1])
+    catalog_options = [
+        (row.ticker, row.name, int(row.market_cap or 0))
+        for row in stock_catalog.itertuples(index=False)
+    ]
+    with add_col:
+        selected_watch_stock = st.selectbox(
+            "관심종목 추가",
+            options=catalog_options,
+            format_func=lambda item: f"{item[1]} ({item[0]})",
+            index=None,
+            placeholder="종목명 또는 종목코드를 입력해 선택하세요",
+        )
+    with button_col:
+        st.write("")
+        st.write("")
+        add_watchlist_clicked = st.button(
+            "추가",
+            use_container_width=True,
+            disabled=selected_watch_stock is None,
+        )
+    if add_watchlist_clicked and selected_watch_stock:
+        ticker, name, market_cap = selected_watch_stock
+        with st.spinner(f"{name} 관심종목 추가 요청 중..."):
+            ok, message = update_oracle_watchlist("add", ticker, name, market_cap)
+        if ok:
+            st.success(f"{message} 완료 후 페이지가 자동 갱신되며, 필요하면 데이터 새로고침을 눌러주세요.")
+        else:
+            st.error(message)
+
+    if watchlist_df.empty:
+        st.info("아직 추가한 관심종목이 없습니다.")
+    else:
+        watchlist_display = watchlist_df.rename(columns={
+            "name": "종목명",
+            "ticker": "종목코드",
+            "added_date": "추가한 날",
+            "entry_date": "기준 종가일",
+            "entry_price": "추가 가격",
+            "current_date": "현재 가격일",
+            "current_price": "현재 가격",
+            "daily_return": "당일 등락률(%)",
+            "total_return": "총 수익률(%)",
+        })[[
+            "종목명", "종목코드", "추가한 날", "기준 종가일", "추가 가격",
+            "현재 가격일", "현재 가격", "당일 등락률(%)", "총 수익률(%)",
+        ]]
+        st.dataframe(
+            watchlist_display.style.format({
+                "추가 가격": "{:,.0f}원",
+                "현재 가격": "{:,.0f}원",
+                "당일 등락률(%)": "{:+.2f}%",
+                "총 수익률(%)": "{:+.2f}%",
+            }, na_rep="-"),
+            use_container_width=True,
+            hide_index=True,
+        )
+        pending_count = int(watchlist_df["entry_price"].isna().sum())
+        if pending_count:
+            st.info(f"장 마감 종가 확정 대기 종목이 {pending_count}개 있습니다.")
+        remove_options = [
+            (str(row.ticker), str(row.name)) for row in watchlist_df.itertuples(index=False)
+        ]
+        remove_stock = st.selectbox(
+            "관심종목 삭제",
+            options=remove_options,
+            format_func=lambda item: f"{item[1]} ({item[0]})",
+            index=None,
+            placeholder="삭제할 종목을 선택하세요",
+        )
+        if st.button("선택 종목 삭제", disabled=remove_stock is None):
+            with st.spinner("관심종목 삭제 요청 중..."):
+                ok, message = update_oracle_watchlist("remove", remove_stock[0])
+            if ok:
+                st.success(f"{message} 완료 후 목록에서 사라집니다.")
+            else:
+                st.error(message)
+
     st.divider()
 
     # 탭으로 분리
