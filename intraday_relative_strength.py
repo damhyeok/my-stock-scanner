@@ -16,6 +16,7 @@ KST = timezone(timedelta(hours=9))
 REGULAR_OPEN = "09:00"
 REGULAR_CLOSE = "15:30"
 INDEX_CODES = {"KOSPI": "0001", "KOSDAQ": "1001"}
+MIN_MATCHED_BAR_RATIO = 0.95
 
 
 def session_cutoff(session: str) -> str:
@@ -69,6 +70,14 @@ def _fixed_interval_return(joined, start_time, end_time):
     if not start_close or end_close is None:
         return None
     return float((end_close / start_close - 1) * 100)
+
+
+def expected_regular_bars(cutoff_time):
+    start = _parse_intraday_time(REGULAR_OPEN)
+    cutoff = _parse_intraday_time(cutoff_time)
+    if start is None or cutoff is None or cutoff < start:
+        return 0
+    return int((cutoff - start).total_seconds() // 60) + 1
 
 
 def calculate_relative_strength(stock_bars, index_bars, trading_value=0):
@@ -372,8 +381,8 @@ class IntradayRelativeStrengthScanner:
         rows = {}
         previous_close = None
         seen_pages = set()
-        request_tr_cont = ""
-        for _ in range(20):
+        cursor = cutoff
+        for _ in range(32):
             body = self._request(
                 self.index_url,
                 "FHKUP03500200",
@@ -381,11 +390,9 @@ class IntradayRelativeStrengthScanner:
                     "FID_COND_MRKT_DIV_CODE": "U",
                     "FID_ETC_CLS_CODE": "0",
                     "FID_INPUT_ISCD": INDEX_CODES[index_name],
-                    # 지수 분봉 API에서 이 필드는 조회시각이 아니라 봉 간격(초)입니다.
-                    "FID_INPUT_HOUR_1": "60",
+                    "FID_INPUT_HOUR_1": cursor.strftime("%H%M%S"),
                     "FID_PW_DATA_INCU_YN": "Y",
                 },
-                tr_cont=request_tr_cont,
             )
             summary = body.get("output1", {}) or {}
             previous_close = _number(summary.get("prdy_nmix"), previous_close)
@@ -415,10 +422,12 @@ class IntradayRelativeStrengthScanner:
                     rows[bar_dt.strftime("%H:%M")] = row
             if oldest is not None and oldest <= start:
                 break
-            response_tr_cont = str(body.get("_response_tr_cont", "")).upper()
-            if response_tr_cont not in {"M", "F"}:
+            if oldest is None:
                 break
-            request_tr_cont = "N"
+            next_cursor = oldest - timedelta(minutes=1)
+            if next_cursor >= cursor:
+                break
+            cursor = next_cursor
         collected_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         values = []
         for bar_time, row in rows.items():
@@ -517,6 +526,10 @@ class IntradayRelativeStrengthScanner:
             for name in INDEX_CODES
         }
         results = []
+        coverage_failures = 0
+        minimum_matched_bars = math.ceil(
+            expected_regular_bars(cutoff_time) * MIN_MATCHED_BAR_RATIO
+        )
         for _, item in universe.iterrows():
             ticker = str(item["ticker"]).zfill(6)
             stock_bars = self._load_bars(
@@ -529,6 +542,9 @@ class IntradayRelativeStrengthScanner:
             metrics = calculate_relative_strength(
                 stock_bars, index_frames.get(market, pd.DataFrame()), item["trading_value"]
             )
+            if metrics and metrics["matched_bars"] < minimum_matched_bars:
+                coverage_failures += 1
+                continue
             if metrics:
                 results.append(
                     {
@@ -539,6 +555,12 @@ class IntradayRelativeStrengthScanner:
                         **metrics,
                     }
                 )
+        failures += coverage_failures
+        if coverage_failures:
+            print(
+                f"[Intraday RS Warning] 비교 분봉 부족: {coverage_failures}개 종목 "
+                f"(최소 {minimum_matched_bars}/{expected_regular_bars(cutoff_time)}개 필요)"
+            )
         result = pd.DataFrame(results)
         if not result.empty:
             result = result.sort_values(

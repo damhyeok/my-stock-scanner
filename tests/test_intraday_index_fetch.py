@@ -3,13 +3,21 @@ import tempfile
 from pathlib import Path
 from unittest import TestCase
 
-from intraday_relative_strength import IntradayRelativeStrengthScanner, _parse_intraday_time
+from intraday_relative_strength import (
+    IntradayRelativeStrengthScanner,
+    _parse_intraday_time,
+    expected_regular_bars,
+)
 
 
 class IntradayIndexFetchTests(TestCase):
     def test_kis_millisecond_time_is_normalized(self):
         self.assertEqual(_parse_intraday_time("153000999").strftime("%H:%M:%S"), "15:30:00")
         self.assertEqual(_parse_intraday_time("15:30:00.999").strftime("%H:%M:%S"), "15:30:00")
+
+    def test_expected_regular_bar_counts_include_both_endpoints(self):
+        self.assertEqual(expected_regular_bars("09:30"), 31)
+        self.assertEqual(expected_regular_bars("15:30"), 391)
 
     def test_index_api_uses_sixty_second_interval_and_continuation(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -67,8 +75,11 @@ class IntradayIndexFetchTests(TestCase):
             )
 
             self.assertEqual(saved, 4)
-            self.assertEqual([call[0]["FID_INPUT_HOUR_1"] for call in calls], ["60", "60"])
-            self.assertEqual([call[1] for call in calls], ["", "N"])
+            self.assertEqual(
+                [call[0]["FID_INPUT_HOUR_1"] for call in calls],
+                ["153000", "152800"],
+            )
+            self.assertEqual([call[1] for call in calls], ["", ""])
             with sqlite3.connect(scanner.db_path) as conn:
                 rows = conn.execute(
                     "SELECT bar_time, close FROM intraday_index_bars ORDER BY bar_time"
