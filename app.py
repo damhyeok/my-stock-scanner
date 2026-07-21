@@ -1266,7 +1266,8 @@ else:
             display = candidates[[
                 'rank', 'name', 'market', 'classification', 'stock_return',
                 'index_return', 'excess_return', 'open_relative_return',
-                'strength_persistence', 'recent_30m_change',
+                'strength_persistence', 'pre_close_30m_return',
+                'closing_auction_return',
                 'drawdown_from_high', 'trading_value', 'matched_bars'
             ]].rename(columns={
                 'rank': '순위', 'name': '종목명', 'market': '비교 지수',
@@ -1274,7 +1275,8 @@ else:
                 'index_return': '지수 등락률(%)', 'excess_return': '초과수익률(%p)',
                 'open_relative_return': '시가 이후 상대강도(%p)',
                 'strength_persistence': '강도 유지율(%)',
-                'recent_30m_change': '최근 30분 변화(%p)',
+                'pre_close_30m_return': '14:50→15:20 등락률(%)',
+                'closing_auction_return': '15:20→15:30 등락률(%)',
                 'drawdown_from_high': '고점 대비 밀림(%)',
                 'trading_value': '거래대금(억원)', 'matched_bars': '비교 분봉 수',
             })
@@ -1284,7 +1286,8 @@ else:
             numeric_columns = [
                 '종목 등락률(%)', '지수 등락률(%)', '초과수익률(%p)',
                 '시가 이후 상대강도(%p)', '강도 유지율(%)',
-                '최근 30분 변화(%p)', '고점 대비 밀림(%)', '거래대금(억원)'
+                '14:50→15:20 등락률(%)', '15:20→15:30 등락률(%)',
+                '고점 대비 밀림(%)', '거래대금(억원)'
             ]
             for column in numeric_columns:
                 display[column] = pd.to_numeric(display[column], errors='coerce').round(2)
@@ -1294,7 +1297,8 @@ else:
                 - **상승장 주도**: 지수가 상승하는 동안 종목의 초과수익률이 양수이고, 전체 분봉의 절반 이상에서 지수보다 강한 종목
                 - **하락장 역행**: 지수가 하락하는데도 종목은 상승한 경우
                 - **하락장 방어**: 종목도 하락했지만 지수보다 낙폭이 작은 경우
-                - **최근 30분 변화**가 양수면 장 후반으로 갈수록 상대강도가 좋아지고 있다는 뜻입니다.
+                - **14:50→15:20 등락률**은 종가 동시호가 직전 30분의 종목 자체 수익률입니다.
+                - **15:20→15:30 등락률**은 종가 동시호가 구간에서 최종 종가가 얼마나 변했는지 보여줍니다.
                 """)
 
     # 탭 2, 3, 4: 각 카테고리별 데이터

@@ -58,6 +58,19 @@ def classify_relative_strength(index_return, stock_return, excess_return, persis
     return "시장 대비 약세"
 
 
+def _fixed_interval_return(joined, start_time, end_time):
+    """Return the stock close-to-close move for an exact fixed minute interval."""
+    start_rows = joined[joined["bar_time"].eq(start_time)]
+    end_rows = joined[joined["bar_time"].eq(end_time)]
+    if start_rows.empty or end_rows.empty:
+        return None
+    start_close = _number(start_rows.iloc[-1].get("close_stock"))
+    end_close = _number(end_rows.iloc[-1].get("close_stock"))
+    if not start_close or end_close is None:
+        return None
+    return float((end_close / start_close - 1) * 100)
+
+
 def calculate_relative_strength(stock_bars, index_bars, trading_value=0):
     """Calculate point-in-time relative-strength features from aligned minute bars."""
     if stock_bars.empty or index_bars.empty:
@@ -102,6 +115,8 @@ def calculate_relative_strength(stock_bars, index_bars, trading_value=0):
 
     recent_start = max(0, len(excess) - 31)
     recent_change = float(excess.iloc[-1] - excess.iloc[recent_start])
+    pre_close_30m_return = _fixed_interval_return(joined, "14:50", "15:20")
+    closing_auction_return = _fixed_interval_return(joined, "15:20", "15:30")
     last_close = float(joined.iloc[-1]["close_stock"])
     high_close = float(joined["close_stock"].max())
     drawdown = max(0.0, (high_close - last_close) / high_close * 100) if high_close else 0.0
@@ -123,6 +138,8 @@ def calculate_relative_strength(stock_bars, index_bars, trading_value=0):
         "open_relative_return": open_relative_return,
         "strength_persistence": persistence,
         "recent_30m_change": recent_change,
+        "pre_close_30m_return": pre_close_30m_return,
+        "closing_auction_return": closing_auction_return,
         "drawdown_from_high": drawdown,
         "score": score,
         "classification": classification,
@@ -191,6 +208,8 @@ class IntradayRelativeStrengthScanner:
                     open_relative_return REAL,
                     strength_persistence REAL,
                     recent_30m_change REAL,
+                    pre_close_30m_return REAL,
+                    closing_auction_return REAL,
                     drawdown_from_high REAL,
                     trading_value REAL,
                     matched_bars INTEGER,
@@ -213,6 +232,16 @@ class IntradayRelativeStrengthScanner:
                 );
                 """
             )
+            existing_snapshot_columns = {
+                row[1] for row in conn.execute(
+                    "PRAGMA table_info(intraday_relative_strength_snapshots)"
+                ).fetchall()
+            }
+            for column in ("pre_close_30m_return", "closing_auction_return"):
+                if column not in existing_snapshot_columns:
+                    conn.execute(
+                        f"ALTER TABLE intraday_relative_strength_snapshots ADD COLUMN {column} REAL"
+                    )
 
     def _headers(self, tr_id):
         return {
@@ -528,13 +557,15 @@ class IntradayRelativeStrengthScanner:
                     """INSERT INTO intraday_relative_strength_snapshots
                     (trade_date,session,cutoff_time,ticker,name,market,stock_return,index_return,
                      excess_return,open_relative_return,strength_persistence,recent_30m_change,
-                     drawdown_from_high,trading_value,matched_bars,classification,score,rank,collected_at_kst)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                     pre_close_30m_return,closing_auction_return,drawdown_from_high,
+                     trading_value,matched_bars,classification,score,rank,collected_at_kst)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         trade_date, session, cutoff_time, row["ticker"], row["name"], row["market"],
                         row["stock_return"], row["index_return"], row["excess_return"],
                         row["open_relative_return"], row["strength_persistence"],
-                        row["recent_30m_change"], row["drawdown_from_high"], row["trading_value"],
+                        row["recent_30m_change"], row["pre_close_30m_return"],
+                        row["closing_auction_return"], row["drawdown_from_high"], row["trading_value"],
                         row["matched_bars"], row["classification"], row["score"], row["rank"],
                         completed_at,
                     ),
