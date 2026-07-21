@@ -1028,17 +1028,15 @@ else:
         else:
             watchlist_display = watchlist_df.rename(columns={
                 "name": "종목명",
-                "ticker": "종목코드",
                 "added_date": "추가한 날",
-                "entry_date": "기준 종가일",
                 "entry_price": "추가 가격",
                 "current_date": "현재 가격일",
                 "current_price": "현재 가격",
                 "daily_return": "당일 등락률(%)",
                 "total_return": "총 수익률(%)",
             })[[
-                "종목명", "종목코드", "추가한 날", "기준 종가일", "추가 가격",
-                "현재 가격일", "현재 가격", "당일 등락률(%)", "총 수익률(%)",
+                "종목명", "추가한 날", "추가 가격", "현재 가격일", "현재 가격",
+                "당일 등락률(%)", "총 수익률(%)",
             ]]
             st.dataframe(
                 watchlist_display.style.format({
