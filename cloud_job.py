@@ -12,6 +12,8 @@ from dotenv import load_dotenv
 from market_strength import MarketStrengthAnalyzer
 from program_ws_collector import ProgramTradeCollector
 from sector_flow_collector import SectorFlowCollector
+from crawler import StockCrawler
+from intraday_relative_strength import IntradayRelativeStrengthScanner
 from web_database import build_web_database, restore_working_database
 from watchlist import WatchlistManager, refresh_watchlist
 
@@ -152,11 +154,14 @@ def main():
             "bottom-model",
             "watchlist-add",
             "watchlist-remove",
+            "intraday-rs-backfill",
         ],
     )
     parser.add_argument("--ticker")
     parser.add_argument("--name")
     parser.add_argument("--market-cap", type=int, default=0)
+    parser.add_argument("--trade-date")
+    parser.add_argument("--session", default="정규장(16:00)")
     args = parser.parse_args()
 
     if args.task == "morning-collector":
@@ -193,6 +198,15 @@ def main():
                 )
             elif args.task == "watchlist-remove":
                 WatchlistManager(PROJECT_DIR / "stock_data.db").remove(args.ticker)
+            elif args.task == "intraday-rs-backfill":
+                crawler = StockCrawler(db_path=str(PROJECT_DIR / "stock_data.db"))
+                trade_date = args.trade_date or crawler.target_date
+                crawler.target_date = trade_date
+                result = IntradayRelativeStrengthScanner(crawler).run(
+                    trade_date=trade_date,
+                    session=args.session,
+                )
+                print(f"[Intraday RS Backfill] saved={len(result)}")
             push_outputs(args.task)
 
 
