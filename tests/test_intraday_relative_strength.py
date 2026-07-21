@@ -1,4 +1,5 @@
 import pandas as pd
+from unittest import TestCase
 
 from intraday_relative_strength import (
     calculate_relative_strength,
@@ -40,40 +41,43 @@ def test_down_market_classification():
     assert classify_relative_strength(-1.5, -0.3, 1.2, 80) == "하락장 방어"
 
 
-def test_fixed_preclose_and_closing_auction_returns_use_stock_prices():
-    times = ["14:50", "15:20", "15:30"]
-    stock = pd.DataFrame(
-        {
-            "bar_time": times,
-            "open": [100, 102, 103],
-            "close": [100, 103, 104],
-            "change_rate": [0.0, 3.0, 4.0],
-        }
-    )
-    index = pd.DataFrame(
-        {
-            "bar_time": times,
-            "open": [1000, 1000, 1000],
-            "close": [1000, 1000, 1000],
-            "change_rate": [0.0, 0.0, 0.0],
-        }
-    )
+class FixedCloseIntervalTests(TestCase):
+    def test_fixed_preclose_and_closing_auction_returns_use_stock_prices(self):
+        times = ["14:50", "15:20", "15:30"]
+        stock = pd.DataFrame(
+            {
+                "bar_time": times,
+                "open": [100, 102, 103],
+                "close": [100, 103, 104],
+                "change_rate": [0.0, 3.0, 4.0],
+            }
+        )
+        index = pd.DataFrame(
+            {
+                "bar_time": times,
+                "open": [1000, 1000, 1000],
+                "close": [1000, 1000, 1000],
+                "change_rate": [0.0, 0.0, 0.0],
+            }
+        )
 
-    result = calculate_relative_strength(stock, index)
+        result = calculate_relative_strength(stock, index)
 
-    assert round(result["pre_close_30m_return"], 6) == 3.0
-    assert round(result["closing_auction_return"], 6) == round((104 / 103 - 1) * 100, 6)
+        self.assertEqual(round(result["pre_close_30m_return"], 6), 3.0)
+        self.assertEqual(
+            round(result["closing_auction_return"], 6),
+            round((104 / 103 - 1) * 100, 6),
+        )
 
+    def test_fixed_close_intervals_are_missing_before_their_bars_exist(self):
+        stock = pd.DataFrame(
+            {"bar_time": ["13:59", "14:00"], "open": [100, 100], "close": [100, 101], "change_rate": [0, 1]}
+        )
+        index = pd.DataFrame(
+            {"bar_time": ["13:59", "14:00"], "open": [1000, 1000], "close": [1000, 1001], "change_rate": [0, 0.1]}
+        )
 
-def test_fixed_close_intervals_are_missing_before_their_bars_exist():
-    stock = pd.DataFrame(
-        {"bar_time": ["13:59", "14:00"], "open": [100, 100], "close": [100, 101], "change_rate": [0, 1]}
-    )
-    index = pd.DataFrame(
-        {"bar_time": ["13:59", "14:00"], "open": [1000, 1000], "close": [1000, 1001], "change_rate": [0, 0.1]}
-    )
+        result = calculate_relative_strength(stock, index)
 
-    result = calculate_relative_strength(stock, index)
-
-    assert result["pre_close_30m_return"] is None
-    assert result["closing_auction_return"] is None
+        self.assertIsNone(result["pre_close_30m_return"])
+        self.assertIsNone(result["closing_auction_return"])
