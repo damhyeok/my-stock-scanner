@@ -89,16 +89,35 @@ def load_selected_minute_bars(database_path: str | Path) -> pd.DataFrame:
     """Load the stored regular-session sampled bars without treating them as full intraday data."""
     columns = ("timestamp", "ticker", "open", "high", "low", "close", "volume")
     selected = ", ".join(_quote_identifier(column) for column in columns)
-    query = f"SELECT {selected} FROM stock_minute_bars ORDER BY ticker, timestamp"
     with open_read_only(database_path) as connection:
-        exists = connection.execute(
+        legacy_exists = connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='stock_minute_bars'"
         ).fetchone()
-        if exists is None:
-            raise RuntimeError("required source table does not exist: stock_minute_bars")
-        frame = pd.read_sql_query(query, connection)
+        if legacy_exists is not None:
+            frame = pd.read_sql_query(
+                f"SELECT {selected} FROM stock_minute_bars ORDER BY ticker, timestamp",
+                connection,
+            )
+        else:
+            intraday_exists = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='intraday_stock_bars'"
+            ).fetchone()
+            if intraday_exists is None:
+                raise RuntimeError(
+                    "required minute source table does not exist: "
+                    "stock_minute_bars or intraday_stock_bars"
+                )
+            frame = pd.read_sql_query(
+                """
+                SELECT trade_date || ' ' || bar_time AS timestamp,
+                       ticker, open, high, low, close, volume
+                FROM intraday_stock_bars
+                ORDER BY ticker, trade_date, bar_time
+                """,
+                connection,
+            )
     if frame.empty:
-        raise RuntimeError("stock_minute_bars has no rows")
+        raise RuntimeError("minute source table has no rows")
     frame["timestamp"] = pd.to_datetime(frame["timestamp"], errors="raise")
     frame["ticker"] = frame["ticker"].astype("string").str.zfill(6)
     return frame
