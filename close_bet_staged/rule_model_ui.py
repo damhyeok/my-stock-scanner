@@ -6,6 +6,45 @@ import pandas as pd
 import streamlit as st
 
 
+PERCENT_COLUMNS = {
+    'clv', 'return_after_1430', 'sampled_afternoon_clv',
+    'rs5_sector_proxy', 'rs20_market_proxy', 'atr14_pct',
+}
+
+COLUMN_LABELS = {
+    'name': '종목명',
+    'ticker': '종목코드',
+    'price_action_types': 'Price Action',
+    'clv': '일봉 CLV(%)',
+    'return_after_1430': '14:30 이후 수익률(%)',
+    'sampled_afternoon_clv': '오후 CLV(%)',
+    'rs5_sector_proxy': '업종 대비 5일 RS 프록시(%p)',
+    'rs20_market_proxy': '시장 대비 20일 RS 프록시(%p)',
+    'atr14_pct': 'ATR14(%)',
+    'relative_strength_quality': 'RS 품질',
+    'stage_reason': '전체 기술단계 상태',
+    'decision': '판정',
+}
+
+
+def _show_passed_stocks(frame: pd.DataFrame, columns: list[str], empty_message: str) -> None:
+    if frame.empty:
+        st.info(empty_message)
+        return
+    display_columns = [column for column in columns if column in frame.columns]
+    display = frame[display_columns].copy()
+    for column in PERCENT_COLUMNS.intersection(display.columns):
+        display[column] = pd.to_numeric(display[column], errors='coerce') * 100
+    display = display.rename(columns=COLUMN_LABELS)
+    st.dataframe(
+        display.style.format({
+            column: '{:,.2f}' for column in display.select_dtypes(include=['number']).columns
+        }),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
 def render_rule_model_section(data: pd.DataFrame, selected_date: str) -> None:
     st.subheader('④ 단계형 종가베팅 규칙 모델 · 시장강도 수동 판단')
     st.caption(
@@ -29,39 +68,46 @@ def render_rule_model_section(data: pd.DataFrame, selected_date: str) -> None:
     if rows.empty:
         st.info('선택한 날짜의 단계형 규칙 모델 기록이 없습니다.')
         return
-    technical = rows[rows['technical_pass'].astype(bool)].copy()
+    price_action = rows[pd.to_numeric(rows['price_action_pass'], errors='coerce').fillna(0).astype(bool)].copy()
+    afternoon_flow = rows[pd.to_numeric(rows['afternoon_flow_pass'], errors='coerce').fillna(0).astype(bool)].copy()
+    technical = rows[pd.to_numeric(rows['technical_pass'], errors='coerce').fillna(0).astype(bool)].copy()
     counts = st.columns(4)
     counts[0].metric('전체 평가', f'{len(rows)}개')
-    counts[1].metric('Price Action', f"{int(rows['price_action_pass'].sum())}개")
-    counts[2].metric('오후 흐름', f"{int(rows['afternoon_flow_pass'].sum())}개")
+    counts[1].metric('Price Action', f'{len(price_action)}개')
+    counts[2].metric('오후 흐름', f'{len(afternoon_flow)}개')
     counts[3].metric('기술 최종 통과', f'{len(technical)}개')
-    if technical.empty:
-        st.info('모든 기술 단계를 동시에 통과한 후보가 없습니다.')
-        return
-    display = technical[[
-        'name', 'ticker', 'price_action_types', 'clv', 'return_after_1430',
-        'sampled_afternoon_clv', 'rs5_sector_proxy', 'rs20_market_proxy',
-        'atr14_pct', 'relative_strength_quality', 'decision',
-    ]].copy()
-    for column in [
-        'clv', 'return_after_1430', 'sampled_afternoon_clv',
-        'rs5_sector_proxy', 'rs20_market_proxy', 'atr14_pct',
-    ]:
-        display[column] = pd.to_numeric(display[column], errors='coerce') * 100
-    display = display.rename(columns={
-        'name': '종목명', 'ticker': '종목코드', 'price_action_types': 'Price Action',
-        'clv': '일봉 CLV(%)', 'return_after_1430': '14:30 이후 수익률(%)',
-        'sampled_afternoon_clv': '오후 CLV(%)',
-        'rs5_sector_proxy': '업종 대비 5일 RS 프록시(%p)',
-        'rs20_market_proxy': '시장 대비 20일 RS 프록시(%p)',
-        'atr14_pct': 'ATR14(%)', 'relative_strength_quality': 'RS 품질',
-        'decision': '판정',
-    })
-    st.dataframe(
-        display.style.format({
-            column: '{:,.2f}' for column in display.select_dtypes(include=['number']).columns
-        }),
-        use_container_width=True,
-        hide_index=True,
-    )
-    st.warning('이 표는 기술조건 통과 목록입니다. 시장강도가 나쁘다고 판단하면 매수하지 않습니다.')
+
+    price_tab, afternoon_tab, technical_tab = st.tabs([
+        f'Price Action 통과 ({len(price_action)})',
+        f'오후 흐름 통과 ({len(afternoon_flow)})',
+        f'기술 최종 통과 ({len(technical)})',
+    ])
+    with price_tab:
+        _show_passed_stocks(
+            price_action.sort_values('clv', ascending=False),
+            ['name', 'ticker', 'price_action_types', 'clv', 'stage_reason'],
+            'Price Action 조건을 통과한 종목이 없습니다.',
+        )
+    with afternoon_tab:
+        _show_passed_stocks(
+            afternoon_flow.sort_values('return_after_1430', ascending=False),
+            [
+                'name', 'ticker', 'return_after_1430', 'sampled_afternoon_clv',
+                'price_action_types', 'stage_reason',
+            ],
+            '오후 흐름 조건을 통과한 종목이 없습니다.',
+        )
+    with technical_tab:
+        _show_passed_stocks(
+            technical.sort_values(
+                ['rs20_market_proxy', 'rs5_sector_proxy'], ascending=False
+            ),
+            [
+                'name', 'ticker', 'price_action_types', 'clv', 'return_after_1430',
+                'sampled_afternoon_clv', 'rs5_sector_proxy', 'rs20_market_proxy',
+                'atr14_pct', 'relative_strength_quality', 'decision',
+            ],
+            '모든 기술 단계를 동시에 통과한 종목이 없습니다.',
+        )
+        if not technical.empty:
+            st.warning('기술조건 통과 목록입니다. 시장강도가 나쁘다고 판단하면 매수하지 않습니다.')
