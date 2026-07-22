@@ -726,9 +726,31 @@ def get_bottom_candidate_data(selected_date):
                 ).fetchall()
             }
             df = pd.DataFrame()
+            target_signal_date = None
+            if "model_bottom_scan_runs" in tables:
+                run_row = conn.execute(
+                    """SELECT signal_date FROM model_bottom_scan_runs
+                    WHERE signal_date <= ? AND universe_type = 'market_cap_10000eok_plus'
+                    ORDER BY signal_date DESC LIMIT 1""",
+                    (str(selected_date),),
+                ).fetchone()
+                target_signal_date = run_row[0] if run_row else None
             if "model_rule_scan_signals" in tables:
-                df = pd.read_sql_query(
-                    """SELECT signal_date, model_id AS scanner_model, ticker, name,
+                if target_signal_date:
+                    df = pd.read_sql_query(
+                        """SELECT signal_date, model_id AS scanner_model, ticker, name,
+                           current_price, change_rate AS today_change_rate, market_cap,
+                           trend_score, rsi_14, volume_ratio, entry_price, stop_price,
+                           first_target_price, target_room_pct,
+                           signal_reason AS decision_risk_summary
+                           FROM model_rule_scan_signals
+                           WHERE signal_date = ? AND universe_type = 'market_cap_10000eok_plus'
+                           ORDER BY model_id, trend_score DESC, target_room_pct DESC""",
+                        conn, params=(target_signal_date,),
+                    )
+                else:
+                    df = pd.read_sql_query(
+                        """SELECT signal_date, model_id AS scanner_model, ticker, name,
                        current_price, change_rate AS today_change_rate, market_cap,
                        trend_score, rsi_14, volume_ratio, entry_price, stop_price,
                        first_target_price, target_room_pct,
@@ -739,11 +761,18 @@ def get_bottom_candidate_data(selected_date):
                            WHERE signal_date <= ? AND universe_type = 'market_cap_10000eok_plus'
                        ) AND universe_type = 'market_cap_10000eok_plus'
                        ORDER BY model_id, trend_score DESC, target_room_pct DESC""",
-                    conn, params=(str(selected_date),),
-                )
+                        conn, params=(str(selected_date),),
+                    )
             if df.empty and "model_bottom_signals" in tables:
+                date_condition = (
+                    "b.signal_date = ?" if target_signal_date else
+                    """b.signal_date = (
+                       SELECT MAX(signal_date) FROM model_bottom_signals
+                       WHERE signal_date <= ? AND universe_type = 'market_cap_10000eok_plus'
+                    )"""
+                )
                 df = pd.read_sql_query(
-                    """SELECT b.signal_date, b.ticker, b.name, b.current_price,
+                    f"""SELECT b.signal_date, b.ticker, b.name, b.current_price,
                        (SELECT o.change_rate FROM model_ohlcv_daily o
                         WHERE o.date = b.signal_date AND o.ticker = b.ticker
                           AND o.universe_type = b.universe_type LIMIT 1) AS today_change_rate,
@@ -753,12 +782,10 @@ def get_bottom_candidate_data(selected_date):
                        b.bottom_score, b.grade, b.chart_score, b.supply_score, b.sector_market_score,
                        risk_penalty, reasons, risk_reasons
                        FROM model_bottom_signals b
-                       WHERE b.signal_date = (
-                           SELECT MAX(signal_date) FROM model_bottom_signals
-                           WHERE signal_date <= ? AND universe_type = 'market_cap_10000eok_plus'
-                       ) AND b.universe_type = 'market_cap_10000eok_plus'
+                       WHERE {date_condition}
+                       AND b.universe_type = 'market_cap_10000eok_plus'
                        ORDER BY b.bottom_score DESC""",
-                    conn, params=(str(selected_date),),
+                    conn, params=(target_signal_date or str(selected_date),),
                 )
         if not df.empty and "scanner_model" in df.columns:
             df["scanner_model"] = df["scanner_model"].map({
@@ -767,6 +794,35 @@ def get_bottom_candidate_data(selected_date):
         return df
     except Exception:
         return pd.DataFrame()
+
+
+@st.cache_data(ttl=60)
+def get_bottom_candidate_run(selected_date):
+    try:
+        db_path, _ = get_database_path()
+        with sqlite3.connect(db_path) as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='model_bottom_scan_runs'"
+            ).fetchone()
+            if not exists:
+                return None
+            row = conn.execute(
+                """SELECT signal_date, status, universe_count, bottom_signal_count,
+                   rule_signal_count, market_regime, error_message, completed_at_kst
+                   FROM model_bottom_scan_runs
+                   WHERE signal_date <= ? AND universe_type='market_cap_10000eok_plus'
+                   ORDER BY signal_date DESC LIMIT 1""",
+                (str(selected_date),),
+            ).fetchone()
+        if not row:
+            return None
+        columns = [
+            "signal_date", "status", "universe_count", "bottom_signal_count",
+            "rule_signal_count", "market_regime", "error_message", "completed_at_kst",
+        ]
+        return dict(zip(columns, row))
+    except Exception:
+        return None
 
 
 @st.cache_data(ttl=60)
@@ -893,6 +949,7 @@ else:
         
     selected_session = st.sidebar.selectbox("⏰ 시간 선택:", day_sessions)
     df_bottom_candidates = get_bottom_candidate_data(selected_date)
+    bottom_candidate_run = get_bottom_candidate_run(selected_date)
 
     selected_session_df = df_raw[
         (df_raw['date'] == selected_date) & (df_raw['session'] == selected_session)
@@ -1079,7 +1136,27 @@ else:
         - **MACD + OBV 모델**: 1번 모델 후보 중 MACD 히스토그램이 개선되고 OBV가 20일 평균 위인 종목만 별도로 표시합니다.
         """)
         if df_bottom_candidates.empty:
-            st.info("아직 생성된 바닥 후보 신호가 없습니다. `bottom_detector.py`를 먼저 실행해주세요.")
+            if (
+                bottom_candidate_run
+                and bottom_candidate_run["signal_date"] == str(selected_date)
+                and bottom_candidate_run["status"] == "success"
+            ):
+                st.success(
+                    f"{selected_date} 자동 분석 완료 · "
+                    f"검사 {bottom_candidate_run['universe_count']}종목 · 조건 통과 0종목"
+                )
+                regime = bottom_candidate_run.get("market_regime") or "미확인"
+                st.info(
+                    f"오늘 후보가 없는 것은 실행 실패가 아닙니다. "
+                    f"시장 국면은 `{regime}`이며, 현재 조건을 모두 통과한 종목이 없습니다."
+                )
+            elif bottom_candidate_run and bottom_candidate_run["status"] == "failure":
+                st.error(
+                    "바닥 후보 자동 분석이 실패했습니다: "
+                    + str(bottom_candidate_run.get("error_message") or "원인 미기록")
+                )
+            else:
+                st.info("선택한 날짜에 생성된 바닥 후보 분석 결과가 없습니다.")
             display_workflow_run_status(st)
             if st.button("바닥 후보 데이터 생성 요청"):
                 with st.spinner("GitHub Actions에 바닥 후보 모델 생성을 요청 중..."):

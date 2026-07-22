@@ -59,6 +59,7 @@ Oracle VCN 보안 목록의 수신 규칙에서 TCP `8765` 포트를 허용해�
 설치되는 KST 작업은 다음과 같습니다.
 
 - 09:10: 오전 프로그램 매매 WebSocket 연결
+- 09:20부터 15:20까지 매시 20분: KOSPI·KOSDAQ 최근 지수 분봉을 겹쳐 수집
 - 09:30: 전체 종목 분석
 - 09:50: 전체 종목 분석 및 오전 시장강도 계산
 - 11:30: 전체 종목 분석
@@ -75,7 +76,7 @@ Oracle VCN 보안 목록의 수신 규칙에서 TCP `8765` 포트를 허용해�
 ## 5. 상태 확인
 
 ```bash
-systemctl list-timers --all | grep -E 'morning-|afternoon-|closing-|sector-flow|stock-analysis'
+systemctl list-timers --all | grep -E 'morning-|afternoon-|closing-|index-bars|sector-flow|stock-analysis'
 journalctl -u 'stock-scanner@*' --since today
 ```
 

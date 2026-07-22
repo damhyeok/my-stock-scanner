@@ -137,6 +137,23 @@ def run_bottom_model():
     run_command([sys.executable, "main.py"], env=env)
 
 
+def run_index_bar_collection():
+    now = datetime.now(KST)
+    if now.weekday() >= 5 or not (9 <= now.hour <= 15):
+        print("[Index Bars] 정규장 수집 시간이 아니므로 건너뜁니다.")
+        return
+    crawler = StockCrawler(db_path=str(PROJECT_DIR / "stock_data.db"))
+    cutoff_time = min(now.strftime("%H:%M"), "15:30")
+    counts = IntradayRelativeStrengthScanner(crawler).collect_index_bars(
+        trade_date=crawler.target_date,
+        cutoff_time=cutoff_time,
+    )
+    print(
+        f"[Index Bars] {crawler.target_date} {cutoff_time}: "
+        + ", ".join(f"{name}={count}" for name, count in counts.items())
+    )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -155,6 +172,7 @@ def main():
             "watchlist-add",
             "watchlist-remove",
             "intraday-rs-backfill",
+            "index-bars",
         ],
     )
     parser.add_argument("--ticker")
@@ -173,6 +191,13 @@ def main():
     elif args.task == "closing-collector":
         pull_latest()
         run_collector("closing")
+    elif args.task == "index-bars":
+        with file_lock(".cloud_data.lock"):
+            pull_latest()
+            restore_working_database(
+                PROJECT_DIR / "web_data.db", PROJECT_DIR / "stock_data.db"
+            )
+            run_index_bar_collection()
     else:
         with file_lock(".cloud_data.lock"):
             pull_latest()

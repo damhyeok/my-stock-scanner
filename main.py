@@ -1,5 +1,6 @@
 import os
 import json
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from model_1_scanner import save_model_scan_history
 from model_data_collector import ModelDataCollector
 from model_features import ModelFeatureBuilder
 from model_regime import MarketRegimeBuilder
+from model_schema import init_model_tables
 
 
 def run_market_strength(access_token=None):
@@ -42,6 +44,10 @@ def run_bottom_model():
         "lookback_days": 180,
         "started_at_kst": datetime.now(timezone(timedelta(hours=9))).isoformat(timespec="seconds"),
     }
+    init_model_tables("stock_data.db")
+    signal_date = datetime.now(timezone(timedelta(hours=9))).strftime("%Y%m%d")
+    market_regime = None
+    rule_signal_count = 0
     try:
         collector = ModelDataCollector(db_path="stock_data.db")
         summary = collector.collect_market_cap_threshold_ohlcv(
@@ -67,10 +73,25 @@ def run_bottom_model():
         ModelFeatureBuilder(db_path="stock_data.db").run(universe_type)
         MarketRegimeBuilder(db_path="stock_data.db").run(universe_type)
         signals = BottomDetector(db_path="stock_data.db").run(universe_type=universe_type, min_score=40)
-        saved_rule_signals = save_model_scan_history("stock_data.db", universe_type=universe_type)
-        print(f"[Rule Bottom Models] Saved {saved_rule_signals} date-fixed signals.")
+        rule_signal_count = save_model_scan_history("stock_data.db", universe_type=universe_type)
+        print(f"[Rule Bottom Models] Saved {rule_signal_count} date-fixed signals.")
+        with sqlite3.connect("stock_data.db") as conn:
+            latest = conn.execute(
+                "SELECT MAX(date) FROM model_feature_daily WHERE universe_type=?",
+                (universe_type,),
+            ).fetchone()[0]
+            if latest:
+                signal_date = str(latest)
+            regime_row = conn.execute(
+                "SELECT regime FROM model_market_regimes WHERE date=? AND universe_type=?",
+                (signal_date, universe_type),
+            ).fetchone()
+            market_regime = regime_row[0] if regime_row else None
         status["status"] = "success"
         status["signal_count"] = 0 if signals is None else len(signals)
+        status["rule_signal_count"] = rule_signal_count
+        status["signal_date"] = signal_date
+        status["market_regime"] = market_regime
         print("[Bottom Model] Done.")
     except Exception as error:
         status["status"] = "failure"
@@ -78,8 +99,28 @@ def run_bottom_model():
         print(f"[Bottom Model Error] {error}")
         raise
     finally:
-        status["finished_at_kst"] = datetime.now(timezone(timedelta(hours=9))).isoformat(timespec="seconds")
+        finished_at = datetime.now(timezone(timedelta(hours=9)))
+        status["finished_at_kst"] = finished_at.isoformat(timespec="seconds")
         status_path.write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
+        with sqlite3.connect("stock_data.db") as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO model_bottom_scan_runs
+                (signal_date, universe_type, status, universe_count,
+                 bottom_signal_count, rule_signal_count, market_regime,
+                 error_message, completed_at_kst)
+                VALUES (?,?,?,?,?,?,?,?,?)""",
+                (
+                    signal_date,
+                    universe_type,
+                    status["status"],
+                    int(status.get("collection", {}).get("universe_count", 0)),
+                    int(status.get("signal_count", 0)),
+                    int(rule_signal_count),
+                    market_regime,
+                    status.get("error"),
+                    finished_at.strftime("%Y-%m-%d %H:%M:%S"),
+                ),
+            )
 
 
 def main():

@@ -11,6 +11,7 @@ MODEL_TABLES = (
     "model_market_regimes",
     "model_strategy_registry",
     "model_rule_scan_signals",
+    "model_bottom_scan_runs",
 )
 
 
@@ -198,6 +199,22 @@ def init_model_tables(db_path="stock_data.db"):
                 entry_price REAL, stop_price REAL, first_target_price REAL,
                 target_room_pct REAL, signal_reason TEXT, created_at_kst TEXT,
                 PRIMARY KEY (signal_date, model_id, ticker, universe_type)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS model_bottom_scan_runs (
+                signal_date TEXT NOT NULL,
+                universe_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                universe_count INTEGER DEFAULT 0,
+                bottom_signal_count INTEGER DEFAULT 0,
+                rule_signal_count INTEGER DEFAULT 0,
+                market_regime TEXT,
+                error_message TEXT,
+                completed_at_kst TEXT,
+                PRIMARY KEY (signal_date, universe_type)
             )
             """
         )

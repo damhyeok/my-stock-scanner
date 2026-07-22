@@ -77,9 +77,9 @@ class IntradayIndexFetchTests(TestCase):
             self.assertEqual(saved, 4)
             self.assertEqual(
                 [call[0]["FID_INPUT_HOUR_1"] for call in calls],
-                ["153000", "152800"],
+                ["60", "60"],
             )
-            self.assertEqual([call[1] for call in calls], ["", ""])
+            self.assertEqual([call[1] for call in calls], ["", "N"])
             with sqlite3.connect(scanner.db_path) as conn:
                 rows = conn.execute(
                     "SELECT bar_time, close FROM intraday_index_bars ORDER BY bar_time"

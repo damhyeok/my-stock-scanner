@@ -25,6 +25,7 @@ RETENTION = {
     "model_market_regimes": ("date", 180),
     "model_bottom_signals": ("signal_date", 30),
     "model_rule_scan_signals": ("signal_date", 30),
+    "model_bottom_scan_runs": ("signal_date", 30),
 }
 
 DROP_TABLES = {

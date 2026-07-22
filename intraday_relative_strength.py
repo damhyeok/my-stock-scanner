@@ -381,8 +381,8 @@ class IntradayRelativeStrengthScanner:
         rows = {}
         previous_close = None
         seen_pages = set()
-        cursor = cutoff
-        for _ in range(32):
+        request_tr_cont = ""
+        for _ in range(20):
             body = self._request(
                 self.index_url,
                 "FHKUP03500200",
@@ -390,9 +390,12 @@ class IntradayRelativeStrengthScanner:
                     "FID_COND_MRKT_DIV_CODE": "U",
                     "FID_ETC_CLS_CODE": "0",
                     "FID_INPUT_ISCD": INDEX_CODES[index_name],
-                    "FID_INPUT_HOUR_1": cursor.strftime("%H%M%S"),
+                    # KIS 지수 API에서 이 값은 조회 종료시각이 아니라 분봉 간격(초)이다.
+                    # API가 최근 약 98개만 반환하므로 장중 수집 타이머로 창을 겹쳐 저장한다.
+                    "FID_INPUT_HOUR_1": "60",
                     "FID_PW_DATA_INCU_YN": "Y",
                 },
+                tr_cont=request_tr_cont,
             )
             summary = body.get("output1", {}) or {}
             previous_close = _number(summary.get("prdy_nmix"), previous_close)
@@ -408,7 +411,6 @@ class IntradayRelativeStrengthScanner:
             if not output or page_key in seen_pages:
                 break
             seen_pages.add(page_key)
-            oldest = None
             for row in output:
                 row_date = str(row.get("stck_bsop_date", "")).strip()
                 if row_date and row_date != trade_date:
@@ -417,17 +419,12 @@ class IntradayRelativeStrengthScanner:
                 bar_dt = _parse_intraday_time(raw_time)
                 if bar_dt is None:
                     continue
-                oldest = bar_dt if oldest is None or bar_dt < oldest else oldest
                 if start <= bar_dt <= cutoff:
                     rows[bar_dt.strftime("%H:%M")] = row
-            if oldest is not None and oldest <= start:
+            response_tr_cont = str(body.get("_response_tr_cont", "")).upper()
+            if response_tr_cont not in {"M", "F"}:
                 break
-            if oldest is None:
-                break
-            next_cursor = oldest - timedelta(minutes=1)
-            if next_cursor >= cursor:
-                break
-            cursor = next_cursor
+            request_tr_cont = "N"
         collected_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         values = []
         for bar_time, row in rows.items():
@@ -456,6 +453,23 @@ class IntradayRelativeStrengthScanner:
                     values,
                 )
         return len(values)
+
+    def collect_index_bars(self, trade_date=None, cutoff_time=None):
+        """Persist the latest overlapping KOSPI/KOSDAQ minute-bar windows."""
+        trade_date = trade_date or self.crawler.target_date
+        cutoff_time = cutoff_time or datetime.now(KST).strftime("%H:%M")
+        cutoff_time = min(max(cutoff_time, REGULAR_OPEN), REGULAR_CLOSE)
+        collected = {}
+        for index_name in INDEX_CODES:
+            last_time = self._last_index_time(trade_date, index_name)
+            start_time = REGULAR_OPEN if not last_time else self._next_minute(last_time)
+            if start_time > cutoff_time:
+                collected[index_name] = 0
+                continue
+            collected[index_name] = self._fetch_index_delta(
+                trade_date, index_name, start_time, cutoff_time
+            )
+        return collected
 
     def _load_universe(self, trade_date, session):
         with sqlite3.connect(self.db_path) as conn:

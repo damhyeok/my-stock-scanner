@@ -1,0 +1,16 @@
+[Unit]
+Description=Collect overlapping KOSPI and KOSDAQ one-minute bars
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 09:20:00 Asia/Seoul
+OnCalendar=Mon..Fri *-*-* 10:20:00 Asia/Seoul
+OnCalendar=Mon..Fri *-*-* 11:20:00 Asia/Seoul
+OnCalendar=Mon..Fri *-*-* 12:20:00 Asia/Seoul
+OnCalendar=Mon..Fri *-*-* 13:20:00 Asia/Seoul
+OnCalendar=Mon..Fri *-*-* 14:20:00 Asia/Seoul
+OnCalendar=Mon..Fri *-*-* 15:20:00 Asia/Seoul
+Unit=stock-scanner@index-bars.service
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
