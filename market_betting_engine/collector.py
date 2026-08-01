@@ -29,6 +29,7 @@ def collect_probe_observations(
     request_override: Optional[
         Callable[[ProbeSpec, str, datetime], tuple[dict[str, Any], int]]
     ] = None,
+    field_verification_statuses: Optional[Mapping[str, str]] = None,
 ) -> ProbeCollectionResult:
     """Execute one safe probe and adapt its raw payload without persisting it.
 
@@ -71,6 +72,7 @@ def collect_probe_observations(
             instrument=instrument,
             observed_at=datetime.fromisoformat(probe.completed_at_kst),
             verification_status=probe.verification_status,
+            field_verification_statuses=field_verification_statuses,
             stale_after_seconds=stale_after_seconds,
         )
     return ProbeCollectionResult(probe, adapted)

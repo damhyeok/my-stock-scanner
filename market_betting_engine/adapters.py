@@ -180,6 +180,7 @@ def adapt_probe_payload(
     instrument: str,
     observed_at: Optional[datetime] = None,
     verification_status: str | VerificationStatus = VerificationStatus.PARTIAL,
+    field_verification_statuses: Optional[Mapping[str, str | VerificationStatus]] = None,
     environment: str = "production",
     stale_after_seconds: Optional[int] = None,
 ) -> AdapterResult:
@@ -191,6 +192,10 @@ def adapt_probe_payload(
     if retrieved_at.tzinfo is None:
         retrieved_at = retrieved_at.replace(tzinfo=KST)
     status = _status(verification_status)
+    field_statuses = {
+        str(field_name): _status(field_status)
+        for field_name, field_status in (field_verification_statuses or {}).items()
+    }
     raw_rows = _rows(payload, _CONTAINER[probe_id])
     observations = []
     issues = []
@@ -249,7 +254,7 @@ def adapt_probe_payload(
                         observed_at=retrieved_at,
                         source_trade_date=row_date,
                         unit=mapping.unit,
-                        semantics_status=status,
+                        semantics_status=field_statuses.get(mapping.source_field, status),
                         calculation_mode=mapping.mode,
                         environment=environment,
                         field_name=mapping.source_field,

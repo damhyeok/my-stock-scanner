@@ -1,0 +1,38 @@
+{
+  "registry_version": "live-field-verification-v1",
+  "default_status": "PARTIAL",
+  "probes": {
+    "kis_stock_minute": {
+      "contract_status": "PARTIAL",
+      "trade_date_field": "stck_bsop_date",
+      "time_field": "stck_cntg_hour",
+      "reviewed_at_kst": null,
+      "evidence_refs": [],
+      "fields": {}
+    },
+    "kis_index_minute_kospi": {
+      "contract_status": "PARTIAL",
+      "trade_date_field": "stck_bsop_date",
+      "time_field": "stck_cntg_hour",
+      "reviewed_at_kst": null,
+      "evidence_refs": [],
+      "fields": {}
+    },
+    "kis_program_summary_kospi": {
+      "contract_status": "PARTIAL",
+      "trade_date_field": null,
+      "time_field": "bsop_hour",
+      "reviewed_at_kst": null,
+      "evidence_refs": [],
+      "fields": {}
+    },
+    "kis_futures_minute_active": {
+      "contract_status": "PARTIAL",
+      "trade_date_field": "stck_bsop_date",
+      "time_field": "stck_cntg_hour",
+      "reviewed_at_kst": null,
+      "evidence_refs": [],
+      "fields": {}
+    }
+  }
+}

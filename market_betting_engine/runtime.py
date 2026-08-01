@@ -22,10 +22,14 @@ from .pipeline import derive_evidence_bundle
 from .session import KST, SessionContext
 from .states import StockGateSignals
 from .storage import PersistenceReceipt, prune_decision_history, save_decision_cycle
+from .verification_registry import load_verification_registry
 
 
 ENGINE_VERSION = "oracle-runtime-v1"
 DEFAULT_CONFIG = Path(__file__).resolve().parents[1] / "config" / "market_betting_engine.placeholder.json"
+DEFAULT_VERIFICATION_REGISTRY = (
+    Path(__file__).resolve().parents[1] / "config" / "market_betting_field_verification.json"
+)
 
 
 def _latest_trade_date(db_path: str | Path, as_of: date) -> date:
@@ -170,6 +174,7 @@ def run_market_betting_analysis(
     db_path: str | Path = "stock_data.db",
     *,
     config_path: str | Path = DEFAULT_CONFIG,
+    verification_registry_path: str | Path = DEFAULT_VERIFICATION_REGISTRY,
     evaluated_at: datetime | None = None,
 ) -> PersistenceReceipt:
     """Collect allow-listed quotation data, evaluate it, and save one cycle.
@@ -193,22 +198,27 @@ def run_market_betting_analysis(
     maximum = max(1, min(60, int(os.environ.get("MARKET_BETTING_MAX_STOCKS", "60"))))
     universe = _latest_universe(db_path, target, maximum)
     symbols = [str(row["ticker"]).zfill(6) for row in universe]
+    verification_registry = load_verification_registry(verification_registry_path)
+
+    def collect(probe_id: str, *, instrument: str, ticker: str = "005930"):
+        return collect_probe_observations(
+            probe_id,
+            context=provisional,
+            instrument=instrument,
+            ticker=ticker,
+            field_verification_statuses={
+                field_name: status.value
+                for field_name, status in verification_registry.statuses_for_probe(probe_id).items()
+            },
+        )
 
     collections = [
-        collect_probe_observations(
-            "kis_index_minute_kospi", context=provisional, instrument="KOSPI"
-        ),
-        collect_probe_observations(
-            "kis_program_summary_kospi", context=provisional, instrument="KOSPI"
-        ),
-        collect_probe_observations(
-            "kis_futures_minute_active", context=provisional, instrument="ACTIVE"
-        ),
+        collect("kis_index_minute_kospi", instrument="KOSPI"),
+        collect("kis_program_summary_kospi", instrument="KOSPI"),
+        collect("kis_futures_minute_active", instrument="ACTIVE"),
     ]
     collections.extend(
-        collect_probe_observations(
-            "kis_stock_minute", context=provisional, instrument=symbol, ticker=symbol
-        )
+        collect("kis_stock_minute", instrument=symbol, ticker=symbol)
         for symbol in symbols
     )
 
@@ -296,6 +306,7 @@ def run_market_betting_analysis(
         "bundle": asdict(bundle) if bundle is not None else None,
         "tracked_universe_count": len(universe),
         "tracked_universe_is_complete_market_breadth": False,
+        "verification_registry_version": verification_registry.registry_version,
         "probe_statuses": [
             {
                 "probe_id": item.probe.probe_id,
