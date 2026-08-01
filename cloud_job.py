@@ -212,7 +212,12 @@ def main():
             )
             if args.task in ("full-analysis", "manual-analysis"):
                 run_full_analysis(manual=args.task == "manual-analysis")
-                run_market_betting()
+                try:
+                    run_market_betting()
+                except Exception as error:
+                    # The new decision-support engine must never prevent the
+                    # existing scanner output from being published.
+                    print(f"[Market Betting Warning] analysis failed; existing pipeline continues: {error}")
             elif args.task == "morning-strength":
                 run_market_strength("morning")
             elif args.task == "afternoon-strength":
