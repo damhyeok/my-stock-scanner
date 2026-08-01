@@ -10,6 +10,7 @@ import shutil
 import requests
 import hashlib
 import hmac
+import inspect
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -2281,13 +2282,16 @@ else:
         render_rule_model_section(df_close_bet_rule_model, selected_date)
 
     with tab14:
-        render_market_betting_tab(
-            st,
-            db_path=dashboard_db_path,
-            selected_date=str(selected_date),
-            db_source=dashboard_db_source,
-            position_api=oracle_request,
-        )
+        market_betting_kwargs = {
+            "db_path": dashboard_db_path,
+            "selected_date": str(selected_date),
+            "db_source": dashboard_db_source,
+        }
+        # Streamlit Cloud can briefly keep an older imported module alive while
+        # reloading app.py. Only pass the new callback when that module supports it.
+        if "position_api" in inspect.signature(render_market_betting_tab).parameters:
+            market_betting_kwargs["position_api"] = oracle_request
+        render_market_betting_tab(st, **market_betting_kwargs)
 
     with tab10:
         st.header(f"🧭 오늘 섹터 자금 이동 ({selected_date})")
