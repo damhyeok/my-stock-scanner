@@ -1,0 +1,12 @@
+[Unit]
+Description=Capture read-only KIS evidence for market-betting field verification
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 09:45:00 Asia/Seoul
+OnCalendar=Mon..Fri *-*-* 12:00:00 Asia/Seoul
+OnCalendar=Mon..Fri *-*-* 15:25:00 Asia/Seoul
+Unit=stock-scanner@api-verification.service
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

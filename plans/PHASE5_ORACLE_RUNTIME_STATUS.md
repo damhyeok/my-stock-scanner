@@ -19,7 +19,7 @@ Live KIS fields are still `PARTIAL` until a market-session verification run conf
 
 ## Next development stage
 
-1. Run the read-only verification checklist during a live exchange session.
+1. `market-betting-verification.timer` captures sanitized KIS evidence at 09:45, 12:00, and 15:25 during each live exchange session. No field is automatically promoted.
 2. Promote only confirmed source fields from `PARTIAL` to `VERIFIED` in a versioned field registry.
 3. Add a complete sector constituent universe and turnover coverage source.
 4. Add structural invalidation-price logic for breakout and pullback setups.

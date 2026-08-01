@@ -159,6 +159,34 @@ def run_market_betting():
     run_market_betting_analysis(PROJECT_DIR / "stock_data.db")
 
 
+def run_api_verification():
+    """Capture sanitized live-session evidence without promoting any field."""
+
+    output_dir = PROJECT_DIR / "reports" / "api_probes"
+    result = run_command(
+        [
+            sys.executable,
+            "-m",
+            "market_betting_engine.api_probe",
+            "--all-executable",
+            "--provider",
+            "KIS",
+            "--ticker",
+            os.environ.get("MARKET_BETTING_VERIFICATION_TICKER", "005930"),
+            "--output-dir",
+            str(output_dir),
+            "--db-path",
+            str(output_dir / "api_probe_results.db"),
+        ],
+        check=False,
+    )
+    if result.returncode:
+        print(
+            f"[API Verification Warning] one or more probes failed "
+            f"(exit={result.returncode}); the sanitized report was retained for review"
+        )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -179,6 +207,7 @@ def main():
             "intraday-rs-backfill",
             "index-bars",
             "market-betting",
+            "api-verification",
         ],
     )
     parser.add_argument("--ticker")
@@ -204,6 +233,10 @@ def main():
                 PROJECT_DIR / "web_data.db", PROJECT_DIR / "stock_data.db"
             )
             run_index_bar_collection()
+    elif args.task == "api-verification":
+        with file_lock(".cloud_data.lock"):
+            pull_latest()
+            run_api_verification()
     else:
         with file_lock(".cloud_data.lock"):
             pull_latest()

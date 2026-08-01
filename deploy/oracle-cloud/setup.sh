@@ -57,6 +57,7 @@ sudo systemctl enable --now \
   index-bars.timer \
   sector-flow.timer \
   market-betting.timer \
+  market-betting-verification.timer \
   stock-analysis.timer
 
 echo "Installed timers:"

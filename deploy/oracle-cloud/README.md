@@ -92,4 +92,8 @@ The runtime is read-only with respect to brokerage APIs. Until the live-session
 field verification checklist is completed, PARTIAL fields remain blocking and
 the UI reports `NOT_EVALUABLE` instead of an entry permission.
 
+`market-betting-verification.timer` captures sanitized KIS response evidence at
+09:45, 12:00, and 15:25. Reports remain only on the Oracle VM under
+`reports/api_probes/`; the task never changes a field to `VERIFIED`.
+
 자동 예약은 Oracle 타이머만 사용하며 GitHub Actions는 수동 실행용으로만 유지합니다.
