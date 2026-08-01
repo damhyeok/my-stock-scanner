@@ -150,8 +150,8 @@ def render_market_betting_tab(
     elif "PLACEHOLDER" in str(market.get("confidence_label", "")):
         st.warning("현재 임계값은 전문가 초깃값(placeholder)이며 확정 운영값이 아닙니다.")
 
-    summary_tab, sector_tab, stock_tab, position_tab, quality_tab = st.tabs(
-        ["판단 근거", "섹터", "종목 상태", "보유 종목", "데이터 품질"]
+    summary_tab, sector_tab, stock_tab, position_tab, verification_tab, quality_tab = st.tabs(
+        ["판단 근거", "섹터", "종목 상태", "보유 종목", "API 검증", "데이터 품질"]
     )
     with summary_tab:
         for title, judgment in [
@@ -321,6 +321,48 @@ def render_market_betting_tab(
                         st.success((result or {}).get("message", "삭제 중입니다."))
         elif position_api is not None:
             st.info("입력된 보유 종목이 없습니다.")
+
+    with verification_tab:
+        st.subheader("KIS 실시간 필드 검증")
+        st.caption(
+            "개장·장중·마감 세 구간의 라이브 증거가 모두 통과한 뒤에만 수동 검토 대상으로 표시합니다. "
+            "이 화면의 통과 상태도 필드를 자동 승인하지 않습니다."
+        )
+        if position_api is None:
+            st.info("오라클 검증 상태 API가 연결되지 않았습니다.")
+        else:
+            readiness, readiness_error = position_api("GET", "/verification-readiness")
+            if readiness_error:
+                st.warning(readiness_error)
+            elif readiness:
+                overall = str(readiness.get("overall_status", "PENDING_CHECKPOINTS"))
+                if overall == "READY_FOR_MANUAL_REVIEW":
+                    st.success("세 구간 증거 수집 완료 · 수동 필드 검토 대기")
+                else:
+                    st.info("라이브 검증 체크포인트 수집 대기")
+                metrics = st.columns(3)
+                metrics[0].metric("검증 거래일", readiness.get("trade_date") or "아직 없음")
+                metrics[1].metric("전체 상태", overall)
+                metrics[2].metric(
+                    "자동 승인", "사용 안 함" if not readiness.get("auto_promotes_registry") else "경고"
+                )
+                probe_rows = []
+                for probe_id, probe in (readiness.get("probes") or {}).items():
+                    checkpoints = probe.get("checkpoints") or {}
+                    probe_rows.append(
+                        {
+                            "API": probe_id,
+                            "상태": probe.get("status", "PENDING_CHECKPOINTS"),
+                            "개장": (checkpoints.get("OPEN") or {}).get("status", "대기"),
+                            "장중": (checkpoints.get("MID") or {}).get("status", "대기"),
+                            "마감": (checkpoints.get("CLOSE") or {}).get("status", "대기"),
+                            "미수집 구간": ", ".join(probe.get("missing_checkpoints", [])),
+                        }
+                    )
+                if probe_rows:
+                    st.dataframe(probe_rows, use_container_width=True, hide_index=True)
+                else:
+                    st.info("월요일 첫 검증 실행 전입니다.")
 
     with quality_tab:
         issues = quality.get("issues", []) if isinstance(quality, dict) else []

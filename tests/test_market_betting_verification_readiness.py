@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 from market_betting_engine.api_probe import ProbeResult, save_probe_result
@@ -49,6 +50,18 @@ class VerificationReadinessTests(unittest.TestCase):
         result = build_readiness(self.db_path)
         self.assertEqual(result["overall_status"], "PENDING_CHECKPOINTS")
         self.assertIn("CLOSE", result["probes"][REQUIRED_PROBES[1]]["missing_checkpoints"])
+
+    def test_official_contract_notes_never_promote_fields(self):
+        notes_path = Path(__file__).resolve().parents[1] / "config" / "kis_market_betting_contract_notes.json"
+        notes = json.loads(notes_path.read_text(encoding="utf-8"))
+        self.assertFalse(notes["promotes_verification"])
+        self.assertEqual(set(notes["contracts"]), set(REQUIRED_PROBES))
+        self.assertTrue(
+            all(
+                item["unit_status"] == "PENDING_LIVE_AND_PORTAL_FIELD_DICTIONARY_REVIEW"
+                for item in notes["contracts"].values()
+            )
+        )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,42 @@
+{
+  "review_version": "official-sample-review-v1",
+  "reviewed_at_kst": "2026-08-02T00:00:00+09:00",
+  "promotes_verification": false,
+  "contracts": {
+    "kis_stock_minute": {
+      "official_source": "https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_time_itemchartprice/inquire_time_itemchartprice.py",
+      "confirmed": [
+        "The endpoint returns same-day minute bars only.",
+        "One request returns at most 30 rows.",
+        "A future input time can repeat the current price rather than produce future bars.",
+        "The first cntg_vol row can temporarily contain the prior minute volume before the first trade of a new minute."
+      ],
+      "unit_status": "PENDING_LIVE_AND_PORTAL_FIELD_DICTIONARY_REVIEW"
+    },
+    "kis_index_minute_kospi": {
+      "official_source": "https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/inquire_time_indexchartprice/inquire_time_indexchartprice.py",
+      "confirmed": [
+        "FID_ETC_CLS_CODE supports a close/after-hours exclusion mode.",
+        "The endpoint supports continuation and configurable time units."
+      ],
+      "unit_status": "PENDING_LIVE_AND_PORTAL_FIELD_DICTIONARY_REVIEW"
+    },
+    "kis_program_summary_kospi": {
+      "official_source": "https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_stock/comp_program_trade_today/comp_program_trade_today.py",
+      "confirmed": [
+        "The endpoint provides only the latest 30 minutes during 09:00-15:30 and cannot continue to older rows.",
+        "After the close, timestamps from 15:30 through 17:00 can be returned while every row contains the same closing data."
+      ],
+      "unit_status": "PENDING_LIVE_AND_PORTAL_FIELD_DICTIONARY_REVIEW"
+    },
+    "kis_futures_minute_active": {
+      "official_source": "https://github.com/koreainvestment/open-trading-api/blob/main/examples_llm/domestic_futureoption/inquire_time_fuopchartprice/inquire_time_fuopchartprice.py",
+      "confirmed": [
+        "One request can return up to 102 rows in production.",
+        "The request explicitly accepts date and time inputs.",
+        "FID_HOUR_CLS_CODE=60 denotes one-minute bars and FID_FAKE_TICK_INCU_YN=N excludes fake ticks."
+      ],
+      "unit_status": "PENDING_LIVE_AND_PORTAL_FIELD_DICTIONARY_REVIEW"
+    }
+  }
+}

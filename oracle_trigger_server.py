@@ -254,7 +254,7 @@ class TriggerHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         body = b""
-        if self.path not in ("/status", "/positions"):
+        if self.path not in ("/status", "/positions", "/verification-readiness"):
             self.send_json(404, {"error": "not_found"})
             return
         if not is_authorized(self, body):
@@ -267,6 +267,18 @@ class TriggerHandler(BaseHTTPRequestHandler):
                 self.send_json(500, {"error": "position_read_failed"})
                 return
             self.send_json(200, {"positions": positions})
+        elif self.path == "/verification-readiness":
+            readiness_path = PROJECT_DIR / "reports" / "api_probes" / "contract_readiness.json"
+            try:
+                readiness = json.loads(readiness_path.read_text(encoding="utf-8"))
+            except (FileNotFoundError, json.JSONDecodeError):
+                readiness = {
+                    "trade_date": None,
+                    "overall_status": "PENDING_CHECKPOINTS",
+                    "auto_promotes_registry": False,
+                    "probes": {},
+                }
+            self.send_json(200, readiness)
         else:
             self.send_json(200, read_status())
 

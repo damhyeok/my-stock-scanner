@@ -26,6 +26,8 @@ Updated: 2026-08-01 KST
 - A single run can only become `REVIEW_READY`; it never changes the registry.
 - Verification readiness requires all four probes to pass at OPEN, MID, and CLOSE checkpoints on the same trading day.
 - The generated `contract_readiness.json` explicitly records `auto_promotes_registry: false`.
+- The existing Streamlit tab exposes the Oracle readiness state under `API 검증`.
+- Official KIS sample constraints are recorded separately in `config/kis_market_betting_contract_notes.json`; this documentation review does not promote fields or invent unresolved units.
 
 ## Next live checkpoint
 
