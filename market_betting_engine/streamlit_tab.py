@@ -52,12 +52,16 @@ def build_run_view(detail: Mapping[str, Any]) -> dict[str, Any]:
         if scope_type == "OVERNIGHT"
     }
     sectors = [item for item in judgments if item.get("scope_type") == "SECTOR"]
+    run = detail.get("run", {})
+    derived = run.get("derived_evidence") if isinstance(run, Mapping) else {}
+    setups = derived.get("stock_setups", {}) if isinstance(derived, Mapping) else {}
     return {
-        "run": detail.get("run", {}),
+        "run": run,
         "market": market,
         "overnight": overnight,
         "sectors": sectors,
         "stocks": list(detail.get("stocks", [])),
+        "setups": setups if isinstance(setups, Mapping) else {},
     }
 
 
@@ -173,18 +177,27 @@ def render_market_betting_tab(st, *, db_path: str, selected_date: str, db_source
         if not view["stocks"]:
             st.info("저장된 종목 상태가 없습니다.")
         else:
-            rows = [
-                {
-                    "종목코드": item["symbol"],
-                    "이전 상태": item["previous_state"],
-                    "현재 상태": item["current_state"],
-                    "전환 사유": item["reason_code"],
-                    "전환 유효": "예" if item["transition_allowed"] else "아니오",
-                }
-                for item in view["stocks"]
-            ]
+            rows = []
+            for item in view["stocks"]:
+                setup = view["setups"].get(item["symbol"], {})
+                rows.append(
+                    {
+                        "종목코드": item["symbol"],
+                        "진입 유형": setup.get("setup_type", "NONE"),
+                        "이전 상태": item["previous_state"],
+                        "현재 상태": item["current_state"],
+                        "진입 기준가": setup.get("entry_reference"),
+                        "무효화 가격": setup.get("invalidation_price"),
+                        "목표 참고가": setup.get("reward_reference"),
+                        "손익비": setup.get("reward_risk_ratio"),
+                        "전환 사유": item["reason_code"],
+                    }
+                )
             st.dataframe(rows, use_container_width=True, hide_index=True)
-            st.caption("실제 신규 진입 검토는 TRIGGERED 상태에서만 가능합니다.")
+            st.caption(
+                "진입 기준가와 무효화 가격은 구조적 참고값입니다. "
+                "실제 신규 진입 검토는 시장·섹터 게이트까지 통과한 TRIGGERED 상태에서만 가능합니다."
+            )
 
     with quality_tab:
         issues = quality.get("issues", []) if isinstance(quality, dict) else []

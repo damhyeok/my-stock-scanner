@@ -19,14 +19,16 @@ from .orchestrator import (
     run_intraday_decision_cycle,
 )
 from .pipeline import derive_evidence_bundle
+from .features import extract_bar_series
 from .session import KST, SessionContext
+from .setups import EntrySetupAssessment, assess_entry_setup
 from .states import StockGateSignals
 from .storage import PersistenceReceipt, prune_decision_history, save_decision_cycle
 from .verification_registry import load_verification_registry
 from .universe import AdaptiveUniverseSelection, build_adaptive_universe
 
 
-ENGINE_VERSION = "oracle-runtime-v2-adaptive-universe"
+ENGINE_VERSION = "oracle-runtime-v3-structural-setups"
 DEFAULT_CONFIG = Path(__file__).resolve().parents[1] / "config" / "market_betting_engine.placeholder.json"
 DEFAULT_VERIFICATION_REGISTRY = (
     Path(__file__).resolve().parents[1] / "config" / "market_betting_field_verification.json"
@@ -160,23 +162,25 @@ def _unavailable_market_signals() -> tuple[AxisSignal, ...]:
     )
 
 
-def _stock_gate(signals: Sequence[AxisSignal]) -> StockGateSignals:
+def _stock_gate(
+    signals: Sequence[AxisSignal],
+    setup: EntrySetupAssessment,
+) -> StockGateSignals:
     available = [signal for signal in signals if signal.status != AxisStatus.UNAVAILABLE]
-    statuses = {signal.axis: signal.status for signal in available}
-    setup_ready = (
-        statuses.get("relative_strength") == AxisStatus.PASS
-        and statuses.get("activity") != AxisStatus.FAIL
-        and any(signal.axis == "price_action" and signal.status == AxisStatus.PASS for signal in available)
+    setup_ready = setup.state_hint in {StockState.SETUP, StockState.TRIGGERED}
+    trigger_confirmed = (
+        setup.state_hint == StockState.TRIGGERED
+        and bool(available)
+        and all(signal.status == AxisStatus.PASS for signal in available)
     )
-    trigger_confirmed = setup_ready and all(signal.status == AxisStatus.PASS for signal in available)
     return StockGateSignals(
         market_permits_entry=True,
         sector_permits_entry=True,
         setup_ready=setup_ready,
         trigger_confirmed=trigger_confirmed,
-        # A structural stop is not inferred from a generic minute-bar pattern.
-        structural_invalidation_price_defined=False,
-        data_evaluable=bool(available) and not any(
+        structural_invalidation_price_defined=setup.invalidation_price is not None,
+        extended_risk_reward=setup.state_hint == StockState.EXTENDED,
+        data_evaluable=setup.evaluable and bool(available) and not any(
             signal.status == AxisStatus.UNAVAILABLE for signal in signals
         ),
     )
@@ -278,6 +282,7 @@ def run_market_betting_analysis(
 
     sector_inputs = []
     stock_inputs = []
+    stock_setups = {}
     if bundle is not None:
         turnover = {
             str(row["ticker"]).zfill(6): float(row.get("trading_value") or 0)
@@ -307,11 +312,14 @@ def run_market_betting_analysis(
             symbol: sector for sector, sector_symbols in members.items() for symbol in sector_symbols
         }
         for symbol, evidence in bundle.stocks.items():
+            bars = extract_bar_series(observations, f"stock.{symbol}")
+            setup = assess_entry_setup(bars, evidence.features, config.setup)
+            stock_setups[symbol] = setup
             stock_inputs.append(
                 StockDecisionInput(
                     symbol=symbol,
                     previous_state=previous.get(symbol, StockState.WATCH),
-                    signals=_stock_gate(evidence.signals),
+                    signals=_stock_gate(evidence.signals, setup),
                     sector_name=symbol_to_sector.get(symbol, "기타"),
                 )
             )
@@ -334,6 +342,7 @@ def run_market_betting_analysis(
         "tracked_universe_count": len(universe),
         "tracked_universe_is_complete_market_breadth": False,
         "adaptive_universe": asdict(selection),
+        "stock_setups": {symbol: asdict(setup) for symbol, setup in stock_setups.items()},
         "verification_registry_version": verification_registry.registry_version,
         "probe_statuses": [
             {

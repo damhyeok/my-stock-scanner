@@ -10,6 +10,7 @@ from typing import Any, Mapping
 from .features import FeatureConfig
 from .signals import SignalThresholds
 from .universe import AdaptiveUniverseConfig
+from .setups import EntrySetupConfig
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,7 @@ class AnalysisConfig:
     feature: FeatureConfig
     signals: SignalThresholds
     universe: AdaptiveUniverseConfig
+    setup: EntrySetupConfig
 
 
 def _object(value: Any, name: str) -> Mapping[str, Any]:
@@ -38,13 +40,16 @@ def load_analysis_config(path: str | Path) -> AnalysisConfig:
     feature_values = dict(_object(payload.get("feature", {}), "feature"))
     signal_values = dict(_object(payload.get("signals", {}), "signals"))
     universe_values = dict(_object(payload.get("universe", {}), "universe"))
+    setup_values = dict(_object(payload.get("setup", {}), "setup"))
     feature_values["placeholder"] = placeholder
     signal_values["placeholder"] = placeholder
     universe_values["placeholder"] = placeholder
+    setup_values["placeholder"] = placeholder
     try:
         feature = FeatureConfig(**feature_values)
         signals = SignalThresholds(**signal_values)
         universe = AdaptiveUniverseConfig(**universe_values)
+        setup = EntrySetupConfig(**setup_values)
     except TypeError as error:
         raise ValueError(f"unknown or invalid configuration field: {error}") from error
     if feature.short_return_bars < 1 or feature.activity_window_bars < 1:
@@ -57,4 +62,11 @@ def load_analysis_config(path: str | Path) -> AnalysisConfig:
         or universe.total_stock_limit < 1
     ):
         raise ValueError("adaptive universe limits must be positive")
-    return AnalysisConfig(version, placeholder, feature, signals, universe)
+    if (
+        setup.breakout_lookback_bars < 2
+        or setup.pullback_structure_bars < 2
+        or setup.minimum_reward_risk_ratio <= 0
+        or not 0 < setup.maximum_risk_fraction < 1
+    ):
+        raise ValueError("entry setup configuration is invalid")
+    return AnalysisConfig(version, placeholder, feature, signals, universe, setup)

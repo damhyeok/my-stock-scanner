@@ -21,5 +21,16 @@
     "candidate_sector_limit": 5,
     "stocks_per_sector": 8,
     "total_stock_limit": 30
+  },
+  "setup": {
+    "breakout_lookback_bars": 20,
+    "pullback_structure_bars": 8,
+    "breakout_trigger_buffer_ratio": 0.001,
+    "breakout_failure_buffer_ratio": 0.003,
+    "setup_proximity_ratio": 0.005,
+    "pullback_vwap_tolerance_ratio": 0.006,
+    "minimum_impulse_return_ratio": 0.015,
+    "minimum_reward_risk_ratio": 1.5,
+    "maximum_risk_fraction": 0.03
   }
 }

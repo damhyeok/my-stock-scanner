@@ -13,6 +13,7 @@ Updated: 2026-08-01 KST
 - An active-stock sample is explicitly marked as an incomplete sector universe, so it cannot silently become full-sector breadth.
 - `HOLD_EXISTING` remains `NOT_EVALUABLE` unless a position-specific thesis is supplied.
 - Intraday deep collection is adaptive: Top 60 activity identifies at most five candidate sectors, the foreign/institution/top-turnover samples expand only those sectors, and minute-bar collection is capped at 30 stocks with round-robin sector allocation. This is an activity shortlist, not an actual-flow claim.
+- Structural breakout/pullback setups now provide explicit entry, invalidation, reward reference, and reward/risk values; see `PHASE6_STRUCTURAL_ENTRY_STATUS.md`.
 
 ## Safe initial behavior
 

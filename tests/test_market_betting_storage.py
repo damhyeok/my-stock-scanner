@@ -192,6 +192,19 @@ class DashboardViewTests(unittest.TestCase):
         rows = evidence_table([{"axis": "price", "code": "P", "message": "supported"}])
         self.assertEqual(rows, [{"축": "price", "코드": "P", "설명": "supported"}])
 
+    def test_view_exposes_structural_stock_setups(self):
+        detail = {
+            "run": {"derived_evidence": {"stock_setups": {"005930": {
+                "setup_type": "BREAKOUT", "entry_reference": 100,
+                "invalidation_price": 98,
+            }}}},
+            "judgments": [],
+            "stocks": [{"symbol": "005930"}],
+        }
+        view = build_run_view(detail)
+        self.assertEqual(view["setups"]["005930"]["setup_type"], "BREAKOUT")
+        self.assertEqual(view["setups"]["005930"]["invalidation_price"], 98)
+
 
 if __name__ == "__main__":
     unittest.main()
