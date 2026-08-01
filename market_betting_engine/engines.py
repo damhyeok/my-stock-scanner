@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Tuple
+from typing import Iterable, Optional, Tuple
 
 from .contracts import (
     AxisSignal,
@@ -24,6 +24,7 @@ class SectorCoverage:
     total_universe_turnover: float
     observed_turnover: float
     leader_turnover: float
+    universe_complete: bool = True
 
     @property
     def member_ratio(self) -> float:
@@ -66,6 +67,14 @@ def assess_sector_state(
     blockers = []
     if coverage.member_ratio < config.minimum_member_coverage_ratio:
         blockers.append(ev("SECTOR_MEMBER_COVERAGE_LOW", "coverage", "sector member coverage is insufficient"))
+    if not coverage.universe_complete:
+        blockers.append(
+            ev(
+                "SECTOR_UNIVERSE_INCOMPLETE",
+                "coverage",
+                "sector coverage is based on a tracked active-stock sample, not the complete sector universe",
+            )
+        )
     if coverage.turnover_ratio < config.minimum_turnover_coverage_ratio:
         blockers.append(ev("SECTOR_TURNOVER_COVERAGE_LOW", "coverage", "sector turnover coverage is insufficient"))
     if coverage.leader_concentration > config.single_name_concentration_warning_ratio:
@@ -123,7 +132,7 @@ class OvernightGateConfig:
 def assess_overnight_permissions(
     signals: Iterable[AxisSignal],
     *,
-    existing_thesis_valid: bool,
+    existing_thesis_valid: Optional[bool],
     quality: DataQualityReport = DataQualityReport(),
     config: OvernightGateConfig = OvernightGateConfig(),
 ) -> OvernightAssessment:
@@ -156,7 +165,7 @@ def assess_overnight_permissions(
     else:
         new_decision = CloseNewEntryPermission.ALLOWED
 
-    if not_evaluable:
+    if not_evaluable or existing_thesis_valid is None:
         hold_decision = ExistingPositionPermission.NOT_EVALUABLE
     elif not existing_thesis_valid or len(fail_axes) >= config.existing_exit_failure_axes:
         hold_decision = ExistingPositionPermission.EXIT
@@ -181,9 +190,20 @@ def assess_overnight_permissions(
         ) else (),
         **common,
     )
-    thesis_blocker = () if existing_thesis_valid else (
-        Evidence("EXISTING_THESIS_INVALID", "stock_thesis", "existing position thesis is no longer valid"),
-    )
+    if existing_thesis_valid is None:
+        thesis_blocker = (
+            Evidence(
+                "EXISTING_THESIS_NOT_SUPPLIED",
+                "stock_thesis",
+                "an existing-position thesis must be supplied before HOLD_EXISTING can be evaluated",
+            ),
+        )
+    elif existing_thesis_valid:
+        thesis_blocker = ()
+    else:
+        thesis_blocker = (
+            Evidence("EXISTING_THESIS_INVALID", "stock_thesis", "existing position thesis is no longer valid"),
+        )
     hold_judgment = Judgment(
         decision=hold_decision.value,
         blockers=(counter + unavailable_evidence + thesis_blocker) if hold_decision in (

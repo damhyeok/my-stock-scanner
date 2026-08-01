@@ -90,6 +90,28 @@ class AdapterTests(unittest.TestCase):
         self.assertFalse(report.blocking)
         self.assertIn("FIELD_SEMANTICS_PARTIAL", report.codes())
 
+    def test_repeated_partial_minute_fields_are_compacted_in_quality_report(self):
+        row = {
+            "stck_bsop_date": "20260731", "stck_oprc": "90", "stck_hgpr": "110",
+            "stck_lwpr": "80", "stck_prpr": "100", "cntg_vol": "10",
+            "acml_tr_pbmn": "1000",
+        }
+        payload = {"output2": [
+            dict(row, stck_cntg_hour="100000"),
+            dict(row, stck_cntg_hour="100100"),
+        ]}
+        adapted = adapt_probe_payload(
+            "kis_stock_minute", payload, context=CONTEXT, instrument="005930"
+        )
+        report = evaluate_observations(
+            adapted.observations,
+            target_trade_date=TARGET,
+            now=NOW,
+            require_verified_semantics=True,
+        )
+        partial = [issue for issue in report.issues if issue.code == "FIELD_SEMANTICS_PARTIAL"]
+        self.assertEqual(len(partial), 6)
+
     def test_stale_after_is_enforced_by_common_quality_gate(self):
         payload = {"output": {"stck_prpr": "100", "stck_oprc": "90", "stck_hgpr": "110", "stck_lwpr": "80", "acml_vol": "10", "acml_tr_pbmn": "1000"}}
         adapted = adapt_probe_payload(

@@ -56,7 +56,8 @@ sudo systemctl enable --now \
   closing-strength.timer \
   index-bars.timer \
   sector-flow.timer \
+  market-betting.timer \
   stock-analysis.timer
 
 echo "Installed timers:"
-systemctl list-timers --all | grep -E 'morning-|afternoon-|closing-|index-bars|sector-flow|stock-analysis' || true
+systemctl list-timers --all | grep -E 'morning-|afternoon-|closing-|index-bars|sector-flow|market-betting|stock-analysis' || true

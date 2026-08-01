@@ -38,6 +38,9 @@ def evaluate_observations(
     current = _aware_utc(now or datetime.now(timezone.utc))
     issues = []
     seen_metrics = {item.metric for item in observations}
+    missing_date_fields = set()
+    partial_fields = set()
+    unverified_fields = set()
 
     for item in observations:
         meta = item.meta
@@ -52,15 +55,18 @@ def evaluate_observations(
                 )
             )
         if meta.source_trade_date is None:
-            issues.append(
-                QualityIssue(
-                    "SOURCE_TRADE_DATE_MISSING",
-                    QualitySeverity.BLOCKING if require_source_trade_date else QualitySeverity.WARNING,
-                    f"{item.metric} has no source trade date",
-                    (item.metric,),
-                    (meta.source,),
+            field_key = (meta.source, meta.field_name or item.metric.rsplit(".", 1)[-1])
+            if field_key not in missing_date_fields:
+                missing_date_fields.add(field_key)
+                issues.append(
+                    QualityIssue(
+                        "SOURCE_TRADE_DATE_MISSING",
+                        QualitySeverity.BLOCKING if require_source_trade_date else QualitySeverity.WARNING,
+                        f"{field_key[0]}.{field_key[1]} has no source trade date",
+                        (item.metric,),
+                        (meta.source,),
+                    )
                 )
-            )
         elif target_trade_date is not None and meta.source_trade_date != target_trade_date:
             issues.append(
                 QualityIssue(
@@ -94,25 +100,31 @@ def evaluate_observations(
                     )
                 )
         if meta.semantics_status == VerificationStatus.PARTIAL:
-            issues.append(
-                QualityIssue(
-                    "FIELD_SEMANTICS_PARTIAL",
-                    QualitySeverity.BLOCKING if require_verified_semantics else QualitySeverity.WARNING,
-                    f"{item.metric} field semantics or units are only partially verified",
-                    (item.metric,),
-                    (meta.source,),
+            field_key = (meta.source, meta.field_name or item.metric.rsplit(".", 1)[-1])
+            if field_key not in partial_fields:
+                partial_fields.add(field_key)
+                issues.append(
+                    QualityIssue(
+                        "FIELD_SEMANTICS_PARTIAL",
+                        QualitySeverity.BLOCKING if require_verified_semantics else QualitySeverity.WARNING,
+                        f"{field_key[0]}.{field_key[1]} semantics or units are only partially verified",
+                        (item.metric,),
+                        (meta.source,),
+                    )
                 )
-            )
         elif meta.semantics_status == VerificationStatus.UNVERIFIED:
-            issues.append(
-                QualityIssue(
-                    "FIELD_SEMANTICS_UNVERIFIED",
-                    QualitySeverity.BLOCKING if require_verified_semantics else QualitySeverity.WARNING,
-                    f"{item.metric} field semantics are unverified",
-                    (item.metric,),
-                    (meta.source,),
+            field_key = (meta.source, meta.field_name or item.metric.rsplit(".", 1)[-1])
+            if field_key not in unverified_fields:
+                unverified_fields.add(field_key)
+                issues.append(
+                    QualityIssue(
+                        "FIELD_SEMANTICS_UNVERIFIED",
+                        QualitySeverity.BLOCKING if require_verified_semantics else QualitySeverity.WARNING,
+                        f"{field_key[0]}.{field_key[1]} semantics are unverified",
+                        (item.metric,),
+                        (meta.source,),
+                    )
                 )
-            )
         elif meta.semantics_status == VerificationStatus.UNAVAILABLE:
             issues.append(
                 QualityIssue(

@@ -14,6 +14,7 @@ from program_ws_collector import ProgramTradeCollector
 from sector_flow_collector import SectorFlowCollector
 from crawler import StockCrawler
 from intraday_relative_strength import IntradayRelativeStrengthScanner
+from market_betting_engine.runtime import run_market_betting_analysis
 from web_database import build_web_database, restore_working_database
 from watchlist import WatchlistManager, refresh_watchlist
 
@@ -154,6 +155,10 @@ def run_index_bar_collection():
     )
 
 
+def run_market_betting():
+    run_market_betting_analysis(PROJECT_DIR / "stock_data.db")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -173,6 +178,7 @@ def main():
             "watchlist-remove",
             "intraday-rs-backfill",
             "index-bars",
+            "market-betting",
         ],
     )
     parser.add_argument("--ticker")
@@ -206,6 +212,8 @@ def main():
             )
             if args.task in ("full-analysis", "manual-analysis"):
                 run_full_analysis(manual=args.task == "manual-analysis")
+                if args.task == "manual-analysis":
+                    run_market_betting()
             elif args.task == "morning-strength":
                 run_market_strength("morning")
             elif args.task == "afternoon-strength":
@@ -232,6 +240,8 @@ def main():
                     session=args.session,
                 )
                 print(f"[Intraday RS Backfill] saved={len(result)}")
+            elif args.task == "market-betting":
+                run_market_betting()
             push_outputs(args.task)
 
 

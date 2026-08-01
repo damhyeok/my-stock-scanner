@@ -80,4 +80,16 @@ systemctl list-timers --all | grep -E 'morning-|afternoon-|closing-|index-bars|s
 journalctl -u 'stock-scanner@*' --since today
 ```
 
+## Intraday and overnight decision runtime
+
+`market-betting.timer` runs the analysis-only market-betting engine at regular
+intraday checkpoints and more frequently around the closing windows. A manual
+Streamlit `/run` request also executes this cycle after the existing full
+analysis. Results are persisted in `stock_data.db`, copied into `web_data.db`,
+and displayed by the existing Streamlit tab.
+
+The runtime is read-only with respect to brokerage APIs. Until the live-session
+field verification checklist is completed, PARTIAL fields remain blocking and
+the UI reports `NOT_EVALUABLE` instead of an entry permission.
+
 자동 예약은 Oracle 타이머만 사용하며 GitHub Actions는 수동 실행용으로만 유지합니다.

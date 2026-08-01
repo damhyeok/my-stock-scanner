@@ -24,6 +24,7 @@ from market_betting_engine.states import StateTransition
 from market_betting_engine.storage import (
     list_decision_runs,
     load_decision_run,
+    prune_decision_history,
     save_decision_cycle,
 )
 from market_betting_engine.streamlit_tab import build_run_view, decision_label, evidence_table
@@ -145,6 +146,43 @@ class DecisionStorageTests(unittest.TestCase):
             run_id="run-date",
         )
         self.assertEqual(list_decision_runs(self.db_path, target_trade_date="2026-07-30"), [])
+
+    def test_retention_keeps_compact_runs_longer_than_raw_observations(self):
+        for index, day in enumerate((29, 30, 31)):
+            context = SessionContext(
+                date(2026, 7, day),
+                datetime(2026, 7, day, 15, 25, tzinfo=KST),
+                True,
+                "TEST",
+            )
+            observation = Observation(
+                f"stock.005930.202607{day:02d}.152500.close",
+                100.0,
+                ObservationMeta(
+                    source="KIS", observed_at=context.evaluated_at,
+                    source_trade_date=context.target_trade_date, unit="KRW",
+                    semantics_status=VerificationStatus.VERIFIED,
+                    calculation_mode=CalculationMode.ACTUAL,
+                    field_name="stck_prpr",
+                    trade_date_provenance=TradeDateProvenance.RESPONSE_FIELD,
+                ),
+            )
+            save_decision_cycle(
+                self.db_path, context=context, result=self.result,
+                config_version="v1", engine_version="e1",
+                observations=[observation], run_id=f"retention-{index}",
+            )
+
+        receipt = prune_decision_history(
+            self.db_path,
+            keep_run_trade_dates=2,
+            keep_raw_observation_trade_dates=1,
+        )
+        self.assertEqual(receipt.deleted_runs, 1)
+        self.assertEqual(receipt.deleted_observations, 2)
+        with sqlite3.connect(self.db_path) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM market_betting_runs").fetchone()[0], 2)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM market_betting_observations").fetchone()[0], 1)
 
 
 class DashboardViewTests(unittest.TestCase):

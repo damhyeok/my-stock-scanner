@@ -26,11 +26,14 @@ RETENTION = {
     "model_bottom_signals": ("signal_date", 30),
     "model_rule_scan_signals": ("signal_date", 30),
     "model_bottom_scan_runs": ("signal_date", 30),
+    "market_betting_runs": ("target_trade_date", 30),
 }
 
 DROP_TABLES = {
     "model_backtest_labels",
     "model_bottom_weight_runs",
+    # The dashboard reads compact judgments/derived evidence, not raw minute observations.
+    "market_betting_observations",
 }
 
 
@@ -77,6 +80,7 @@ def build_web_database(source="stock_data.db", target="web_data.db"):
             source_conn.close()
         conn = sqlite3.connect(temp_path)
         try:
+            conn.execute("PRAGMA foreign_keys=ON")
             for table in DROP_TABLES:
                 conn.execute(f'DROP TABLE IF EXISTS "{table}"')
             for table, (date_column, keep_dates) in RETENTION.items():

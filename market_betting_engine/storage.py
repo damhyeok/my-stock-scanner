@@ -29,6 +29,12 @@ class PersistenceReceipt:
     observation_count: int
 
 
+@dataclass(frozen=True)
+class PruneReceipt:
+    deleted_runs: int
+    deleted_observations: int
+
+
 def _jsonable(value: Any) -> Any:
     if isinstance(value, Enum):
         return value.value
@@ -262,6 +268,59 @@ def save_decision_cycle(
         len(result.stocks),
         len(observations),
     )
+
+
+def prune_decision_history(
+    db_path: str | Path,
+    *,
+    keep_run_trade_dates: int = 30,
+    keep_raw_observation_trade_dates: int = 2,
+) -> PruneReceipt:
+    """Bound operational storage while retaining compact decisions longer."""
+
+    if keep_run_trade_dates < 1 or keep_raw_observation_trade_dates < 0:
+        raise ValueError("retention values must be non-negative and keep_run_trade_dates must be positive")
+    path = Path(db_path)
+    if not path.exists():
+        return PruneReceipt(0, 0)
+    try:
+        with sqlite3.connect(path) as conn:
+            conn.execute("PRAGMA foreign_keys=ON")
+            run_dates = [
+                row[0]
+                for row in conn.execute(
+                    "SELECT DISTINCT target_trade_date FROM market_betting_runs "
+                    "ORDER BY target_trade_date DESC"
+                ).fetchall()
+            ]
+            deleted_observations = 0
+            if len(run_dates) > keep_raw_observation_trade_dates:
+                raw_cutoff = (
+                    run_dates[keep_raw_observation_trade_dates - 1]
+                    if keep_raw_observation_trade_dates
+                    else "9999-12-31"
+                )
+                cursor = conn.execute(
+                    """
+                    DELETE FROM market_betting_observations
+                    WHERE run_id IN (
+                        SELECT run_id FROM market_betting_runs WHERE target_trade_date < ?
+                    )
+                    """,
+                    (raw_cutoff,),
+                )
+                deleted_observations = cursor.rowcount
+            deleted_runs = 0
+            if len(run_dates) > keep_run_trade_dates:
+                run_cutoff = run_dates[keep_run_trade_dates - 1]
+                cursor = conn.execute(
+                    "DELETE FROM market_betting_runs WHERE target_trade_date < ?",
+                    (run_cutoff,),
+                )
+                deleted_runs = cursor.rowcount
+            return PruneReceipt(deleted_runs, deleted_observations)
+    except sqlite3.OperationalError:
+        return PruneReceipt(0, 0)
 
 
 def _parse_json_columns(row: dict[str, Any], columns: Iterable[str]) -> dict[str, Any]:
