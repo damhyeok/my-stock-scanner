@@ -326,7 +326,8 @@ def prune_decision_history(
 def _parse_json_columns(row: dict[str, Any], columns: Iterable[str]) -> dict[str, Any]:
     for column in columns:
         if row.get(column) is not None:
-            row[column.removesuffix("_json")] = json.loads(row.pop(column))
+            output_name = column[:-5] if column.endswith("_json") else column
+            row[output_name] = json.loads(row.pop(column))
     return row
 
 
