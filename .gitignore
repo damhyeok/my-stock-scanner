@@ -8,6 +8,7 @@ stock_data.db
 reports/*.xlsx
 manual_run_status.json
 manual_trigger.log
+reports/api_probes/
 
 venv/
 .venv/

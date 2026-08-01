@@ -1,0 +1,20 @@
+{
+  "config_version": "expert-placeholder-v1",
+  "placeholder": true,
+  "feature": {
+    "short_return_bars": 5,
+    "activity_window_bars": 5,
+    "vwap_price_mode": "typical_price"
+  },
+  "signals": {
+    "positive_vwap_distance": 0.0,
+    "negative_vwap_distance": 0.0,
+    "positive_clv_proxy_ratio": 0.1,
+    "negative_clv_proxy_ratio": -0.1,
+    "positive_relative_return": 0.003,
+    "negative_relative_return": -0.003,
+    "positive_activity_acceleration": 0.2,
+    "sector_participation_pass": 0.6,
+    "sector_participation_fail": 0.4
+  }
+}

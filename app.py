@@ -25,6 +25,7 @@ from model_schema import init_model_tables
 from stock_chart_analyzer import StockChartAnalyzer
 from model_1_scanner import scan_model_tables
 from market_strength import MarketStrengthAnalyzer
+from market_betting_engine.streamlit_tab import render_market_betting_tab
 from close_bet_staged.rule_model_ui import render_rule_model_section
 
 # Make local desktop runs read this project's .env regardless of the launch cwd.
@@ -917,6 +918,7 @@ def collect_and_build_single_stock(query, db_path):
 
 # 데이터 로드
 with st.spinner("데이터를 불러오고 있습니다..."):
+    dashboard_db_path, dashboard_db_source = get_database_path()
     df_analyzed = get_analyzed_data()
     df_raw = get_raw_data()
     df_intraday_relative_strength = get_intraday_relative_strength_data()
@@ -1019,7 +1021,7 @@ else:
     st.divider()
 
     # 탭으로 분리
-    watchlist_tab, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13 = st.tabs([
+    watchlist_tab, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13, tab14 = st.tabs([
         "⭐ 내 관심종목",
         "🚀 지수대비 강한 종목",
         "🔥 거래대금 Top", 
@@ -1033,7 +1035,8 @@ else:
         "🧭 오늘 섹터 흐름",
         "🎯 종가베팅 스캐너",
         "🧱 바닥 후보 종목",
-        "🔎 종목 차트 분석"
+        "🔎 종목 차트 분석",
+        "🧠 장중·오버나이트 분석"
     ])
     
     if 'session' in df_raw.columns:
@@ -2276,6 +2279,14 @@ else:
 
         st.divider()
         render_rule_model_section(df_close_bet_rule_model, selected_date)
+
+    with tab14:
+        render_market_betting_tab(
+            st,
+            db_path=dashboard_db_path,
+            selected_date=str(selected_date),
+            db_source=dashboard_db_source,
+        )
 
     with tab10:
         st.header(f"🧭 오늘 섹터 자금 이동 ({selected_date})")
