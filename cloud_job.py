@@ -212,8 +212,7 @@ def main():
             )
             if args.task in ("full-analysis", "manual-analysis"):
                 run_full_analysis(manual=args.task == "manual-analysis")
-                if args.task == "manual-analysis":
-                    run_market_betting()
+                run_market_betting()
             elif args.task == "morning-strength":
                 run_market_strength("morning")
             elif args.task == "afternoon-strength":

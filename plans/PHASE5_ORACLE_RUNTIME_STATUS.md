@@ -5,7 +5,7 @@ Updated: 2026-08-01 KST
 ## Implemented
 
 - `cloud_job.py market-betting` runs one read-only decision cycle and writes it to `stock_data.db`.
-- The Oracle manual `/run` path now runs the market-betting cycle after the existing full analysis.
+- Both the existing scheduled full-analysis job and the manual `/run` path run the market-betting cycle after the existing full analysis. This provides a deployment-safe fallback even before the dedicated timer is enabled on the VM.
 - `market-betting.timer` runs throughout the regular session, with additional checks around the closing windows and at 16:05.
 - The runtime uses only allow-listed KIS quotation endpoints. It has no order/account/position client.
 - Results are written to the existing `market_betting_*` tables and included in `web_data.db` for the existing Streamlit tab.
