@@ -2286,6 +2286,7 @@ else:
             db_path=dashboard_db_path,
             selected_date=str(selected_date),
             db_source=dashboard_db_source,
+            position_api=oracle_request,
         )
 
     with tab10:

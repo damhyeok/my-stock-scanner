@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from .storage import list_decision_runs, load_decision_run
 
@@ -56,6 +56,9 @@ def build_run_view(detail: Mapping[str, Any]) -> dict[str, Any]:
     derived = run.get("derived_evidence") if isinstance(run, Mapping) else {}
     setups = derived.get("stock_setups", {}) if isinstance(derived, Mapping) else {}
     lifecycles = derived.get("stock_lifecycles", {}) if isinstance(derived, Mapping) else {}
+    position_assessments = (
+        derived.get("position_assessments", {}) if isinstance(derived, Mapping) else {}
+    )
     return {
         "run": run,
         "market": market,
@@ -64,6 +67,9 @@ def build_run_view(detail: Mapping[str, Any]) -> dict[str, Any]:
         "stocks": list(detail.get("stocks", [])),
         "setups": setups if isinstance(setups, Mapping) else {},
         "lifecycles": lifecycles if isinstance(lifecycles, Mapping) else {},
+        "position_assessments": (
+            position_assessments if isinstance(position_assessments, Mapping) else {}
+        ),
     }
 
 
@@ -79,7 +85,14 @@ def _render_evidence_group(st, title: str, items: Sequence[Mapping[str, Any]], k
     st.dataframe(evidence_table(items), use_container_width=True, hide_index=True)
 
 
-def render_market_betting_tab(st, *, db_path: str, selected_date: str, db_source: str = "") -> None:
+def render_market_betting_tab(
+    st,
+    *,
+    db_path: str,
+    selected_date: str,
+    db_source: str = "",
+    position_api: Callable[..., tuple[Mapping[str, Any] | None, str]] | None = None,
+) -> None:
     """Render into an already-created Streamlit tab container."""
 
     st.header(f"🧠 장중·오버나이트 베팅 분석 ({selected_date})")
@@ -137,8 +150,8 @@ def render_market_betting_tab(st, *, db_path: str, selected_date: str, db_source
     elif "PLACEHOLDER" in str(market.get("confidence_label", "")):
         st.warning("현재 임계값은 전문가 초깃값(placeholder)이며 확정 운영값이 아닙니다.")
 
-    summary_tab, sector_tab, stock_tab, quality_tab = st.tabs(
-        ["판단 근거", "섹터", "종목 상태", "데이터 품질"]
+    summary_tab, sector_tab, stock_tab, position_tab, quality_tab = st.tabs(
+        ["판단 근거", "섹터", "종목 상태", "보유 종목", "데이터 품질"]
     )
     with summary_tab:
         for title, judgment in [
@@ -203,6 +216,111 @@ def render_market_betting_tab(st, *, db_path: str, selected_date: str, db_source
                 "진입 기준가와 무효화 가격은 구조적 참고값입니다. "
                 "실제 신규 진입 검토는 시장·섹터 게이트까지 통과한 TRIGGERED 상태에서만 가능합니다."
             )
+
+    with position_tab:
+        st.subheader("내 보유 종목")
+        st.caption(
+            "평균매수가와 수익률은 위험 여유를 보여주는 참고값입니다. "
+            "보유 판단은 투자 논리 상태, 무효화 가격, 마감 시장 품질을 우선합니다."
+        )
+        live_positions = []
+        if position_api is None:
+            st.info("오라클 보유 종목 API가 연결되지 않았습니다.")
+        else:
+            response, error = position_api("GET", "/positions")
+            if error:
+                st.warning(error)
+            elif response:
+                live_positions = list(response.get("positions", []))
+
+            with st.form("market_betting_position_form", clear_on_submit=True):
+                form_columns = st.columns(2)
+                ticker = form_columns[0].text_input("종목코드", max_chars=6, placeholder="005930")
+                name = form_columns[1].text_input("종목명", placeholder="삼성전자")
+                average_price = form_columns[0].number_input(
+                    "평균매수가", min_value=0.0, step=100.0
+                )
+                quantity = form_columns[1].number_input(
+                    "보유수량", min_value=0.0, step=1.0
+                )
+                thesis_label = form_columns[0].selectbox(
+                    "현재 투자 논리",
+                    ["판단 보류", "유효", "훼손"],
+                    help="시스템이 뉴스나 개인의 매수 이유를 임의로 추측하지 않도록 직접 지정합니다.",
+                )
+                invalidation_price = form_columns[1].number_input(
+                    "무효화 가격(선택)", min_value=0.0, step=100.0,
+                    help="이 가격 이하에서는 기존 보유 논리가 깨졌다고 볼 구조적 기준입니다.",
+                )
+                thesis_note = st.text_input(
+                    "투자 논리 메모(선택)", placeholder="예: 전고점 돌파 후 지지, 실적 상향 추세"
+                )
+                submitted = st.form_submit_button("보유 정보 저장")
+            if submitted:
+                normalized = ticker.strip().zfill(6)
+                if len(normalized) != 6 or not normalized.isdigit():
+                    st.error("종목코드는 숫자 6자리로 입력해주세요.")
+                elif not name.strip() or average_price <= 0 or quantity <= 0:
+                    st.error("종목명, 평균매수가, 보유수량을 올바르게 입력해주세요.")
+                else:
+                    thesis_status = {"판단 보류": "UNSPECIFIED", "유효": "ACTIVE", "훼손": "BROKEN"}[thesis_label]
+                    payload = {
+                        "action": "upsert",
+                        "ticker": normalized,
+                        "name": name.strip(),
+                        "average_price": average_price,
+                        "quantity": quantity,
+                        "thesis_status": thesis_status,
+                        "thesis_note": thesis_note.strip(),
+                        "invalidation_price": invalidation_price or None,
+                    }
+                    result, save_error = position_api("POST", "/positions", json_body=payload)
+                    if save_error:
+                        st.error(save_error)
+                    else:
+                        st.success((result or {}).get("message", "보유 정보를 저장 중입니다."))
+
+        assessments = view["position_assessments"]
+        if live_positions:
+            rows = []
+            for position in live_positions:
+                ticker_value = str(position.get("ticker", ""))
+                assessment = assessments.get(ticker_value, {})
+                rows.append(
+                    {
+                        "종목": position.get("name", ticker_value),
+                        "종목코드": ticker_value,
+                        "평균매수가": position.get("average_price"),
+                        "보유수량": position.get("quantity"),
+                        "현재가": assessment.get("current_price"),
+                        "수익률(%)": (
+                            round(float(assessment["profit_loss_ratio"]) * 100, 2)
+                            if assessment.get("profit_loss_ratio") is not None else None
+                        ),
+                        "논리 상태": position.get("thesis_status"),
+                        "무효화 가격": position.get("invalidation_price"),
+                        "보유 판단": decision_label(str(assessment.get("decision", "분석 대기"))),
+                        "판단 사유": ", ".join(assessment.get("reasons", [])),
+                    }
+                )
+            st.dataframe(rows, use_container_width=True, hide_index=True)
+            if position_api is not None:
+                remove_options = {
+                    f"{item.get('name', '')} ({item.get('ticker', '')})": item.get("ticker", "")
+                    for item in live_positions
+                }
+                remove_label = st.selectbox("삭제할 보유 종목", list(remove_options))
+                if st.button("선택 종목 삭제", type="secondary"):
+                    result, remove_error = position_api(
+                        "POST", "/positions",
+                        json_body={"action": "remove", "ticker": remove_options[remove_label]},
+                    )
+                    if remove_error:
+                        st.error(remove_error)
+                    else:
+                        st.success((result or {}).get("message", "삭제 중입니다."))
+        elif position_api is not None:
+            st.info("입력된 보유 종목이 없습니다.")
 
     with quality_tab:
         issues = quality.get("issues", []) if isinstance(quality, dict) else []

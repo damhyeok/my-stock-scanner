@@ -247,7 +247,7 @@ class ConfigTests(unittest.TestCase):
     def test_repository_placeholder_config_is_versioned_and_loadable(self):
         path = Path(__file__).resolve().parents[1] / "config" / "market_betting_engine.placeholder.json"
         config = load_analysis_config(path)
-        self.assertEqual(config.config_version, "expert-placeholder-v1")
+        self.assertEqual(config.config_version, "expert-placeholder-v2-trigger-lifecycle")
         self.assertTrue(config.placeholder)
         self.assertEqual(config.feature.short_return_bars, 5)
 

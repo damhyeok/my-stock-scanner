@@ -10,6 +10,7 @@ from market_betting_engine.adapters import adapt_probe_payload
 from market_betting_engine.collector import ProbeCollectionResult
 from market_betting_engine.contracts import VerificationStatus
 from market_betting_engine.runtime import run_market_betting_analysis
+from market_betting_engine.positions import Position, upsert_position
 from market_betting_engine.session import KST, SessionContext
 from market_betting_engine.storage import load_decision_run
 
@@ -119,6 +120,32 @@ class OracleRuntimeTests(unittest.TestCase):
         self.assertEqual(
             judgments[("OVERNIGHT", "HOLD_EXISTING")]["decision"], "NOT_EVALUABLE"
         )
+
+    def test_user_position_is_collected_and_assessed_separately(self):
+        upsert_position(
+            self.db_path,
+            Position("000660", "SK하이닉스", 100, 2, "ACTIVE", "", 90),
+        )
+        requested_tickers = []
+
+        def collect_with_trace(probe_id, *, context, instrument, ticker="005930", **kwargs):
+            if probe_id == "kis_stock_minute":
+                requested_tickers.append(ticker)
+            return self.fake_collect(
+                probe_id, context=context, instrument=instrument, ticker=ticker, **kwargs
+            )
+
+        with patch(
+            "market_betting_engine.runtime.collect_probe_observations",
+            side_effect=collect_with_trace,
+        ):
+            receipt = run_market_betting_analysis(self.db_path, evaluated_at=NOW)
+
+        detail = load_decision_run(self.db_path, receipt.run_id)
+        assessments = detail["run"]["derived_evidence"]["position_assessments"]
+        self.assertIn("000660", requested_tickers)
+        self.assertEqual(assessments["000660"]["decision"], "HOLD")
+        self.assertEqual(assessments["000660"]["current_price"], 109)
 
 
 if __name__ == "__main__":

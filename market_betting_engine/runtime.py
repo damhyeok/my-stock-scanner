@@ -21,6 +21,7 @@ from .orchestrator import (
 )
 from .pipeline import derive_evidence_bundle
 from .features import extract_bar_series
+from .positions import assess_position, list_positions
 from .session import KST, SessionContext
 from .setups import (
     EntrySetupAssessment,
@@ -34,7 +35,7 @@ from .verification_registry import load_verification_registry
 from .universe import AdaptiveUniverseSelection, build_adaptive_universe
 
 
-ENGINE_VERSION = "oracle-runtime-v4-trigger-lifecycle"
+ENGINE_VERSION = "oracle-runtime-v5-position-thesis"
 DEFAULT_CONFIG = Path(__file__).resolve().parents[1] / "config" / "market_betting_engine.placeholder.json"
 DEFAULT_VERIFICATION_REGISTRY = (
     Path(__file__).resolve().parents[1] / "config" / "market_betting_field_verification.json"
@@ -274,7 +275,9 @@ def run_market_betting_analysis(
     )
     selection = _adaptive_universe(db_path, target, runtime_universe_config)
     universe = list(selection.stocks)
-    symbols = [str(row["ticker"]).zfill(6) for row in universe]
+    candidate_symbols = [str(row["ticker"]).zfill(6) for row in universe]
+    positions = list_positions(db_path)
+    symbols = list(dict.fromkeys(candidate_symbols + [position.ticker for position in positions]))
     verification_registry = load_verification_registry(verification_registry_path)
 
     def collect(probe_id: str, *, instrument: str, ticker: str = "005930"):
@@ -353,12 +356,15 @@ def run_market_betting_analysis(
                     persistence_confirmed=previous_sectors.get(name) in {"LEADING", "EMERGING"},
                 )
             )
-        previous = _previous_states(db_path, bundle.stocks)
-        previous_setups = _previous_setups(db_path, bundle.stocks)
+        previous = _previous_states(db_path, candidate_symbols)
+        previous_setups = _previous_setups(db_path, candidate_symbols)
         symbol_to_sector = {
             symbol: sector for sector, sector_symbols in members.items() for symbol in sector_symbols
         }
-        for symbol, evidence in bundle.stocks.items():
+        for symbol in candidate_symbols:
+            evidence = bundle.stocks.get(symbol)
+            if evidence is None:
+                continue
             bars = extract_bar_series(observations, f"stock.{symbol}")
             setup = assess_entry_setup(bars, evidence.features, config.setup)
             previous_state = previous.get(symbol, StockState.WATCH)
@@ -384,9 +390,26 @@ def run_market_betting_analysis(
         stock_inputs=stock_inputs,
         require_verified_inputs=True,
     )
+    position_assessments = {}
+    for position in positions:
+        bars = extract_bar_series(observations, f"stock.{position.ticker}")
+        current_price = bars[-1].close if bars else None
+        position_assessments[position.ticker] = assess_position(
+            position,
+            current_price,
+            market_signals,
+            result.quality,
+        )
+    thesis_values = [assessment.thesis_valid for assessment in position_assessments.values()]
+    if any(value is False for value in thesis_values):
+        aggregate_thesis_valid = False
+    elif thesis_values and all(value is True for value in thesis_values):
+        aggregate_thesis_valid = True
+    else:
+        aggregate_thesis_valid = None
     overnight = assess_overnight_permissions(
         market_signals,
-        existing_thesis_valid=None,
+        existing_thesis_valid=aggregate_thesis_valid,
         quality=result.quality,
     )
     derived = {
@@ -397,6 +420,10 @@ def run_market_betting_analysis(
         "stock_setups": {symbol: asdict(setup) for symbol, setup in stock_setups.items()},
         "stock_lifecycles": {
             symbol: asdict(lifecycle) for symbol, lifecycle in stock_lifecycles.items()
+        },
+        "position_assessments": {
+            ticker: asdict(assessment)
+            for ticker, assessment in position_assessments.items()
         },
         "verification_registry_version": verification_registry.registry_version,
         "probe_statuses": [

@@ -10,8 +10,11 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from dataclasses import asdict
 
 from dotenv import load_dotenv
+
+from market_betting_engine.positions import list_positions
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -172,7 +175,7 @@ class TriggerHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length)
-        if self.path not in ("/run", "/watchlist"):
+        if self.path not in ("/run", "/watchlist", "/positions"):
             self.send_json(404, {"error": "not_found"})
             return
         if not is_authorized(self, body):
@@ -191,7 +194,40 @@ class TriggerHandler(BaseHTTPRequestHandler):
             if len(ticker) != 6 or not ticker.isdigit():
                 self.send_json(400, {"error": "invalid_ticker"})
                 return
-            if action == "add":
+            if self.path == "/positions" and action == "upsert":
+                name = str(payload.get("name", "")).strip()
+                try:
+                    average_price = float(payload.get("average_price"))
+                    quantity = float(payload.get("quantity"))
+                    invalidation = payload.get("invalidation_price")
+                    invalidation = None if invalidation in (None, "") else float(invalidation)
+                except (TypeError, ValueError):
+                    self.send_json(400, {"error": "invalid_position_numbers"})
+                    return
+                thesis_status = str(payload.get("thesis_status", "UNSPECIFIED")).upper()
+                if not name or average_price <= 0 or quantity <= 0 or thesis_status not in {
+                    "ACTIVE", "BROKEN", "UNSPECIFIED"
+                }:
+                    self.send_json(400, {"error": "invalid_position"})
+                    return
+                arguments = [
+                    "--ticker", ticker,
+                    "--name", name,
+                    "--average-price", str(average_price),
+                    "--quantity", str(quantity),
+                    "--thesis-status", thesis_status,
+                    "--thesis-note", str(payload.get("thesis_note", "")),
+                ]
+                if invalidation is not None:
+                    arguments.extend(["--invalidation-price", str(invalidation)])
+                started, status = start_job(
+                    "position-upsert", arguments, f"{name} 보유 정보를 저장 중입니다."
+                )
+            elif self.path == "/positions" and action == "remove":
+                started, status = start_job(
+                    "position-remove", ["--ticker", ticker], f"{ticker} 보유 정보를 삭제 중입니다."
+                )
+            elif self.path == "/watchlist" and action == "add":
                 name = str(payload.get("name", "")).strip()
                 if not name:
                     self.send_json(400, {"error": "invalid_name"})
@@ -205,7 +241,7 @@ class TriggerHandler(BaseHTTPRequestHandler):
                     arguments,
                     f"{name}을(를) 관심종목에 추가하고 기준 종가를 확인 중입니다.",
                 )
-            elif action == "remove":
+            elif self.path == "/watchlist" and action == "remove":
                 started, status = start_job(
                     "watchlist-remove",
                     ["--ticker", ticker],
@@ -218,13 +254,21 @@ class TriggerHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         body = b""
-        if self.path != "/status":
+        if self.path not in ("/status", "/positions"):
             self.send_json(404, {"error": "not_found"})
             return
         if not is_authorized(self, body):
             self.send_json(401, {"error": "unauthorized"})
             return
-        self.send_json(200, read_status())
+        if self.path == "/positions":
+            try:
+                positions = [asdict(item) for item in list_positions(PROJECT_DIR / "stock_data.db")]
+            except Exception:
+                self.send_json(500, {"error": "position_read_failed"})
+                return
+            self.send_json(200, {"positions": positions})
+        else:
+            self.send_json(200, read_status())
 
     def log_message(self, message_format, *args):
         print(f"[{now_iso()}] {self.client_address[0]} {message_format % args}")

@@ -15,6 +15,7 @@ from sector_flow_collector import SectorFlowCollector
 from crawler import StockCrawler
 from intraday_relative_strength import IntradayRelativeStrengthScanner
 from market_betting_engine.runtime import run_market_betting_analysis
+from market_betting_engine.positions import Position, remove_position, upsert_position
 from web_database import build_web_database, restore_working_database
 from watchlist import WatchlistManager, refresh_watchlist
 
@@ -208,11 +209,18 @@ def main():
             "index-bars",
             "market-betting",
             "api-verification",
+            "position-upsert",
+            "position-remove",
         ],
     )
     parser.add_argument("--ticker")
     parser.add_argument("--name")
     parser.add_argument("--market-cap", type=int, default=0)
+    parser.add_argument("--average-price", type=float)
+    parser.add_argument("--quantity", type=float)
+    parser.add_argument("--thesis-status", default="UNSPECIFIED")
+    parser.add_argument("--thesis-note", default="")
+    parser.add_argument("--invalidation-price", type=float)
     parser.add_argument("--trade-date")
     parser.add_argument("--session", default="정규장(16:00)")
     args = parser.parse_args()
@@ -268,6 +276,21 @@ def main():
                 )
             elif args.task == "watchlist-remove":
                 WatchlistManager(PROJECT_DIR / "stock_data.db").remove(args.ticker)
+            elif args.task == "position-upsert":
+                upsert_position(
+                    PROJECT_DIR / "stock_data.db",
+                    Position(
+                        ticker=args.ticker,
+                        name=args.name or args.ticker,
+                        average_price=args.average_price,
+                        quantity=args.quantity,
+                        thesis_status=args.thesis_status,
+                        thesis_note=args.thesis_note,
+                        invalidation_price=args.invalidation_price,
+                    ),
+                )
+            elif args.task == "position-remove":
+                remove_position(PROJECT_DIR / "stock_data.db", args.ticker)
             elif args.task == "intraday-rs-backfill":
                 crawler = StockCrawler(db_path=str(PROJECT_DIR / "stock_data.db"))
                 trade_date = args.trade_date or crawler.target_date
