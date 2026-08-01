@@ -88,9 +88,31 @@ class ApiProbeTests(unittest.TestCase):
                 }],
             }, 200
 
-        result = execute_probe("kis_stock_minute", request_override=request_override)
+        result = execute_probe(
+            "kis_stock_minute",
+            current=datetime(2026, 7, 31, 15, 30, tzinfo=KST),
+            request_override=request_override,
+        )
         self.assertEqual(result.source_trade_dates, ["20260731"])
         self.assertEqual(result.source_times, ["153000"])
+        self.assertEqual(result.contract_review_status, "REVIEW_READY")
+        self.assertTrue(all(check["passed"] for check in result.contract_checks))
+
+    def test_kis_market_probe_is_skipped_on_weekend_without_force(self):
+        calls = []
+
+        def request_override(spec, ticker, current):
+            calls.append(spec.probe_id)
+            return {}, 200
+
+        result = execute_probe(
+            "kis_stock_minute",
+            current=datetime(2026, 8, 1, 12, 0, tzinfo=KST),
+            request_override=request_override,
+        )
+        self.assertEqual(result.execution_status, "SKIPPED")
+        self.assertEqual(result.verification_status, "PENDING_MARKET_SESSION")
+        self.assertEqual(calls, [])
 
     def test_weekend_market_session_probe_is_skipped_without_network_call(self):
         calls = []

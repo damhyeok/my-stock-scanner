@@ -172,6 +172,21 @@ def _prefix(probe_id: str, instrument: str) -> str:
     return f"futures.{instrument}"
 
 
+def _normal_session_time(probe_id: str, row_time: Optional[str]) -> bool:
+    if row_time is None:
+        return True
+    if probe_id == "kis_futures_minute_active":
+        return "084500" <= row_time <= "154500"
+    if probe_id in {
+        "kis_stock_minute",
+        "kis_index_minute_kospi",
+        "kis_program_summary_kospi",
+        "kiwoom_stock_minute",
+    }:
+        return "090000" <= row_time <= "153000"
+    return True
+
+
 def adapt_probe_payload(
     probe_id: str,
     payload: Mapping[str, Any],
@@ -225,6 +240,17 @@ def adapt_probe_payload(
                     QualitySeverity.INFO,
                     f"special index row {row_time} was not normalized as a minute bar",
                     sources=("KIS",),
+                )
+            )
+            continue
+        if not _normal_session_time(probe_id, row_time):
+            excluded += 1
+            issues.append(
+                QualityIssue(
+                    "OUT_OF_SESSION_ROW_EXCLUDED",
+                    QualitySeverity.INFO,
+                    f"{probe_id} row {row_time} is outside the regular-session contract",
+                    sources=("KIWOOM" if probe_id.startswith("kiwoom") else "KIS",),
                 )
             )
             continue

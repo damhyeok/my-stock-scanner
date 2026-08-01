@@ -70,6 +70,19 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(result.excluded_rows, 1)
         self.assertTrue(any(issue.code == "SPECIAL_INDEX_TIME_ROW_EXCLUDED" for issue in result.issues))
 
+    def test_after_hours_stock_rows_are_excluded(self):
+        payload = {"output2": [{
+            "stck_bsop_date": "20260731", "stck_cntg_hour": "160500",
+            "stck_oprc": "100", "stck_hgpr": "101", "stck_lwpr": "99",
+            "stck_prpr": "100", "cntg_vol": "10", "acml_tr_pbmn": "1000",
+        }]}
+        result = adapt_probe_payload(
+            "kis_stock_minute", payload, context=CONTEXT, instrument="005930"
+        )
+        self.assertEqual(result.included_rows, 0)
+        self.assertEqual(result.excluded_rows, 1)
+        self.assertTrue(any(issue.code == "OUT_OF_SESSION_ROW_EXCLUDED" for issue in result.issues))
+
     def test_kiwoom_signed_price_prefix_is_normalized_to_absolute_price(self):
         payload = {"stk_min_pole_chart_qry": [{"cntr_tm": "20260731153000", "cur_prc": "+262500", "open_pric": "-260000", "high_pric": "+263000", "low_pric": "-259000", "trde_qty": "10", "acc_trde_qty": "100"}]}
         result = adapt_probe_payload("kiwoom_stock_minute", payload, context=CONTEXT, instrument="005930")

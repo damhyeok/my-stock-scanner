@@ -23,6 +23,9 @@ from typing import Any, Callable, Mapping
 
 import requests
 
+from .live_contract_audit import audit_live_contract
+from .verification_readiness import save_readiness_report
+
 try:
     from dotenv import load_dotenv
 except ImportError:  # Keep the audit CLI usable in the repository's lean test environment.
@@ -131,6 +134,8 @@ class ProbeResult:
     source_times: list[str] = field(default_factory=list)
     observed_fields: list[str] = field(default_factory=list)
     missing_expected_fields: list[str] = field(default_factory=list)
+    contract_review_status: str = "NOT_APPLICABLE"
+    contract_checks: list[dict[str, Any]] = field(default_factory=list)
     schema: dict[str, Any] = field(default_factory=dict)
     sanitized_sample: Any = None
     error_type: str | None = None
@@ -149,11 +154,13 @@ PROBE_SPECS: dict[str, ProbeSpec] = {
         "kis_stock_minute", "KIS", "REST", "국내주식 당일 분봉",
         "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice", "FHKST03010200",
         "output2", ("stck_cntg_hour", "stck_prpr", "stck_oprc", "stck_hgpr", "stck_lwpr", "cntg_vol"),
+        market_session_required=True,
     ),
     "kis_index_minute_kospi": ProbeSpec(
         "kis_index_minute_kospi", "KIS", "REST", "KOSPI 업종 분봉",
         "/uapi/domestic-stock/v1/quotations/inquire-time-indexchartprice", "FHKUP03500200",
         "output2", ("stck_cntg_hour",),
+        market_session_required=True,
         notes="지수 가격 필드명은 실제 응답에서 확인",
     ),
     "kis_program_summary_kospi": ProbeSpec(
@@ -163,6 +170,7 @@ PROBE_SPECS: dict[str, ProbeSpec] = {
             "bsop_hour", "whol_smtn_ntby_tr_pbmn", "arbt_smtn_ntby_tr_pbmn",
             "nabt_smtn_ntby_tr_pbmn",
         ),
+        market_session_required=True,
         notes="최근 30분 제공 제약과 금액 단위를 함께 확인",
     ),
     "kis_investor_stock": ProbeSpec(
@@ -181,6 +189,7 @@ PROBE_SPECS: dict[str, ProbeSpec] = {
         "kis_futures_minute_active", "KIS", "REST_COMPOSITE", "활성 KOSPI200 선물 분봉",
         "/uapi/domestic-futureoption/v1/quotations/inquire-time-fuopchartprice", "FHKIF03020200",
         "output2", ("stck_cntg_hour", "futs_prpr", "cntg_vol"),
+        market_session_required=True,
         notes="선물 전광판에서 거래량 최대 종목을 먼저 선택",
     ),
     "kiwoom_stock_minute": ProbeSpec(
@@ -633,6 +642,7 @@ def execute_probe(
         source_trade_dates, source_times = extract_source_dates_and_times(rows)
         observed_fields = sorted({str(key) for row in rows for key in row.keys()})
         missing = [field for field in spec.expected_fields if field not in observed_fields]
+        contract_audit = audit_live_contract(probe_id, rows, started)
         if not provider_ok:
             execution_status = "PROVIDER_ERROR"
             verification_status = "UNVERIFIED"
@@ -659,6 +669,8 @@ def execute_probe(
             source_times=source_times,
             observed_fields=observed_fields,
             missing_expected_fields=missing,
+            contract_review_status=contract_audit.status,
+            contract_checks=contract_audit.as_dicts(),
             schema=infer_schema(payload),
             sanitized_sample=redact_sensitive(payload),
             notes=[spec.notes] if spec.notes else [],
@@ -703,6 +715,8 @@ def init_probe_db(db_path: Path | str = DEFAULT_DB_PATH) -> Path:
                 missing_expected_fields_json TEXT NOT NULL,
                 schema_json TEXT NOT NULL,
                 sanitized_sample_json TEXT,
+                contract_review_status TEXT NOT NULL DEFAULT 'NOT_APPLICABLE',
+                contract_checks_json TEXT NOT NULL DEFAULT '[]',
                 error_type TEXT,
                 error_message TEXT,
                 notes_json TEXT NOT NULL
@@ -712,11 +726,15 @@ def init_probe_db(db_path: Path | str = DEFAULT_DB_PATH) -> Path:
         existing_columns = {
             row[1] for row in conn.execute("PRAGMA table_info(api_probe_runs)").fetchall()
         }
-        for column in ("source_trade_dates_json", "source_times_json"):
+        migrations = {
+            "source_trade_dates_json": "TEXT NOT NULL DEFAULT '[]'",
+            "source_times_json": "TEXT NOT NULL DEFAULT '[]'",
+            "contract_review_status": "TEXT NOT NULL DEFAULT 'NOT_APPLICABLE'",
+            "contract_checks_json": "TEXT NOT NULL DEFAULT '[]'",
+        }
+        for column, definition in migrations.items():
             if column not in existing_columns:
-                conn.execute(
-                    f"ALTER TABLE api_probe_runs ADD COLUMN {column} TEXT NOT NULL DEFAULT '[]'"
-                )
+                conn.execute(f"ALTER TABLE api_probe_runs ADD COLUMN {column} {definition}")
         conn.commit()
     finally:
         conn.close()
@@ -735,8 +753,9 @@ def save_probe_result(result: ProbeResult, db_path: Path | str = DEFAULT_DB_PATH
                 provider_code, provider_message, output_row_count, source_trade_dates_json,
                 source_times_json, observed_fields_json, missing_expected_fields_json,
                 schema_json, sanitized_sample_json,
+                contract_review_status, contract_checks_json,
                 error_type, error_message, notes_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 result.run_id, result.probe_id, result.provider, result.transport,
@@ -750,6 +769,8 @@ def save_probe_result(result: ProbeResult, db_path: Path | str = DEFAULT_DB_PATH
                 json.dumps(result.missing_expected_fields, ensure_ascii=False),
                 json.dumps(result.schema, ensure_ascii=False),
                 json.dumps(result.sanitized_sample, ensure_ascii=False),
+                result.contract_review_status,
+                json.dumps(result.contract_checks, ensure_ascii=False),
                 result.error_type, result.error_message,
                 json.dumps(result.notes, ensure_ascii=False),
             ),
@@ -817,6 +838,8 @@ def main(argv: list[str] | None = None) -> int:
         )
     report_path = save_json_report(results, args.output_dir)
     print(f"Sanitized report: {report_path}")
+    readiness_path = save_readiness_report(args.db_path, args.output_dir)
+    print(f"Contract readiness: {readiness_path}")
     return 1 if any(result.execution_status == "ERROR" for result in results) else 0
 
 
