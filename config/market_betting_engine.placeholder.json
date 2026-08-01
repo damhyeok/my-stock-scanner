@@ -1,5 +1,5 @@
 {
-  "config_version": "expert-placeholder-v1",
+  "config_version": "expert-placeholder-v2-trigger-lifecycle",
   "placeholder": true,
   "feature": {
     "short_return_bars": 5,
@@ -31,6 +31,9 @@
     "pullback_vwap_tolerance_ratio": 0.006,
     "minimum_impulse_return_ratio": 0.015,
     "minimum_reward_risk_ratio": 1.5,
-    "maximum_risk_fraction": 0.03
+    "maximum_risk_fraction": 0.03,
+    "invalidation_confirm_bars": 2,
+    "reaction_window_bars": 5,
+    "minimum_follow_through_ratio": 0.003
   }
 }

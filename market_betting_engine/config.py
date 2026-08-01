@@ -67,6 +67,9 @@ def load_analysis_config(path: str | Path) -> AnalysisConfig:
         or setup.pullback_structure_bars < 2
         or setup.minimum_reward_risk_ratio <= 0
         or not 0 < setup.maximum_risk_fraction < 1
+        or setup.invalidation_confirm_bars < 1
+        or setup.reaction_window_bars < 1
+        or setup.minimum_follow_through_ratio < 0
     ):
         raise ValueError("entry setup configuration is invalid")
     return AnalysisConfig(version, placeholder, feature, signals, universe, setup)

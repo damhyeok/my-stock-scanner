@@ -194,16 +194,24 @@ class DashboardViewTests(unittest.TestCase):
 
     def test_view_exposes_structural_stock_setups(self):
         detail = {
-            "run": {"derived_evidence": {"stock_setups": {"005930": {
-                "setup_type": "BREAKOUT", "entry_reference": 100,
-                "invalidation_price": 98,
-            }}}},
+            "run": {"derived_evidence": {
+                "stock_setups": {"005930": {
+                    "setup_type": "BREAKOUT", "entry_reference": 100,
+                    "invalidation_price": 98,
+                }},
+                "stock_lifecycles": {"005930": {
+                    "active": True, "bars_since_trigger": 3,
+                    "reasons": ["TRIGGER_REMAINS_ACTIVE"],
+                }},
+            }},
             "judgments": [],
             "stocks": [{"symbol": "005930"}],
         }
         view = build_run_view(detail)
         self.assertEqual(view["setups"]["005930"]["setup_type"], "BREAKOUT")
         self.assertEqual(view["setups"]["005930"]["invalidation_price"], 98)
+        self.assertTrue(view["lifecycles"]["005930"]["active"])
+        self.assertEqual(view["lifecycles"]["005930"]["bars_since_trigger"], 3)
 
 
 if __name__ == "__main__":

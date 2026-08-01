@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from dataclasses import asdict
@@ -21,14 +22,19 @@ from .orchestrator import (
 from .pipeline import derive_evidence_bundle
 from .features import extract_bar_series
 from .session import KST, SessionContext
-from .setups import EntrySetupAssessment, assess_entry_setup
+from .setups import (
+    EntrySetupAssessment,
+    TriggerLifecycleAssessment,
+    assess_entry_setup,
+    assess_trigger_lifecycle,
+)
 from .states import StockGateSignals
 from .storage import PersistenceReceipt, prune_decision_history, save_decision_cycle
 from .verification_registry import load_verification_registry
 from .universe import AdaptiveUniverseSelection, build_adaptive_universe
 
 
-ENGINE_VERSION = "oracle-runtime-v3-structural-setups"
+ENGINE_VERSION = "oracle-runtime-v4-trigger-lifecycle"
 DEFAULT_CONFIG = Path(__file__).resolve().parents[1] / "config" / "market_betting_engine.placeholder.json"
 DEFAULT_VERIFICATION_REGISTRY = (
     Path(__file__).resolve().parents[1] / "config" / "market_betting_field_verification.json"
@@ -131,6 +137,40 @@ def _previous_states(db_path: str | Path, symbols: Iterable[str]) -> dict[str, S
     return result
 
 
+def _previous_setups(db_path: str | Path, symbols: Iterable[str]) -> dict[str, Mapping]:
+    """Load the most recent persisted structural setup for each requested symbol."""
+
+    wanted = set(symbols)
+    if not wanted:
+        return {}
+    result: dict[str, Mapping] = {}
+    try:
+        with sqlite3.connect(db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT r.derived_evidence_json
+                FROM market_betting_runs r
+                ORDER BY r.evaluated_at_kst DESC
+                """
+            ).fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    for (raw_json,) in rows:
+        try:
+            derived = json.loads(raw_json or "{}")
+        except (TypeError, json.JSONDecodeError):
+            continue
+        setups = derived.get("stock_setups", {}) if isinstance(derived, dict) else {}
+        if not isinstance(setups, dict):
+            continue
+        for symbol, setup in setups.items():
+            if symbol in wanted and symbol not in result and isinstance(setup, dict):
+                result[symbol] = setup
+        if wanted.issubset(result):
+            break
+    return result
+
+
 def _previous_sector_decisions(db_path: str | Path) -> dict[str, str]:
     result: dict[str, str] = {}
     try:
@@ -165,10 +205,11 @@ def _unavailable_market_signals() -> tuple[AxisSignal, ...]:
 def _stock_gate(
     signals: Sequence[AxisSignal],
     setup: EntrySetupAssessment,
+    lifecycle: TriggerLifecycleAssessment,
 ) -> StockGateSignals:
     available = [signal for signal in signals if signal.status != AxisStatus.UNAVAILABLE]
-    setup_ready = setup.state_hint in {StockState.SETUP, StockState.TRIGGERED}
-    trigger_confirmed = (
+    setup_ready = lifecycle.active or setup.state_hint in {StockState.SETUP, StockState.TRIGGERED}
+    trigger_confirmed = lifecycle.active or (
         setup.state_hint == StockState.TRIGGERED
         and bool(available)
         and all(signal.status == AxisStatus.PASS for signal in available)
@@ -178,9 +219,13 @@ def _stock_gate(
         sector_permits_entry=True,
         setup_ready=setup_ready,
         trigger_confirmed=trigger_confirmed,
-        structural_invalidation_price_defined=setup.invalidation_price is not None,
-        extended_risk_reward=setup.state_hint == StockState.EXTENDED,
-        data_evaluable=setup.evaluable and bool(available) and not any(
+        structural_invalidation_price_defined=(
+            lifecycle.invalidation_price is not None or setup.invalidation_price is not None
+        ),
+        extended_risk_reward=not lifecycle.active and setup.state_hint == StockState.EXTENDED,
+        reaction_failed=lifecycle.reaction_failed,
+        thesis_invalidated=lifecycle.thesis_invalidated,
+        data_evaluable=(setup.evaluable or lifecycle.active) and bool(available) and not any(
             signal.status == AxisStatus.UNAVAILABLE for signal in signals
         ),
     )
@@ -283,6 +328,7 @@ def run_market_betting_analysis(
     sector_inputs = []
     stock_inputs = []
     stock_setups = {}
+    stock_lifecycles = {}
     if bundle is not None:
         turnover = {
             str(row["ticker"]).zfill(6): float(row.get("trading_value") or 0)
@@ -308,18 +354,24 @@ def run_market_betting_analysis(
                 )
             )
         previous = _previous_states(db_path, bundle.stocks)
+        previous_setups = _previous_setups(db_path, bundle.stocks)
         symbol_to_sector = {
             symbol: sector for sector, sector_symbols in members.items() for symbol in sector_symbols
         }
         for symbol, evidence in bundle.stocks.items():
             bars = extract_bar_series(observations, f"stock.{symbol}")
             setup = assess_entry_setup(bars, evidence.features, config.setup)
+            previous_state = previous.get(symbol, StockState.WATCH)
+            lifecycle = assess_trigger_lifecycle(
+                bars, previous_state, previous_setups.get(symbol), config.setup
+            )
             stock_setups[symbol] = setup
+            stock_lifecycles[symbol] = lifecycle
             stock_inputs.append(
                 StockDecisionInput(
                     symbol=symbol,
-                    previous_state=previous.get(symbol, StockState.WATCH),
-                    signals=_stock_gate(evidence.signals, setup),
+                    previous_state=previous_state,
+                    signals=_stock_gate(evidence.signals, setup, lifecycle),
                     sector_name=symbol_to_sector.get(symbol, "기타"),
                 )
             )
@@ -343,6 +395,9 @@ def run_market_betting_analysis(
         "tracked_universe_is_complete_market_breadth": False,
         "adaptive_universe": asdict(selection),
         "stock_setups": {symbol: asdict(setup) for symbol, setup in stock_setups.items()},
+        "stock_lifecycles": {
+            symbol: asdict(lifecycle) for symbol, lifecycle in stock_lifecycles.items()
+        },
         "verification_registry_version": verification_registry.registry_version,
         "probe_statuses": [
             {

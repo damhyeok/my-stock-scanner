@@ -55,6 +55,7 @@ def build_run_view(detail: Mapping[str, Any]) -> dict[str, Any]:
     run = detail.get("run", {})
     derived = run.get("derived_evidence") if isinstance(run, Mapping) else {}
     setups = derived.get("stock_setups", {}) if isinstance(derived, Mapping) else {}
+    lifecycles = derived.get("stock_lifecycles", {}) if isinstance(derived, Mapping) else {}
     return {
         "run": run,
         "market": market,
@@ -62,6 +63,7 @@ def build_run_view(detail: Mapping[str, Any]) -> dict[str, Any]:
         "sectors": sectors,
         "stocks": list(detail.get("stocks", [])),
         "setups": setups if isinstance(setups, Mapping) else {},
+        "lifecycles": lifecycles if isinstance(lifecycles, Mapping) else {},
     }
 
 
@@ -180,6 +182,7 @@ def render_market_betting_tab(st, *, db_path: str, selected_date: str, db_source
             rows = []
             for item in view["stocks"]:
                 setup = view["setups"].get(item["symbol"], {})
+                lifecycle = view["lifecycles"].get(item["symbol"], {})
                 rows.append(
                     {
                         "종목코드": item["symbol"],
@@ -190,6 +193,8 @@ def render_market_betting_tab(st, *, db_path: str, selected_date: str, db_source
                         "무효화 가격": setup.get("invalidation_price"),
                         "목표 참고가": setup.get("reward_reference"),
                         "손익비": setup.get("reward_risk_ratio"),
+                        "트리거 추적": ", ".join(lifecycle.get("reasons", [])),
+                        "트리거 후 분봉": lifecycle.get("bars_since_trigger", 0),
                         "전환 사유": item["reason_code"],
                     }
                 )

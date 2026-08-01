@@ -4,7 +4,11 @@ from datetime import datetime, timedelta
 from market_betting_engine.contracts import StockState
 from market_betting_engine.features import NormalizedBar, derive_bar_features
 from market_betting_engine.session import KST
-from market_betting_engine.setups import EntrySetupType, assess_entry_setup
+from market_betting_engine.setups import (
+    EntrySetupType,
+    assess_entry_setup,
+    assess_trigger_lifecycle,
+)
 
 
 START = datetime(2026, 8, 3, 9, 0, tzinfo=KST)
@@ -85,6 +89,66 @@ class StructuralSetupTests(unittest.TestCase):
         self.assertFalse(result.evaluable)
         self.assertIsNone(result.invalidation_price)
         self.assertEqual(result.state_hint, StockState.WATCH)
+
+    def triggered_setup(self):
+        result = self.assess(breakout_bars(100.2))
+        return {
+            "entry_reference": result.entry_reference,
+            "invalidation_price": result.invalidation_price,
+            "structure_as_of": result.structure_as_of,
+        }
+
+    def post_trigger_bar(self, minute, close, high=None):
+        return NormalizedBar(
+            START + timedelta(minutes=minute),
+            close,
+            high if high is not None else close + 0.1,
+            close - 0.1,
+            close,
+            100,
+        )
+
+    def test_one_close_below_invalidation_does_not_kill_trigger(self):
+        setup = self.triggered_setup()
+        result = assess_trigger_lifecycle(
+            (self.post_trigger_bar(21, 99.6),), StockState.TRIGGERED, setup
+        )
+        self.assertTrue(result.active)
+        self.assertFalse(result.thesis_invalidated)
+
+    def test_consecutive_closes_below_invalidation_confirm_invalidation(self):
+        setup = self.triggered_setup()
+        result = assess_trigger_lifecycle(
+            (
+                self.post_trigger_bar(21, 99.6),
+                self.post_trigger_bar(22, 99.5),
+            ),
+            StockState.TRIGGERED,
+            setup,
+        )
+        self.assertTrue(result.thesis_invalidated)
+        self.assertIn("MULTI_BAR_STRUCTURAL_INVALIDATION_CONFIRMED", result.reasons)
+
+    def test_no_follow_through_after_window_marks_reaction_failed(self):
+        setup = self.triggered_setup()
+        bars = tuple(
+            self.post_trigger_bar(minute, 100.1, high=100.3)
+            for minute in range(21, 26)
+        )
+        result = assess_trigger_lifecycle(bars, StockState.TRIGGERED, setup)
+        self.assertTrue(result.reaction_failed)
+        self.assertFalse(result.thesis_invalidated)
+
+    def test_sufficient_follow_through_keeps_trigger_active(self):
+        setup = self.triggered_setup()
+        bars = tuple(
+            self.post_trigger_bar(minute, 100.3, high=100.8 if minute == 23 else 100.4)
+            for minute in range(21, 26)
+        )
+        result = assess_trigger_lifecycle(bars, StockState.TRIGGERED, setup)
+        self.assertTrue(result.active)
+        self.assertFalse(result.reaction_failed)
+        self.assertFalse(result.thesis_invalidated)
 
 
 if __name__ == "__main__":

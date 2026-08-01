@@ -13,6 +13,10 @@ Updated: 2026-08-01 KST
   - `EXTENDED`: stop distance is too wide or structural reward/risk is below the configured minimum.
   - insufficient bars never manufacture an invalidation price.
 - The existing Streamlit tab displays the structural values beside each stock state.
+- Persisted trigger lifecycle: the next run reloads the prior entry, invalidation price, and trigger timestamp.
+- A structural break requires consecutive closes below the invalidation price; one noisy bar does not invalidate the thesis.
+- A trigger becomes `FAILED` only after the configured reaction window has elapsed without minimum follow-through and price has returned to/below entry.
+- The Streamlit stock table displays lifecycle reason and bars elapsed after the trigger.
 
 ## Guardrails
 
@@ -25,5 +29,4 @@ Updated: 2026-08-01 KST
 ## Remaining
 
 - Use live verified fields before actionable states are allowed.
-- Add multi-bar failed-breakout/pullback invalidation monitoring after a trigger.
 - Add position-specific thesis input for `HOLD_EXISTING`.

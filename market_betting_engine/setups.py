@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Sequence
+from datetime import datetime
+from typing import Any, Mapping, Sequence
 
 from .features import BarFeatureSnapshot, NormalizedBar
 from .contracts import StockState
@@ -27,6 +28,9 @@ class EntrySetupConfig:
     minimum_impulse_return_ratio: float = 0.015
     minimum_reward_risk_ratio: float = 1.5
     maximum_risk_fraction: float = 0.03
+    invalidation_confirm_bars: int = 2
+    reaction_window_bars: int = 5
+    minimum_follow_through_ratio: float = 0.003
     placeholder: bool = True
 
 
@@ -42,8 +46,22 @@ class EntrySetupAssessment:
     reward_per_share: float | None = None
     reward_risk_ratio: float | None = None
     reference_level: float | None = None
+    structure_as_of: str | None = None
     reasons: tuple[str, ...] = ()
     placeholder: bool = True
+
+
+@dataclass(frozen=True)
+class TriggerLifecycleAssessment:
+    active: bool
+    entry_reference: float | None = None
+    invalidation_price: float | None = None
+    thesis_invalidated: bool = False
+    reaction_failed: bool = False
+    bars_since_trigger: int = 0
+    latest_close: float | None = None
+    maximum_follow_through_ratio: float | None = None
+    reasons: tuple[str, ...] = ()
 
 
 def _empty(reason: str, placeholder: bool) -> EntrySetupAssessment:
@@ -64,6 +82,7 @@ def _finalize(
     invalidation: float,
     target: float,
     reference: float,
+    structure_as_of: datetime,
     reasons: tuple[str, ...],
     config: EntrySetupConfig,
 ) -> EntrySetupAssessment:
@@ -96,6 +115,7 @@ def _finalize(
         reward_per_share=max(0.0, reward),
         reward_risk_ratio=ratio,
         reference_level=reference,
+        structure_as_of=structure_as_of.isoformat(),
         reasons=reasons,
         placeholder=config.placeholder,
     )
@@ -135,6 +155,7 @@ def assess_entry_setup(
             invalidation=invalidation,
             target=target,
             reference=resistance,
+            structure_as_of=current.timestamp,
             reasons=(
                 f"RESISTANCE={resistance:.4f}",
                 f"DISTANCE_TO_RESISTANCE={distance_to_resistance:.6f}",
@@ -177,6 +198,7 @@ def assess_entry_setup(
         invalidation=invalidation,
         target=resistance,
         reference=vwap,
+        structure_as_of=current.timestamp,
         reasons=(
             f"SESSION_VWAP={vwap:.4f}",
             f"PULLBACK_LOW={pullback_low:.4f}",
@@ -184,4 +206,67 @@ def assess_entry_setup(
             "INVALIDATION_IS_PULLBACK_STRUCTURE_LOW",
         ),
         config=config,
+    )
+
+
+def assess_trigger_lifecycle(
+    bars: Sequence[NormalizedBar],
+    previous_state: StockState,
+    previous_setup: Mapping[str, Any] | None,
+    config: EntrySetupConfig = EntrySetupConfig(),
+) -> TriggerLifecycleAssessment:
+    """Confirm failure/invalidation over multiple bars after a real trigger."""
+
+    if previous_state != StockState.TRIGGERED or not previous_setup:
+        return TriggerLifecycleAssessment(False, reasons=("NO_ACTIVE_TRIGGER",))
+    try:
+        entry = float(previous_setup.get("entry_reference"))
+        invalidation = float(previous_setup.get("invalidation_price"))
+        triggered_at = datetime.fromisoformat(str(previous_setup.get("structure_as_of")))
+    except (TypeError, ValueError):
+        return TriggerLifecycleAssessment(False, reasons=("PREVIOUS_TRIGGER_STRUCTURE_MISSING",))
+    if triggered_at.tzinfo is None and bars:
+        triggered_at = triggered_at.replace(tzinfo=bars[-1].timestamp.tzinfo)
+    since = tuple(sorted((bar for bar in bars if bar.timestamp > triggered_at), key=lambda bar: bar.timestamp))
+    if not since:
+        return TriggerLifecycleAssessment(
+            True,
+            entry_reference=entry,
+            invalidation_price=invalidation,
+            bars_since_trigger=0,
+            reasons=("WAITING_FOR_POST_TRIGGER_BARS",),
+        )
+
+    confirm_count = max(1, config.invalidation_confirm_bars)
+    invalidated = (
+        len(since) >= confirm_count
+        and all(bar.close < invalidation for bar in since[-confirm_count:])
+    )
+    maximum_high = max(bar.high for bar in since)
+    follow_through = maximum_high / entry - 1 if entry > 0 else None
+    reaction_count = max(1, config.reaction_window_bars)
+    reaction_failed = (
+        not invalidated
+        and len(since) >= reaction_count
+        and follow_through is not None
+        and follow_through < config.minimum_follow_through_ratio
+        and since[-1].close <= entry
+    )
+    reasons = []
+    if invalidated:
+        reasons.append("MULTI_BAR_STRUCTURAL_INVALIDATION_CONFIRMED")
+    elif reaction_failed:
+        reasons.append("POST_TRIGGER_FOLLOW_THROUGH_FAILED")
+    else:
+        reasons.append("TRIGGER_REMAINS_ACTIVE")
+    return TriggerLifecycleAssessment(
+        active=True,
+        entry_reference=entry,
+        invalidation_price=invalidation,
+        thesis_invalidated=invalidated,
+        reaction_failed=reaction_failed,
+        bars_since_trigger=len(since),
+        latest_close=since[-1].close,
+        maximum_follow_through_ratio=follow_through,
+        reasons=tuple(reasons),
     )
