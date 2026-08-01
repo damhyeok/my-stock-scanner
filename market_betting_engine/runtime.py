@@ -23,9 +23,10 @@ from .session import KST, SessionContext
 from .states import StockGateSignals
 from .storage import PersistenceReceipt, prune_decision_history, save_decision_cycle
 from .verification_registry import load_verification_registry
+from .universe import AdaptiveUniverseSelection, build_adaptive_universe
 
 
-ENGINE_VERSION = "oracle-runtime-v1"
+ENGINE_VERSION = "oracle-runtime-v2-adaptive-universe"
 DEFAULT_CONFIG = Path(__file__).resolve().parents[1] / "config" / "market_betting_engine.placeholder.json"
 DEFAULT_VERIFICATION_REGISTRY = (
     Path(__file__).resolve().parents[1] / "config" / "market_betting_field_verification.json"
@@ -52,7 +53,11 @@ def _latest_trade_date(db_path: str | Path, as_of: date) -> date:
     return max(candidates, default=as_of)
 
 
-def _latest_universe(db_path: str | Path, trade_date: date, limit: int) -> list[dict]:
+def _adaptive_universe(
+    db_path: str | Path,
+    trade_date: date,
+    config,
+) -> AdaptiveUniverseSelection:
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         session = conn.execute(
@@ -67,20 +72,35 @@ def _latest_universe(db_path: str | Path, trade_date: date, limit: int) -> list[
             (trade_date.strftime("%Y%m%d"),),
         ).fetchone()
         if session is None:
-            return []
-        rows = conn.execute(
+            return AdaptiveUniverseSelection((), (), 0)
+        seed_rows = conn.execute(
             """
             SELECT ticker, MAX(name) AS name, MAX(sector) AS sector,
-                   MAX(trading_value) AS trading_value
+                   MAX(trading_value) AS trading_value,
+                   MAX(fluctuation_rate) AS fluctuation_rate
             FROM daily_stocks
             WHERE date=? AND session=? AND category='VOLUME_TOP_60'
             GROUP BY ticker
             ORDER BY trading_value DESC
-            LIMIT ?
             """,
-            (trade_date.strftime("%Y%m%d"), session["session"], limit),
+            (trade_date.strftime("%Y%m%d"), session["session"]),
         ).fetchall()
-    return [dict(row) for row in rows]
+        discovery_rows = conn.execute(
+            """
+            SELECT ticker, MAX(name) AS name, MAX(sector) AS sector,
+                   MAX(trading_value) AS trading_value,
+                   MAX(fluctuation_rate) AS fluctuation_rate
+            FROM daily_stocks
+            WHERE date=? AND category IN ('VOLUME_TOP_60','FOREIGN_TOP_30','INST_TOP_30')
+            GROUP BY ticker
+            """,
+            (trade_date.strftime("%Y%m%d"),),
+        ).fetchall()
+    return build_adaptive_universe(
+        [dict(row) for row in seed_rows],
+        [dict(row) for row in discovery_rows],
+        config,
+    )
 
 
 def _previous_states(db_path: str | Path, symbols: Iterable[str]) -> dict[str, StockState]:
@@ -195,8 +215,16 @@ def run_market_betting_analysis(
         now.date() == target,
         "KIS_RESPONSE_CONFIRMATION_PENDING",
     )
-    maximum = max(1, min(60, int(os.environ.get("MARKET_BETTING_MAX_STOCKS", "60"))))
-    universe = _latest_universe(db_path, target, maximum)
+    config = load_analysis_config(config_path)
+    maximum = max(1, min(60, int(os.environ.get("MARKET_BETTING_MAX_STOCKS", str(config.universe.total_stock_limit)))))
+    runtime_universe_config = type(config.universe)(
+        candidate_sector_limit=config.universe.candidate_sector_limit,
+        stocks_per_sector=config.universe.stocks_per_sector,
+        total_stock_limit=maximum,
+        placeholder=config.universe.placeholder,
+    )
+    selection = _adaptive_universe(db_path, target, runtime_universe_config)
+    universe = list(selection.stocks)
     symbols = [str(row["ticker"]).zfill(6) for row in universe]
     verification_registry = load_verification_registry(verification_registry_path)
 
@@ -234,7 +262,6 @@ def run_market_betting_analysis(
     observations = tuple(
         observation for result in adapter_results for observation in result.observations
     )
-    config = load_analysis_config(config_path)
     members = _sector_members(universe)
     bundle = None
     try:
@@ -306,6 +333,7 @@ def run_market_betting_analysis(
         "bundle": asdict(bundle) if bundle is not None else None,
         "tracked_universe_count": len(universe),
         "tracked_universe_is_complete_market_breadth": False,
+        "adaptive_universe": asdict(selection),
         "verification_registry_version": verification_registry.registry_version,
         "probe_statuses": [
             {

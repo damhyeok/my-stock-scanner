@@ -57,13 +57,14 @@ class OracleRuntimeTests(unittest.TestCase):
                 """
                 CREATE TABLE daily_stocks (
                     date TEXT, session TEXT, ticker TEXT, name TEXT, sector TEXT,
-                    trading_value REAL, collected_at_kst TEXT, category TEXT
+                    trading_value REAL, fluctuation_rate REAL,
+                    collected_at_kst TEXT, category TEXT
                 )
                 """
             )
             conn.execute(
-                "INSERT INTO daily_stocks VALUES (?,?,?,?,?,?,?,?)",
-                ("20260731", "정규장 (15:20)", "005930", "삼성전자", "반도체", 1000, "2026-07-31 15:20:00", "VOLUME_TOP_60"),
+                "INSERT INTO daily_stocks VALUES (?,?,?,?,?,?,?,?,?)",
+                ("20260731", "정규장 (15:20)", "005930", "삼성전자", "반도체", 1000, 3.0, "2026-07-31 15:20:00", "VOLUME_TOP_60"),
             )
 
     def tearDown(self):

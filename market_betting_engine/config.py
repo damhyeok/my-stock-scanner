@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 from .features import FeatureConfig
 from .signals import SignalThresholds
+from .universe import AdaptiveUniverseConfig
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,7 @@ class AnalysisConfig:
     placeholder: bool
     feature: FeatureConfig
     signals: SignalThresholds
+    universe: AdaptiveUniverseConfig
 
 
 def _object(value: Any, name: str) -> Mapping[str, Any]:
@@ -35,15 +37,24 @@ def load_analysis_config(path: str | Path) -> AnalysisConfig:
         raise ValueError("placeholder must be boolean")
     feature_values = dict(_object(payload.get("feature", {}), "feature"))
     signal_values = dict(_object(payload.get("signals", {}), "signals"))
+    universe_values = dict(_object(payload.get("universe", {}), "universe"))
     feature_values["placeholder"] = placeholder
     signal_values["placeholder"] = placeholder
+    universe_values["placeholder"] = placeholder
     try:
         feature = FeatureConfig(**feature_values)
         signals = SignalThresholds(**signal_values)
+        universe = AdaptiveUniverseConfig(**universe_values)
     except TypeError as error:
         raise ValueError(f"unknown or invalid configuration field: {error}") from error
     if feature.short_return_bars < 1 or feature.activity_window_bars < 1:
         raise ValueError("feature bar windows must be positive")
     if signals.sector_participation_fail > signals.sector_participation_pass:
         raise ValueError("sector participation fail threshold cannot exceed pass threshold")
-    return AnalysisConfig(version, placeholder, feature, signals)
+    if (
+        universe.candidate_sector_limit < 1
+        or universe.stocks_per_sector < 1
+        or universe.total_stock_limit < 1
+    ):
+        raise ValueError("adaptive universe limits must be positive")
+    return AnalysisConfig(version, placeholder, feature, signals, universe)
