@@ -93,6 +93,32 @@ _REASON_KO = {
     "STRUCTURAL_THESIS_INVALIDATED": "사전에 정한 가격 구조가 무너져 상승 논리가 무효화됐습니다.",
     "POST_TRIGGER_REACTION_FAILED": "진입 신호 이후 기대한 가격 반응이 나오지 않았습니다.",
     "ILLEGAL_TRANSITION_REJECTED": "허용되지 않은 상태 변경을 안전하게 거부했습니다.",
+    "NO_ACTIVE_TRIGGER": "아직 실제 진입 신호가 발생하지 않았습니다.",
+    "PREVIOUS_TRIGGER_STRUCTURE_MISSING": "이전 진입 신호의 기준 가격 정보가 없습니다.",
+    "WAITING_FOR_POST_TRIGGER_BARS": "진입 신호 이후 가격 반응을 더 지켜보는 중입니다.",
+    "MULTI_BAR_STRUCTURAL_INVALIDATION_CONFIRMED": "여러 분봉에서 구조적 지지선 이탈이 확인됐습니다.",
+    "POST_TRIGGER_FOLLOW_THROUGH_FAILED": "진입 신호 뒤 추가 상승이 이어지지 않았습니다.",
+    "TRIGGER_REMAINS_ACTIVE": "진입 신호와 가격 구조가 아직 유효합니다.",
+}
+
+_QUALITY_CODE_KO = {
+    "OUT_OF_SESSION_ROW_EXCLUDED": "정규장 밖 시간의 데이터 제외",
+    "SPECIAL_INDEX_TIME_ROW_EXCLUDED": "지수 응답의 특수 시간 행 제외",
+    "NON_TARGET_ROWS_EXCLUDED": "선택 날짜·정규장 범위 밖 데이터 제외",
+    "FIELD_SEMANTICS_PARTIAL": "필드 의미·단위 검증 미완료",
+    "FIELD_SEMANTICS_UNVERIFIED": "필드 의미 미검증",
+    "SOURCE_TRADE_DATE_MISSING": "원본 거래일 없음",
+    "SOURCE_TRADE_DATE_MISMATCH": "원본 거래일 불일치",
+    "OBSERVATION_STALE": "관측 데이터가 너무 오래됨",
+    "ADAPTER_OUTPUT_EMPTY": "API 응답 데이터 없음",
+    "COLLECTION_PAYLOAD_UNAVAILABLE": "API 원본 응답 수집 실패",
+}
+
+_SEVERITY_KO = {
+    "INFO": "참고",
+    "WARNING": "경고",
+    "BLOCKING": "판단 차단",
+    "ERROR": "오류",
 }
 
 
@@ -345,7 +371,9 @@ def render_market_betting_tab(
                         "무효화 가격": setup.get("invalidation_price"),
                         "목표 참고가": setup.get("reward_reference"),
                         "손익비": setup.get("reward_risk_ratio"),
-                        "트리거 추적": ", ".join(lifecycle.get("reasons", [])),
+                        "트리거 추적": " / ".join(
+                            reason_label(reason) for reason in lifecycle.get("reasons", [])
+                        ),
                         "트리거 후 분봉": lifecycle.get("bars_since_trigger", 0),
                         "전환 사유": reason_label(item["reason_code"]),
                     }
@@ -511,8 +539,13 @@ def render_market_betting_tab(
             st.dataframe(
                 [
                     {
-                        "심각도": item.get("severity", "-"),
-                        "코드": item.get("code", "-"),
+                        "심각도": _SEVERITY_KO.get(
+                            str(item.get("severity", "-")), str(item.get("severity", "-"))
+                        ),
+                        "문제 유형": _QUALITY_CODE_KO.get(
+                            str(item.get("code", "-")),
+                            str(item.get("code", "-")).replace("_", " "),
+                        ),
                         "설명": item.get("message", "-"),
                         "원천": ", ".join(item.get("sources", [])),
                     }
