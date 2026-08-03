@@ -121,7 +121,17 @@ _ALLOWED_TRANSITIONS: Dict[StockState, Set[StockState]] = {
     },
     StockState.FAILED: {StockState.FAILED, StockState.WATCH, StockState.INVALIDATED, StockState.NOT_EVALUABLE},
     StockState.INVALIDATED: {StockState.INVALIDATED},
-    StockState.NOT_EVALUABLE: {StockState.NOT_EVALUABLE, StockState.WATCH, StockState.SETUP},
+    # Once missing data recovers, a name may already be too extended to enter
+    # or its thesis may already be invalid.  Both are conservative/no-entry
+    # destinations and must be reachable without forcing an artificial WATCH
+    # cycle first.
+    StockState.NOT_EVALUABLE: {
+        StockState.NOT_EVALUABLE,
+        StockState.WATCH,
+        StockState.SETUP,
+        StockState.EXTENDED,
+        StockState.INVALIDATED,
+    },
 }
 
 

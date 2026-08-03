@@ -239,6 +239,14 @@ class MarketGateTests(unittest.TestCase):
 
 
 class StockStateTests(unittest.TestCase):
+    def test_recovered_data_can_move_not_evaluable_to_extended(self):
+        result = resolve_stock_state(
+            StockState.NOT_EVALUABLE,
+            StockGateSignals(True, True, extended_risk_reward=True),
+        )
+        self.assertTrue(result.allowed)
+        self.assertEqual(result.current, StockState.EXTENDED)
+
     def test_setup_does_not_trigger_without_structural_invalidation(self):
         result = resolve_stock_state(
             StockState.SETUP,
