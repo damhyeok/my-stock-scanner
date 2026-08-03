@@ -100,7 +100,7 @@ class OracleRuntimeTests(unittest.TestCase):
         )
         return ProbeCollectionResult(probe, adapted)
 
-    def test_oracle_runtime_saves_cycle_and_blocks_incomplete_sector_universe(self):
+    def test_oracle_runtime_saves_cycle_and_completes_tracked_sector_sample(self):
         with patch(
             "market_betting_engine.runtime.collect_probe_observations",
             side_effect=self.fake_collect,
@@ -113,8 +113,8 @@ class OracleRuntimeTests(unittest.TestCase):
         }
         self.assertEqual(judgments[("MARKET", "KOSPI")]["decision"], "ALLOW")
         sector = judgments[("SECTOR", "반도체")]
-        self.assertEqual(sector["decision"], "NOT_EVALUABLE")
-        self.assertTrue(
+        self.assertEqual(sector["decision"], "NEUTRAL")
+        self.assertFalse(
             any(item["code"] == "SECTOR_UNIVERSE_INCOMPLETE" for item in sector["blockers"])
         )
         self.assertEqual(

@@ -59,7 +59,7 @@ class AdapterTests(unittest.TestCase):
         result = adapt_probe_payload("kis_stock_minute", payload, context=CONTEXT, instrument="005930")
         self.assertEqual(result.included_rows, 1)
         self.assertEqual(result.excluded_rows, 1)
-        self.assertEqual(len(result.observations), 6)
+        self.assertEqual(len(result.observations), 5)
         self.assertTrue(all(item.meta.source_trade_date == TARGET for item in result.observations))
 
     def test_index_special_time_rows_are_excluded(self):
@@ -123,7 +123,7 @@ class AdapterTests(unittest.TestCase):
             require_verified_semantics=True,
         )
         partial = [issue for issue in report.issues if issue.code == "FIELD_SEMANTICS_PARTIAL"]
-        self.assertEqual(len(partial), 6)
+        self.assertEqual(len(partial), 5)
 
     def test_stale_after_is_enforced_by_common_quality_gate(self):
         payload = {"output": {"stck_prpr": "100", "stck_oprc": "90", "stck_hgpr": "110", "stck_lwpr": "80", "acml_vol": "10", "acml_tr_pbmn": "1000"}}
@@ -155,7 +155,7 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(result.probe.execution_status, "SUCCESS")
         self.assertEqual(result.probe.verification_status, "PARTIAL")
         self.assertEqual(result.adapted.included_rows, 1)
-        self.assertEqual(len(result.adapted.observations), 6)
+        self.assertEqual(len(result.adapted.observations), 5)
 
 
 class OrchestratorTests(unittest.TestCase):

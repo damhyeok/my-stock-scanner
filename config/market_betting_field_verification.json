@@ -1,38 +1,80 @@
 {
-  "registry_version": "live-field-verification-v1",
+  "registry_version": "live-field-verification-v2-20260803",
   "default_status": "PARTIAL",
   "probes": {
     "kis_stock_minute": {
-      "contract_status": "PARTIAL",
+      "contract_status": "VERIFIED",
       "trade_date_field": "stck_bsop_date",
       "time_field": "stck_cntg_hour",
-      "reviewed_at_kst": null,
-      "evidence_refs": [],
-      "fields": {}
+      "reviewed_at_kst": "2026-08-03T23:22:12+09:00",
+      "evidence_refs": [
+        "oracle:reports/api_probes/probe_report_20260803_094507.json",
+        "oracle:reports/api_probes/probe_report_20260803_120007.json",
+        "oracle:reports/api_probes/probe_report_20260803_152507.json",
+        "https://github.com/koreainvestment/open-trading-api/tree/main/examples_llm/domestic_stock/inquire_time_itemchartprice"
+      ],
+      "fields": {
+        "stck_oprc": {"status": "VERIFIED", "unit": "KRW", "meaning": "one-minute opening price", "reviewed_at_kst": "2026-08-03T23:22:12+09:00", "evidence_refs": ["oracle:probe-stock-minute-open-mid-close"]},
+        "stck_hgpr": {"status": "VERIFIED", "unit": "KRW", "meaning": "one-minute high price", "reviewed_at_kst": "2026-08-03T23:22:12+09:00", "evidence_refs": ["oracle:probe-stock-minute-open-mid-close"]},
+        "stck_lwpr": {"status": "VERIFIED", "unit": "KRW", "meaning": "one-minute low price", "reviewed_at_kst": "2026-08-03T23:22:12+09:00", "evidence_refs": ["oracle:probe-stock-minute-open-mid-close"]},
+        "stck_prpr": {"status": "VERIFIED", "unit": "KRW", "meaning": "one-minute closing price", "reviewed_at_kst": "2026-08-03T23:22:12+09:00", "evidence_refs": ["oracle:probe-stock-minute-open-mid-close"]},
+        "cntg_vol": {"status": "VERIFIED", "unit": "shares", "meaning": "one-minute trading volume", "reviewed_at_kst": "2026-08-03T23:22:12+09:00", "evidence_refs": ["oracle:probe-stock-minute-open-mid-close"]}
+      }
     },
     "kis_index_minute_kospi": {
-      "contract_status": "PARTIAL",
+      "contract_status": "VERIFIED",
       "trade_date_field": "stck_bsop_date",
       "time_field": "stck_cntg_hour",
-      "reviewed_at_kst": null,
-      "evidence_refs": [],
-      "fields": {}
+      "reviewed_at_kst": "2026-08-03T23:22:12+09:00",
+      "evidence_refs": [
+        "oracle:reports/api_probes/probe_report_20260803_094507.json#target-date-rows",
+        "oracle:reports/api_probes/probe_report_20260803_120007.json",
+        "oracle:reports/api_probes/probe_report_20260803_152507.json",
+        "https://github.com/koreainvestment/open-trading-api/tree/main/examples_llm/domestic_stock/inquire_time_indexchartprice"
+      ],
+      "fields": {
+        "bstp_nmix_oprc": {"status": "VERIFIED", "unit": "index_point", "meaning": "KOSPI one-minute opening index", "reviewed_at_kst": "2026-08-03T23:22:12+09:00", "evidence_refs": ["oracle:probe-index-minute-open-mid-close"]},
+        "bstp_nmix_hgpr": {"status": "VERIFIED", "unit": "index_point", "meaning": "KOSPI one-minute high index", "reviewed_at_kst": "2026-08-03T23:22:12+09:00", "evidence_refs": ["oracle:probe-index-minute-open-mid-close"]},
+        "bstp_nmix_lwpr": {"status": "VERIFIED", "unit": "index_point", "meaning": "KOSPI one-minute low index", "reviewed_at_kst": "2026-08-03T23:22:12+09:00", "evidence_refs": ["oracle:probe-index-minute-open-mid-close"]},
+        "bstp_nmix_prpr": {"status": "VERIFIED", "unit": "index_point", "meaning": "KOSPI one-minute closing index", "reviewed_at_kst": "2026-08-03T23:22:12+09:00", "evidence_refs": ["oracle:probe-index-minute-open-mid-close"]},
+        "cntg_vol": {"status": "VERIFIED", "unit": "provider_market_volume", "meaning": "KOSPI one-minute activity volume reported by KIS", "reviewed_at_kst": "2026-08-03T23:22:12+09:00", "evidence_refs": ["oracle:probe-index-minute-open-mid-close"]}
+      }
     },
     "kis_program_summary_kospi": {
-      "contract_status": "PARTIAL",
+      "contract_status": "VERIFIED",
       "trade_date_field": null,
       "time_field": "bsop_hour",
-      "reviewed_at_kst": null,
-      "evidence_refs": [],
-      "fields": {}
+      "reviewed_at_kst": "2026-08-03T23:22:12+09:00",
+      "evidence_refs": [
+        "oracle:reports/api_probes/probe_report_20260803_094507.json",
+        "oracle:reports/api_probes/probe_report_20260803_120007.json",
+        "oracle:reports/api_probes/probe_report_20260803_152507.json",
+        "https://github.com/koreainvestment/open-trading-api/tree/main/examples_llm/domestic_stock/comp_program_trade_today"
+      ],
+      "fields": {
+        "whol_smtn_ntby_tr_pbmn": {"status": "VERIFIED", "unit": "provider_native_amount", "meaning": "total program-trading net amount at the reported business time; only sign and within-field changes are used", "reviewed_at_kst": "2026-08-03T23:22:12+09:00", "evidence_refs": ["oracle:probe-program-open-mid-close"]},
+        "arbt_smtn_ntby_tr_pbmn": {"status": "VERIFIED", "unit": "provider_native_amount", "meaning": "arbitrage program-trading net amount at the reported business time; only sign and within-field changes are used", "reviewed_at_kst": "2026-08-03T23:22:12+09:00", "evidence_refs": ["oracle:probe-program-open-mid-close"]},
+        "nabt_smtn_ntby_tr_pbmn": {"status": "VERIFIED", "unit": "provider_native_amount", "meaning": "non-arbitrage program-trading net amount at the reported business time; only sign and within-field changes are used", "reviewed_at_kst": "2026-08-03T23:22:12+09:00", "evidence_refs": ["oracle:probe-program-open-mid-close"]}
+      }
     },
     "kis_futures_minute_active": {
-      "contract_status": "PARTIAL",
+      "contract_status": "VERIFIED",
       "trade_date_field": "stck_bsop_date",
       "time_field": "stck_cntg_hour",
-      "reviewed_at_kst": null,
-      "evidence_refs": [],
-      "fields": {}
+      "reviewed_at_kst": "2026-08-03T23:22:12+09:00",
+      "evidence_refs": [
+        "oracle:reports/api_probes/probe_report_20260803_094507.json#target-date-rows",
+        "oracle:reports/api_probes/probe_report_20260803_120007.json",
+        "oracle:reports/api_probes/probe_report_20260803_152507.json",
+        "https://github.com/koreainvestment/open-trading-api/tree/main/examples_llm/domestic_futureoption/inquire_time_fuopchartprice"
+      ],
+      "fields": {
+        "futs_oprc": {"status": "VERIFIED", "unit": "index_point", "meaning": "active KOSPI200 futures one-minute opening price", "reviewed_at_kst": "2026-08-03T23:22:12+09:00", "evidence_refs": ["oracle:probe-futures-minute-open-mid-close"]},
+        "futs_hgpr": {"status": "VERIFIED", "unit": "index_point", "meaning": "active KOSPI200 futures one-minute high price", "reviewed_at_kst": "2026-08-03T23:22:12+09:00", "evidence_refs": ["oracle:probe-futures-minute-open-mid-close"]},
+        "futs_lwpr": {"status": "VERIFIED", "unit": "index_point", "meaning": "active KOSPI200 futures one-minute low price", "reviewed_at_kst": "2026-08-03T23:22:12+09:00", "evidence_refs": ["oracle:probe-futures-minute-open-mid-close"]},
+        "futs_prpr": {"status": "VERIFIED", "unit": "index_point", "meaning": "active KOSPI200 futures one-minute closing price", "reviewed_at_kst": "2026-08-03T23:22:12+09:00", "evidence_refs": ["oracle:probe-futures-minute-open-mid-close"]},
+        "cntg_vol": {"status": "VERIFIED", "unit": "contracts", "meaning": "active KOSPI200 futures one-minute trading volume", "reviewed_at_kst": "2026-08-03T23:22:12+09:00", "evidence_refs": ["oracle:probe-futures-minute-open-mid-close"]}
+      }
     }
   }
 }

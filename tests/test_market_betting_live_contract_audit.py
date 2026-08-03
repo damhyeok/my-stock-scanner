@@ -39,6 +39,28 @@ class LiveContractAuditTests(unittest.TestCase):
         time_check = next(c for c in result.checks if c.code == "NORMAL_MARKET_TIMES")
         self.assertIn("special_rows=1", time_check.message)
 
+    def test_prior_session_rows_are_disclosed_but_do_not_block_target_date(self):
+        rows = [
+            {
+                "stck_bsop_date": "20260731", "stck_cntg_hour": "153000",
+                "bstp_nmix_oprc": "3000", "bstp_nmix_hgpr": "3010",
+                "bstp_nmix_lwpr": "2990", "bstp_nmix_prpr": "3005",
+            },
+            {
+                "stck_bsop_date": "20260803", "stck_cntg_hour": "094500",
+                "bstp_nmix_oprc": "3100", "bstp_nmix_hgpr": "3110",
+                "bstp_nmix_lwpr": "3090", "bstp_nmix_prpr": "3105",
+            },
+        ]
+        result = audit_live_contract(
+            "kis_index_minute_kospi",
+            rows,
+            datetime(2026, 8, 3, 9, 45, tzinfo=KST),
+        )
+        self.assertEqual(result.status, "REVIEW_READY")
+        time_check = next(c for c in result.checks if c.code == "NORMAL_MARKET_TIMES")
+        self.assertIn("prior_date_rows=1", time_check.message)
+
     def test_bad_ohlc_blocks_contract_review(self):
         rows = [{
             "stck_bsop_date": "20260731", "stck_cntg_hour": "120000",

@@ -19,11 +19,18 @@ class VerificationRegistryTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         return path
 
-    def test_repository_registry_defaults_to_partial_without_approvals(self):
+    def test_repository_registry_exposes_manually_approved_live_contracts(self):
         path = Path(__file__).resolve().parents[1] / "config" / "market_betting_field_verification.json"
         registry = load_verification_registry(path)
         self.assertEqual(registry.default_status, VerificationStatus.PARTIAL)
-        self.assertEqual(registry.statuses_for_probe("kis_stock_minute"), {})
+        self.assertEqual(
+            registry.statuses_for_probe("kis_stock_minute")["stck_oprc"],
+            VerificationStatus.VERIFIED,
+        )
+        self.assertEqual(
+            registry.statuses_for_probe("kis_program_summary_kospi")["nabt_smtn_ntby_tr_pbmn"],
+            VerificationStatus.VERIFIED,
+        )
 
     def test_verified_contract_requires_review_time_and_evidence(self):
         path = self.write_registry({

@@ -87,7 +87,23 @@ def audit_live_contract(
     checks.append(ContractCheck("NON_EMPTY_OUTPUT", bool(rows), f"rows={len(rows)}"))
 
     time_field = "bsop_hour" if probe_id == "kis_program_summary_kospi" else "stck_cntg_hour"
-    normal_rows = [row for row in rows if str(row.get(time_field, "")).zfill(6) not in SPECIAL_TIMES]
+    non_special_rows = [
+        row for row in rows
+        if str(row.get(time_field, "")).zfill(6) not in SPECIAL_TIMES
+    ]
+    expected_date = started_at_kst.strftime("%Y%m%d")
+    if probe_id == "kis_program_summary_kospi":
+        normal_rows = non_special_rows
+        prior_date_rows = 0
+    else:
+        # KIS can append prior-session rows even when the requested current-day
+        # window is present. The runtime excludes them, so contract review must
+        # validate the same target-date subset instead of rejecting the payload.
+        normal_rows = [
+            row for row in non_special_rows
+            if str(row.get("stck_bsop_date", "")) == expected_date
+        ]
+        prior_date_rows = len(non_special_rows) - len(normal_rows)
     upper = "154500" if probe_id == "kis_futures_minute_active" else "153000"
     invalid_times = [
         str(row.get(time_field, ""))
@@ -98,12 +114,12 @@ def audit_live_contract(
         ContractCheck(
             "NORMAL_MARKET_TIMES",
             bool(normal_rows) and not invalid_times,
-            f"normal_rows={len(normal_rows)}, invalid_times={len(invalid_times)}, special_rows={len(rows) - len(normal_rows)}",
+            f"normal_rows={len(normal_rows)}, invalid_times={len(invalid_times)}, "
+            f"special_rows={len(rows) - len(non_special_rows)}, prior_date_rows={prior_date_rows}",
         )
     )
 
     if probe_id != "kis_program_summary_kospi":
-        expected_date = started_at_kst.strftime("%Y%m%d")
         dates = {str(row.get("stck_bsop_date", "")) for row in normal_rows}
         checks.append(
             ContractCheck(

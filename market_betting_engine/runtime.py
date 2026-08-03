@@ -351,7 +351,10 @@ def run_market_betting_analysis(
                         total_universe_turnover=requested_turnover,
                         observed_turnover=sum(observed_values),
                         leader_turnover=max(observed_values, default=0),
-                        universe_complete=False,
+                        # Complete means every member of the explicitly tracked
+                        # adaptive sample was observed. It is not market breadth;
+                        # that limitation remains disclosed in derived metadata.
+                        universe_complete=not evidence.missing_members,
                     ),
                     persistence_confirmed=previous_sectors.get(name) in {"LEADING", "EMERGING"},
                 )

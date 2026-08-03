@@ -131,10 +131,18 @@ def render_market_betting_tab(
         )
         for row in runs
     }
+    default_run_index = next(
+        (
+            index for index, row in enumerate(runs)
+            if row.get("market_decision") != "NOT_EVALUABLE"
+        ),
+        0,
+    )
     selected_run_id = st.selectbox(
         "분석 실행 시각",
         options=[row["run_id"] for row in runs],
         format_func=lambda run_id: labels[run_id],
+        index=default_run_index,
         key=f"market_betting_run_{selected_date}",
     )
     detail = load_decision_run(db_path, selected_run_id)
@@ -182,6 +190,9 @@ def render_market_betting_tab(
             _render_evidence_group(st, "차단 사유", judgment.get("blockers", []), "error")
 
     with sector_tab:
+        st.caption(
+            "섹터 판정은 시장 전체가 아니라 거래 활동으로 선별한 추적 종목 표본을 기준으로 합니다."
+        )
         if not view["sectors"]:
             st.info("저장된 섹터 판단이 없습니다.")
         else:
