@@ -29,6 +29,16 @@ def decision_label(value: str) -> str:
     return _DECISION_KO.get(value, value)
 
 
+def normalize_trade_date(value: Any) -> str:
+    """Return the engine's ISO trade-date key from dashboard date values."""
+
+    text = str(value).strip()
+    compact = text.replace("-", "")
+    if len(compact) == 8 and compact.isdigit():
+        return f"{compact[:4]}-{compact[4:6]}-{compact[6:]}"
+    return text
+
+
 def evidence_table(items: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
     return [
         {
@@ -100,7 +110,11 @@ def render_market_betting_tab(
         "시장 → 섹터 → 종목 순서로 진입 가능성을 점검합니다. "
         "분석 보조 기능이며 주문을 실행하지 않습니다."
     )
-    runs = list_decision_runs(db_path, target_trade_date=str(selected_date), limit=30)
+    runs = list_decision_runs(
+        db_path,
+        target_trade_date=normalize_trade_date(selected_date),
+        limit=30,
+    )
     if not runs:
         st.info(
             "선택한 날짜의 새 분석 엔진 실행 기록이 없습니다. "

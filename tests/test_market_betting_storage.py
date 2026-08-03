@@ -27,10 +27,19 @@ from market_betting_engine.storage import (
     prune_decision_history,
     save_decision_cycle,
 )
-from market_betting_engine.streamlit_tab import build_run_view, decision_label, evidence_table
+from market_betting_engine.streamlit_tab import (
+    build_run_view,
+    decision_label,
+    evidence_table,
+    normalize_trade_date,
+)
 
 
 class DecisionStorageTests(unittest.TestCase):
+    def test_dashboard_trade_date_is_normalized_for_engine_lookup(self):
+        self.assertEqual(normalize_trade_date("20260731"), "2026-07-31")
+        self.assertEqual(normalize_trade_date("2026-07-31"), "2026-07-31")
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.db_path = Path(self.temp.name) / "stock_data.db"
