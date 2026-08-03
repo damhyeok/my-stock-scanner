@@ -502,9 +502,16 @@ def _kis_request(spec: ProbeSpec, ticker: str, current: datetime) -> tuple[dict[
     if spec.probe_id == "kis_stock_price":
         params = {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ticker}
     elif spec.probe_id == "kis_stock_minute":
+        # KIS also serves extended-hours rows from this endpoint.  Asking with
+        # the wall-clock time after the regular close can therefore return only
+        # 18:00/23:00-series rows, all of which the decision engine correctly
+        # excludes.  Anchor post-close analysis at the regular-session close so
+        # the response contains the closing minute bars needed by the sector
+        # and stock gates.
+        request_time = min(hhmmss, "153000")
         params = {
             "FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ticker,
-            "FID_INPUT_HOUR_1": hhmmss, "FID_PW_DATA_INCU_YN": "Y", "FID_ETC_CLS_CODE": "",
+            "FID_INPUT_HOUR_1": request_time, "FID_PW_DATA_INCU_YN": "Y", "FID_ETC_CLS_CODE": "",
         }
     elif spec.probe_id == "kis_index_minute_kospi":
         params = {

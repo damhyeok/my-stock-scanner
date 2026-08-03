@@ -12,9 +12,56 @@ from market_betting_engine.api_probe import (
     save_probe_result,
     validate_read_only_path,
 )
+from market_betting_engine import api_probe
 
 
 class ApiProbeTests(unittest.TestCase):
+    def test_post_close_stock_minute_request_is_anchored_at_regular_close(self):
+        class FakeClient:
+            def __init__(self):
+                self.params = None
+
+            def get(self, path, operation_code, params):
+                self.params = params
+                return {"rt_cd": "0", "output2": []}, 200
+
+        client = FakeClient()
+        original = api_probe._KIS_CLIENT
+        api_probe._KIS_CLIENT = client
+        try:
+            api_probe._kis_request(
+                api_probe.PROBE_SPECS["kis_stock_minute"],
+                "005930",
+                datetime(2026, 8, 3, 23, 26, tzinfo=KST),
+            )
+        finally:
+            api_probe._KIS_CLIENT = original
+
+        self.assertEqual(client.params["FID_INPUT_HOUR_1"], "153000")
+
+    def test_intraday_stock_minute_request_keeps_current_time(self):
+        class FakeClient:
+            def __init__(self):
+                self.params = None
+
+            def get(self, path, operation_code, params):
+                self.params = params
+                return {"rt_cd": "0", "output2": []}, 200
+
+        client = FakeClient()
+        original = api_probe._KIS_CLIENT
+        api_probe._KIS_CLIENT = client
+        try:
+            api_probe._kis_request(
+                api_probe.PROBE_SPECS["kis_stock_minute"],
+                "005930",
+                datetime(2026, 8, 3, 12, 5, 7, tzinfo=KST),
+            )
+        finally:
+            api_probe._KIS_CLIENT = original
+
+        self.assertEqual(client.params["FID_INPUT_HOUR_1"], "120507")
+
     def test_redaction_removes_nested_credentials_and_bearer_tokens(self):
         payload = {
             "authorization": "Bearer abc.secret.token",
