@@ -31,6 +31,8 @@ from market_betting_engine.streamlit_tab import (
     build_run_view,
     decision_label,
     evidence_table,
+    reason_label,
+    state_label,
     normalize_trade_date,
 )
 
@@ -198,8 +200,16 @@ class DashboardViewTests(unittest.TestCase):
     def test_korean_labels_and_evidence_rows(self):
         self.assertEqual(decision_label("SELECTIVE"), "선별 진입")
         self.assertEqual(decision_label("UNKNOWN_STATE"), "UNKNOWN_STATE")
-        rows = evidence_table([{"axis": "price", "code": "P", "message": "supported"}])
-        self.assertEqual(rows, [{"축": "price", "코드": "P", "설명": "supported"}])
+        rows = evidence_table([{
+            "axis": "price_action",
+            "code": "PRICE_VWAP_STRUCTURE",
+            "message": "VWAP distance=0.0012, short return=0.0025",
+        }])
+        self.assertEqual(rows[0]["분석 항목"], "가격 흐름")
+        self.assertIn("당일 평균 매매가격", rows[0]["무엇을 보는지"])
+        self.assertEqual(rows[0]["현재 관측"], "가격의 VWAP 대비 위치 +0.12%, 최근 수익률 +0.25%")
+        self.assertEqual(state_label("EXTENDED"), "과열·추격 금지")
+        self.assertIn("추격하지 않습니다", reason_label("RISK_REWARD_EXTENDED"))
 
     def test_view_exposes_structural_stock_setups(self):
         detail = {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable, Mapping, Sequence
 
 from .storage import list_decision_runs, load_decision_run
@@ -24,9 +25,119 @@ _DECISION_KO = {
     "AVOID": "회피",
 }
 
+_AXIS_KO = {
+    "price_action": "가격 흐름",
+    "actual_flow": "프로그램 실제 수급",
+    "futures": "선물 흐름",
+    "activity": "거래 활동성",
+    "relative_strength": "시장 대비 종목 강도",
+    "sector_participation": "섹터 참여도",
+    "sector_relative_strength": "시장 대비 섹터 강도",
+    "sector_activity": "섹터 거래 활동성",
+    "coverage": "데이터 포착 범위",
+    "concentration": "특정 종목 쏠림",
+    "stock_thesis": "보유 투자 논리",
+}
+
+_CODE_KO = {
+    "PRICE_VWAP_STRUCTURE": "현재 가격이 당일 평균 매매가격(VWAP) 위인지와 최근 가격 방향",
+    "PRICE_STRUCTURE_UNAVAILABLE": "VWAP 및 최근 가격 방향 자료",
+    "CLV_FLOW_PROXY_POSITIVE": "분봉 종가 위치로 추정한 매수 우위 — 실제 순매수 금액은 아님",
+    "CLV_FLOW_PROXY_NEGATIVE": "분봉 종가 위치로 추정한 매도 우위 — 실제 순매수 금액은 아님",
+    "CLV_FLOW_PROXY_NEUTRAL": "분봉 종가 위치로 본 매수·매도 우위가 뚜렷하지 않음",
+    "CLV_FLOW_PROXY_UNAVAILABLE": "분봉 종가 위치 기반 매수·매도 우위 추정 자료",
+    "PROGRAM_NON_ARBITRAGE_ACTUAL_FLOW": "프로그램 비차익 순매수 금액의 시간대별 변화",
+    "PROGRAM_FLOW_SLOPE_UNAVAILABLE": "프로그램 수급의 방향을 계산할 연속 자료",
+    "FUTURES_PRICE_CONFIRMATION": "KOSPI200 선물이 당일 평균가격 위인지와 최근 방향",
+    "FUTURES_PRICE_CONFIRMATION_UNAVAILABLE": "선물 가격 확인 자료",
+    "RELATIVE_SHORT_RETURN": "해당 종목의 최근 수익률이 시장보다 강한지",
+    "RELATIVE_RETURN_UNAVAILABLE": "시장 대비 종목 수익률 자료",
+    "RISING_ACTIVITY_CONFIRMS_ADVANCE": "거래 활동 증가가 가격 상승과 함께 나타남",
+    "RISING_ACTIVITY_CONFIRMS_DECLINE": "거래 활동 증가가 가격 하락과 함께 나타남",
+    "ACTIVITY_NOT_EXPANDING": "최근 거래 활동이 뚜렷하게 증가하지 않음",
+    "ACTIVITY_CONFIRMATION_UNAVAILABLE": "최근 거래 활동 증가 여부 자료",
+    "SECTOR_ABOVE_VWAP_RATIO": "추적 종목 중 당일 평균가격(VWAP) 위에 있는 종목 비율",
+    "SECTOR_ABOVE_VWAP_RATIO_UNAVAILABLE": "VWAP 위에 있는 섹터 종목 비율",
+    "SECTOR_OUTPERFORMING_RATIO": "추적 종목 중 시장보다 강한 종목 비율",
+    "SECTOR_OUTPERFORMING_RATIO_UNAVAILABLE": "시장보다 강한 섹터 종목 비율",
+    "SECTOR_ACTIVITY_CONFIRMING_RATIO": "거래 활동 증가와 가격 상승이 함께 나온 종목 비율",
+    "SECTOR_ACTIVITY_CONFIRMING_RATIO_UNAVAILABLE": "거래 활동 증가가 확인된 섹터 종목 비율",
+    "SECTOR_SINGLE_NAME_CONCENTRATION": "섹터 거래대금이 한 종목에 과도하게 집중됨",
+    "SECTOR_MEMBER_COVERAGE_LOW": "분석에 포함된 섹터 종목 수가 부족함",
+    "SECTOR_TURNOVER_COVERAGE_LOW": "포착한 섹터 거래대금 비율이 부족함",
+    "SECTOR_UNIVERSE_INCOMPLETE": "섹터 전체가 아닌 추적 표본만 분석됨",
+    "EXISTING_THESIS_NOT_SUPPLIED": "보유 종목의 투자 논리가 입력되지 않음",
+    "EXISTING_THESIS_INVALID": "입력한 보유 투자 논리가 더 이상 유효하지 않음",
+}
+
+_STATE_KO = {
+    "WATCH": "관찰 중",
+    "SETUP": "진입 조건 대기",
+    "TRIGGERED": "진입 조건 충족",
+    "EXTENDED": "과열·추격 금지",
+    "FAILED": "진입 신호 실패",
+    "INVALIDATED": "상승 논리 무효",
+    "NOT_EVALUABLE": "판단 자료 부족",
+    "NONE": "해당 없음",
+    "BREAKOUT": "돌파형",
+    "PULLBACK": "눌림목형",
+}
+
+_REASON_KO = {
+    "UPPER_GATE_NOT_OPEN": "시장 또는 섹터 조건이 열리지 않아 관찰만 합니다.",
+    "RISK_REWARD_EXTENDED": "현재 가격에서 진입하면 손절 폭에 비해 기대수익이 작아 추격하지 않습니다.",
+    "REQUIRED_DATA_NOT_EVALUABLE": "필수 종목 데이터가 부족해 판단을 보류합니다.",
+    "SETUP_READY_TRIGGER_PENDING": "진입 후보 조건은 갖췄지만 실제 가격 신호를 기다리는 중입니다.",
+    "WATCHING_FOR_SETUP": "아직 진입 후보 조건이 만들어지지 않았습니다.",
+    "ALL_TRIGGER_GATES_CONFIRMED": "시장·섹터·종목의 모든 진입 조건이 충족됐습니다.",
+    "STRUCTURAL_THESIS_INVALIDATED": "사전에 정한 가격 구조가 무너져 상승 논리가 무효화됐습니다.",
+    "POST_TRIGGER_REACTION_FAILED": "진입 신호 이후 기대한 가격 반응이 나오지 않았습니다.",
+    "ILLEGAL_TRANSITION_REJECTED": "허용되지 않은 상태 변경을 안전하게 거부했습니다.",
+}
+
 
 def decision_label(value: str) -> str:
     return _DECISION_KO.get(value, value)
+
+
+def state_label(value: Any) -> str:
+    text = str(value or "-")
+    return _STATE_KO.get(text, text)
+
+
+def reason_label(value: Any) -> str:
+    text = str(value or "-")
+    return _REASON_KO.get(text, text.replace("_", " "))
+
+
+def _percent(value: str) -> str:
+    return f"{float(value) * 100:+.2f}%"
+
+
+def _human_message(code: str, message: Any) -> str:
+    text = str(message or "-")
+    pair = re.search(r"VWAP distance=([-+0-9.]+), short return=([-+0-9.]+)", text)
+    if pair:
+        subject = "선물" if code.startswith("FUTURES_") else "가격"
+        return f"{subject}의 VWAP 대비 위치 {_percent(pair.group(1))}, 최근 수익률 {_percent(pair.group(2))}"
+    proxy = re.search(r"price-derived proxy ratio=([-+0-9.]+)", text)
+    if proxy:
+        return f"종가 위치 기반 매수·매도 우위 추정치 {_percent(proxy.group(1))} (실제 순매수 금액 아님)"
+    ratio = re.search(r"equal-weight member ratio=([-+0-9.]+)", text)
+    if ratio:
+        return f"추적 종목 기준 {float(ratio.group(1)) * 100:.1f}%"
+    activity = re.search(r"activity rate change=([-+0-9.]+), short return=([-+0-9.]+)", text)
+    if activity:
+        return f"거래 활동 변화 {_percent(activity.group(1))}, 최근 수익률 {_percent(activity.group(2))}"
+    relative = re.search(r"asset minus benchmark short return=([-+0-9.]+)", text)
+    if relative:
+        return f"시장 대비 최근 초과수익률 {_percent(relative.group(1))}"
+    program = re.search(r"provider net amount latest=([-+0-9.]+), slope=([-+0-9.]+)", text)
+    if program:
+        return f"최근 비차익 순매수 값 {float(program.group(1)):,.0f}, 변화 기울기 {float(program.group(2)):,.0f}"
+    if code.endswith("_UNAVAILABLE") or "unavailable" in text.lower() or "required" in text.lower():
+        return "계산에 필요한 데이터가 부족합니다."
+    return text
 
 
 def normalize_trade_date(value: Any) -> str:
@@ -42,9 +153,12 @@ def normalize_trade_date(value: Any) -> str:
 def evidence_table(items: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
     return [
         {
-            "축": str(item.get("axis", "-")),
-            "코드": str(item.get("code", "-")),
-            "설명": str(item.get("message", "-")),
+            "분석 항목": _AXIS_KO.get(str(item.get("axis", "-")), str(item.get("axis", "-"))),
+            "무엇을 보는지": _CODE_KO.get(
+                str(item.get("code", "-")),
+                str(item.get("code", "-")).replace("_", " "),
+            ),
+            "현재 관측": _human_message(str(item.get("code", "-")), item.get("message", "-")),
         }
         for item in items
     ]
@@ -224,16 +338,16 @@ def render_market_betting_tab(
                 rows.append(
                     {
                         "종목코드": item["symbol"],
-                        "진입 유형": setup.get("setup_type", "NONE"),
-                        "이전 상태": item["previous_state"],
-                        "현재 상태": item["current_state"],
+                        "진입 유형": state_label(setup.get("setup_type", "NONE")),
+                        "이전 상태": state_label(item["previous_state"]),
+                        "현재 상태": state_label(item["current_state"]),
                         "진입 기준가": setup.get("entry_reference"),
                         "무효화 가격": setup.get("invalidation_price"),
                         "목표 참고가": setup.get("reward_reference"),
                         "손익비": setup.get("reward_risk_ratio"),
                         "트리거 추적": ", ".join(lifecycle.get("reasons", [])),
                         "트리거 후 분봉": lifecycle.get("bars_since_trigger", 0),
-                        "전환 사유": item["reason_code"],
+                        "전환 사유": reason_label(item["reason_code"]),
                     }
                 )
             st.dataframe(rows, use_container_width=True, hide_index=True)
