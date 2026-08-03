@@ -166,18 +166,49 @@ def derive_bar_features(
         )
 
     window = max(config.activity_window_bars, 1)
-    if len(session) >= window * 2:
-        prior = session[-window * 2:-window]
-        current = session[-window:]
+    activity_session = session
+    activity_flags = ()
+    latest_time = session[-1].timestamp.astimezone(KST).time().replace(tzinfo=None)
+    if (
+        instrument_prefix.startswith(("stock.", "index."))
+        and latest_time >= time(15, 20)
+    ):
+        # Korean cash equities enter the closing call auction at 15:20.  The
+        # intervening minute rows commonly have zero volume and must not be
+        # compared with the 15:30 auction print as if they were continuous
+        # trading minutes.  Closing-auction impact remains available through
+        # derive_closing_window_features; activity acceleration uses the last
+        # two continuous-trading windows instead.
+        continuous = tuple(
+            bar
+            for bar in session
+            if bar.timestamp.astimezone(KST).time().replace(tzinfo=None) < time(15, 20)
+        )
+        if len(continuous) >= window * 2:
+            activity_session = continuous
+            activity_flags = ("CLOSING_AUCTION_EXCLUDED_FROM_ACTIVITY",)
+    if len(activity_session) >= window * 2:
+        prior = activity_session[-window * 2:-window]
+        current = activity_session[-window:]
         prior_activity = sum(bar.close * bar.volume for bar in prior)
         current_activity = sum(bar.close * bar.volume for bar in current)
         activity = activity_rate_change(current_activity, window * 60, prior_activity, window * 60)
+        if activity_flags:
+            activity = MetricResult(
+                activity.name,
+                activity.value,
+                activity.unit,
+                activity.calculation_mode,
+                activity.available,
+                tuple((*activity.flags, *activity_flags)),
+                activity.components,
+            )
     else:
         activity = MetricResult(
             "activity_rate_change", None, "ratio", CalculationMode.ACTIVITY, False, ("INSUFFICIENT_BARS",)
         )
 
-    flags = ("PLACEHOLDER_CONFIG",) if config.placeholder else ()
+    flags = tuple(("PLACEHOLDER_CONFIG",) if config.placeholder else ()) + activity_flags
     return BarFeatureSnapshot(
         instrument_prefix=instrument_prefix,
         as_of=session[-1].timestamp,

@@ -18,7 +18,11 @@ from .contracts import (
 
 @dataclass(frozen=True)
 class MarketGateConfig:
-    minimum_available_axes: int = 3
+    # Two independent verified axes can support a reduced-confidence SELECTIVE
+    # decision.  Requiring all three made a temporarily unavailable program
+    # flow feed indistinguishable from unusable market data, even when price
+    # action and futures confirmation were both valid.
+    minimum_available_axes: int = 2
     hard_veto_independent_failures: int = 2
 
 

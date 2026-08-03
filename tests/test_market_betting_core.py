@@ -217,6 +217,16 @@ class MarketGateTests(unittest.TestCase):
         )
         self.assertEqual(result.decision, MarketPermission.NOT_EVALUABLE.value)
 
+    def test_two_verified_axes_with_one_unavailable_is_selective(self):
+        result = assess_market_permission(
+            [
+                axis("price", AxisStatus.PASS),
+                axis("futures", AxisStatus.PASS),
+                axis("flow", AxisStatus.UNAVAILABLE),
+            ]
+        )
+        self.assertEqual(result.decision, MarketPermission.SELECTIVE.value)
+
     def test_blocking_quality_prevents_evaluation(self):
         quality = DataQualityReport(
             (QualityIssue("STALE", QualitySeverity.BLOCKING, "stale"),), 3, 3

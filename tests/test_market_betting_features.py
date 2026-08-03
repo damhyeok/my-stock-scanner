@@ -105,6 +105,37 @@ class FeaturePipelineTests(unittest.TestCase):
         self.assertEqual(result.closing_auction.bar_count, 3)
         self.assertEqual(result.closing_auction.as_of.time().replace(tzinfo=None), datetime.strptime("153000", "%H%M%S").time())
 
+    def test_cash_market_activity_excludes_closing_call_auction_gap(self):
+        bars = []
+        for minute in range(10, 20):
+            volume = 10 if minute < 15 else 20
+            bars.append(
+                NormalizedBar(
+                    datetime(2026, 7, 31, 15, minute, tzinfo=KST),
+                    100, 102, 99, 101, volume,
+                )
+            )
+        for minute in range(20, 30):
+            bars.append(
+                NormalizedBar(
+                    datetime(2026, 7, 31, 15, minute, tzinfo=KST),
+                    100, 102, 99, 101, 0,
+                )
+            )
+        bars.append(
+            NormalizedBar(datetime(2026, 7, 31, 15, 30, tzinfo=KST), 100, 102, 99, 101, 1000)
+        )
+
+        features = derive_bar_features(
+            tuple(bars),
+            "stock.005930",
+            FeatureConfig(activity_window_bars=5),
+        )
+
+        self.assertTrue(features.activity_acceleration.available)
+        self.assertAlmostEqual(features.activity_acceleration.value, 1.0)
+        self.assertIn("CLOSING_AUCTION_EXCLUDED_FROM_ACTIVITY", features.activity_acceleration.flags)
+
 
 class SignalFactoryTests(unittest.TestCase):
     def setUp(self):
