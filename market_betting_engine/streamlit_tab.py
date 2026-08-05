@@ -465,7 +465,14 @@ def render_market_betting_tab(
         time_text = (
             f"선택 시간 {target_time:%H:%M} · 실제 사용 데이터 {data_time:%H:%M}"
         )
-        if gap_minutes > 10:
+        is_regular_close = (
+            "정규장" in str(selected_session)
+            and target_time.strftime("%H:%M") == "16:00"
+            and data_time.strftime("%H:%M") == "15:30"
+        )
+        if is_regular_close:
+            st.caption("16:00 마감 조회 · 정규장 최종 체결 데이터(15:30) 기준")
+        elif gap_minutes > 10:
             st.warning(f"{time_text} — 정확히 일치하는 분석이 없어 가장 가까운 기록을 사용했습니다.")
         else:
             st.caption(time_text)
