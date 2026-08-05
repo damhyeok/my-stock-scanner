@@ -475,6 +475,39 @@ _SECTOR_STRENGTH_KO = {
 }
 
 
+def _sector_reason_text(judgment: Mapping[str, Any]) -> str:
+    """Explain a sector judgment in plain Korean using its saved evidence."""
+
+    explanations = []
+    for item in judgment.get("evidence", []):
+        code = str(item.get("code", ""))
+        message = str(item.get("message", ""))
+        ratio = re.search(r"equal-weight member ratio=([-+0-9.]+)", message)
+        percentage = f"{float(ratio.group(1)) * 100:.0f}%" if ratio else None
+        if code == "SECTOR_ABOVE_VWAP_RATIO":
+            explanations.append(
+                f"추적 종목의 {percentage}가 당일 평균 매매가격(VWAP) 위에 있음"
+                if percentage else "섹터 종목 다수가 당일 평균 매매가격(VWAP) 위에 있음"
+            )
+        elif code == "SECTOR_OUTPERFORMING_RATIO":
+            explanations.append(
+                f"추적 종목의 {percentage}가 같은 시간 코스피보다 강함"
+                if percentage else "섹터 종목 다수가 같은 시간 코스피보다 강함"
+            )
+        elif code == "SECTOR_ACTIVITY_CONFIRMING_RATIO":
+            explanations.append(
+                f"추적 종목의 {percentage}에서 거래 증가와 가격 상승이 함께 나타남"
+                if percentage else "섹터 종목 다수에서 거래 증가와 가격 상승이 함께 나타남"
+            )
+
+    decision = str(judgment.get("decision", ""))
+    if decision == "LEADING":
+        explanations.append("앞선 분석에서도 강세여서 흐름이 이어지는 중")
+    elif decision == "EMERGING":
+        explanations.append("이번 분석 시각에 강세 조건을 새로 통과")
+    return " · ".join(explanations) or "저장된 세부 근거가 없어 강약 상태만 표시"
+
+
 def build_sector_strength_history(
     db_path: str,
     selected_date: str,
@@ -523,6 +556,7 @@ def build_sector_strength_history(
                     "decision": decision,
                     "status": _SECTOR_STRENGTH_KO.get(decision, decision),
                     "score": _SECTOR_SCORE.get(decision),
+                    "reason": _sector_reason_text(judgment),
                 }
             )
     return history, selected_run
@@ -544,6 +578,12 @@ def render_sector_strength_flow_tab(
     st.caption(
         "장중·오버나이트 분석과 동일한 기준으로 섹터를 판정합니다. "
         "초록색은 강세, 회색은 중립, 붉은색은 약세입니다."
+    )
+    st.info(
+        "강세 판단은 간단히 세 가지를 봅니다. 현재 설정 기준으로 ① 추적 종목의 60% 이상이 "
+        "각 종목의 당일 평균 매매가격(VWAP) 위에 있고, ② 60% 이상이 같은 시간 코스피보다 "
+        "강하며, ③ 60% 이상에서 거래 증가와 가격 상승이 함께 나타나야 합니다. "
+        "세 조건을 처음 통과하면 ‘강세 시작’, 앞선 분석에 이어 다시 통과하면 ‘강세 지속’입니다."
     )
     history, selected_run = build_sector_strength_history(
         db_path, selected_date, selected_session
@@ -590,6 +630,7 @@ def render_sector_strength_flow_tab(
             tooltip=[
                 alt.Tooltip("sector:N", title="섹터"),
                 alt.Tooltip("status:N", title="현재 상태"),
+                alt.Tooltip("reason:N", title="판단 이유"),
                 alt.Tooltip("time_label:N", title="데이터 시각"),
             ],
         )
@@ -620,11 +661,24 @@ def render_sector_strength_flow_tab(
                 alt.Tooltip("time_label:N", title="시각"),
                 alt.Tooltip("sector:N", title="섹터"),
                 alt.Tooltip("status:N", title="상태"),
+                alt.Tooltip("reason:N", title="판단 이유"),
             ],
         )
         .properties(height=max(260, len(sector_order) * 48))
     )
     st.altair_chart(heatmap, use_container_width=True)
+
+    st.subheader("현재 강세 섹터를 그렇게 판단한 이유")
+    current_strong = current[current["decision"].isin(["LEADING", "EMERGING"])]
+    if current_strong.empty:
+        st.info(
+            "선택한 시각에는 세 가지 강세 조건을 모두 통과한 섹터가 없습니다. "
+            "아래 시각별 표에서 장중에 강했던 섹터와 당시 이유를 확인할 수 있습니다."
+        )
+    else:
+        for row in current_strong.itertuples():
+            st.markdown(f"**{row.sector} · {row.status}**")
+            st.write(row.reason)
 
     leaders = []
     for time_label in time_order:
@@ -636,10 +690,23 @@ def render_sector_strength_flow_tab(
                 "강세로 통과한 섹터": ", ".join(
                     passed.sort_values("score", ascending=False)["sector"].tolist()
                 ) or "없음",
+                "왜 강했나": " / ".join(
+                    f"{row.sector}: {row.reason}"
+                    for row in passed.sort_values("score", ascending=False).itertuples()
+                ) or "강세 조건을 모두 통과한 섹터 없음",
             }
         )
     st.subheader("시각별 강세 섹터 요약")
-    st.dataframe(leaders, use_container_width=True, hide_index=True)
+    st.dataframe(
+        leaders,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "시각": st.column_config.TextColumn(width="small"),
+            "강세로 통과한 섹터": st.column_config.TextColumn(width="medium"),
+            "왜 강했나": st.column_config.TextColumn(width="large"),
+        },
+    )
     st.caption(
         "이 그래프는 거래대금 자체를 돈의 순유입으로 단정하지 않습니다. "
         "섹터 종목의 VWAP 위치, KOSPI 대비 강도, 거래 활동 증가와 가격 방향을 함께 사용합니다."

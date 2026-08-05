@@ -28,6 +28,7 @@ from market_betting_engine.storage import (
     save_decision_cycle,
 )
 from market_betting_engine.streamlit_tab import (
+    _sector_reason_text,
     build_sector_action_rows,
     build_sector_strength_history,
     build_run_view,
@@ -47,6 +48,32 @@ from market_betting_engine.streamlit_tab import (
 
 
 class DecisionStorageTests(unittest.TestCase):
+    def test_sector_reason_is_explained_in_plain_korean(self):
+        reason = _sector_reason_text(
+            {
+                "decision": "LEADING",
+                "evidence": [
+                    {
+                        "code": "SECTOR_ABOVE_VWAP_RATIO",
+                        "message": "equal-weight member ratio=0.8000",
+                    },
+                    {
+                        "code": "SECTOR_OUTPERFORMING_RATIO",
+                        "message": "equal-weight member ratio=0.6000",
+                    },
+                    {
+                        "code": "SECTOR_ACTIVITY_CONFIRMING_RATIO",
+                        "message": "equal-weight member ratio=0.7000",
+                    },
+                ],
+            }
+        )
+        self.assertIn("80%", reason)
+        self.assertIn("당일 평균 매매가격(VWAP) 위", reason)
+        self.assertIn("코스피보다 강함", reason)
+        self.assertIn("거래 증가와 가격 상승", reason)
+        self.assertIn("흐름이 이어지는 중", reason)
+
     def test_dashboard_trade_date_is_normalized_for_engine_lookup(self):
         self.assertEqual(normalize_trade_date("20260731"), "2026-07-31")
         self.assertEqual(normalize_trade_date("2026-07-31"), "2026-07-31")
