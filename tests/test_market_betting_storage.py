@@ -30,6 +30,7 @@ from market_betting_engine.storage import (
 from market_betting_engine.streamlit_tab import (
     build_sector_action_rows,
     build_run_view,
+    contextual_stock_action,
     decision_label,
     entry_condition_text,
     evidence_table,
@@ -278,6 +279,11 @@ class DashboardViewTests(unittest.TestCase):
         )
         self.assertIn("현재 약 25,500원", references)
         self.assertIn("당일 종목 VWAP 약 25,455원", references)
+
+    def test_stock_action_does_not_override_weak_sector_gate(self):
+        action = contextual_stock_action("SETUP", "SELECTIVE", "AVOID")
+        self.assertIn("가격 신호가 나와도", action)
+        self.assertIn("매수하지 않기", action)
 
     def test_korean_labels_and_evidence_rows(self):
         self.assertEqual(decision_label("SELECTIVE"), "선별 진입")

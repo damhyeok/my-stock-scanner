@@ -266,6 +266,22 @@ def _stock_action(state: str) -> str:
     }.get(state, "관찰")
 
 
+def contextual_stock_action(state: str, market_decision: str, sector_decision: str) -> str:
+    """Apply upper gates before showing a price-setup action to the user."""
+
+    if market_decision == "BLOCK":
+        return "시장 신규진입 차단 — 가격 신호가 나와도 매수하지 않기"
+    if market_decision == "NOT_EVALUABLE":
+        return "시장 판단 자료 부족 — 매수 보류"
+    if sector_decision in {"FADING", "AVOID"}:
+        return "섹터가 약함 — 가격 신호가 나와도 현재는 매수하지 않기"
+    if sector_decision == "NEUTRAL":
+        return "섹터 강세 전환을 먼저 기다리기"
+    if sector_decision == "NOT_EVALUABLE":
+        return "섹터 판단 자료 부족 — 매수 보류"
+    return _stock_action(state)
+
+
 def _price_text(value: Any) -> str:
     try:
         return f"약 {float(value):,.0f}원"
@@ -659,6 +675,11 @@ def render_market_betting_tab(
             st.info("저장된 종목 상태가 없습니다.")
         else:
             names, stock_sectors = _stock_identity(view)
+            market_decision = str(market.get("decision", "NOT_EVALUABLE"))
+            sector_decisions = {
+                str(item.get("scope_id")): str(item.get("decision", "NOT_EVALUABLE"))
+                for item in view["sectors"]
+            }
             derived = run.get("derived_evidence") if isinstance(run, Mapping) else {}
             bundle = derived.get("bundle", {}) if isinstance(derived, Mapping) else {}
             stock_evidence = bundle.get("stocks", {}) if isinstance(bundle, Mapping) else {}
@@ -666,12 +687,16 @@ def render_market_betting_tab(
             for item in view["stocks"]:
                 setup = view["setups"].get(item["symbol"], {})
                 state = str(item["current_state"])
+                sector_name = stock_sectors.get(item["symbol"], "기타")
+                sector_decision = sector_decisions.get(sector_name, "NOT_EVALUABLE")
                 rows.append(
                     {
                         "종목명": names.get(item["symbol"], item["symbol"]),
-                        "섹터": stock_sectors.get(item["symbol"], "기타"),
+                        "섹터": sector_name,
                         "현재 판단": state_label(state),
-                        "지금 할 일": _stock_action(state),
+                        "지금 할 일": contextual_stock_action(
+                            state, market_decision, sector_decision
+                        ),
                         "현재 가격 기준": reference_values_text(
                             setup,
                             stock_evidence.get(item["symbol"], {})
