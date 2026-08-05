@@ -493,6 +493,57 @@ def _sector_summary(detail: Mapping[str, Any], sector: str) -> Mapping[str, Any]
     return summary if isinstance(summary, Mapping) else {}
 
 
+def _sector_member_groups(detail: Mapping[str, Any], sector: str) -> dict[str, list[str]]:
+    """Return stock names satisfying each sector-strength condition."""
+
+    result = {"above_vwap": [], "outperforming": [], "activity_confirming": []}
+    run = detail.get("run", {})
+    derived = run.get("derived_evidence") if isinstance(run, Mapping) else None
+    bundle = derived.get("bundle") if isinstance(derived, Mapping) else None
+    sectors = bundle.get("sectors") if isinstance(bundle, Mapping) else None
+    stocks = bundle.get("stocks") if isinstance(bundle, Mapping) else None
+    sector_data = sectors.get(sector) if isinstance(sectors, Mapping) else None
+    observed = sector_data.get("observed_members", []) if isinstance(sector_data, Mapping) else []
+    adaptive = derived.get("adaptive_universe") if isinstance(derived, Mapping) else None
+    universe_rows = adaptive.get("stocks", []) if isinstance(adaptive, Mapping) else []
+    names = {
+        str(row.get("ticker", "")).zfill(6): str(
+            row.get("name") or row.get("stock_name") or row.get("ticker") or ""
+        )
+        for row in universe_rows
+        if isinstance(row, Mapping)
+    }
+
+    def value(container: Any, *path: str) -> float | None:
+        current = container
+        for key in path:
+            if not isinstance(current, Mapping):
+                return None
+            current = current.get(key)
+        try:
+            return float(current) if current is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    for raw_symbol in observed:
+        symbol = str(raw_symbol).zfill(6)
+        stock = stocks.get(symbol) if isinstance(stocks, Mapping) else None
+        if not isinstance(stock, Mapping):
+            continue
+        display_name = names.get(symbol) or symbol
+        vwap_distance = value(stock, "features", "vwap_distance_ratio", "value")
+        relative_return = value(stock, "relative", "relative_short_return", "value")
+        activity = value(stock, "features", "activity_acceleration", "value")
+        short_return = value(stock, "features", "short_return", "value")
+        if vwap_distance is not None and vwap_distance > 0:
+            result["above_vwap"].append(display_name)
+        if relative_return is not None and relative_return > 0:
+            result["outperforming"].append(display_name)
+        if activity is not None and activity > 0 and short_return is not None and short_return > 0:
+            result["activity_confirming"].append(display_name)
+    return result
+
+
 def _sector_breadth_tier(
     judgment: Mapping[str, Any], summary: Mapping[str, Any]
 ) -> str:
@@ -627,6 +678,7 @@ def build_sector_strength_history(
                 continue
             sector = str(judgment.get("scope_id", "기타"))
             summary = _sector_summary(detail, sector)
+            member_groups = _sector_member_groups(detail, sector)
             decision = _sector_breadth_tier(judgment, summary)
             history.append(
                 {
@@ -637,6 +689,9 @@ def build_sector_strength_history(
                     "status": _SECTOR_STRENGTH_KO.get(decision, decision),
                     "score": _SECTOR_SCORE.get(decision),
                     "reason": _sector_reason_text(judgment, summary, decision),
+                    "vwap_members": ", ".join(member_groups["above_vwap"]),
+                    "outperforming_members": ", ".join(member_groups["outperforming"]),
+                    "activity_members": ", ".join(member_groups["activity_confirming"]),
                 }
             )
     return history, selected_run
@@ -748,6 +803,28 @@ def render_sector_strength_flow_tab(
         .properties(height=max(260, len(current) * 48))
     )
     st.altair_chart(current_chart, use_container_width=True)
+
+    with st.expander("🔎 조건에 해당한 종목명 확인", expanded=False):
+        selected_sector = st.selectbox(
+            "확인할 섹터",
+            current["sector"].tolist(),
+            key=f"sector_condition_members_{selected_date}_{selected_session}",
+        )
+        selected_row = current[current["sector"] == selected_sector].iloc[0]
+
+        def member_line(raw_names: Any) -> str:
+            names = [name.strip() for name in str(raw_names or "").split(",") if name.strip()]
+            return f"{len(names)}종목: {', '.join(names)}" if names else "해당 종목 없음"
+
+        st.markdown(
+            f"**각 종목의 VWAP 위**  \n{member_line(selected_row['vwap_members'])}\n\n"
+            f"**같은 시간 코스피보다 강함**  \n{member_line(selected_row['outperforming_members'])}\n\n"
+            f"**거래 증가와 가격 상승이 함께 나타남**  \n{member_line(selected_row['activity_members'])}"
+        )
+        st.caption(
+            "세 목록의 종목은 서로 다를 수 있습니다. 강세 단계는 각 조건의 참여 비율을 "
+            "모두 확인해 결정하므로, 한 조건의 종목이 많다고 바로 강세가 되는 것은 아닙니다."
+        )
 
     st.subheader("아침부터 선택 시각까지 강약 변화")
     sector_order = current["sector"].tolist()

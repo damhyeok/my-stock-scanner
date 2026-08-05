@@ -29,6 +29,7 @@ from market_betting_engine.storage import (
 )
 from market_betting_engine.streamlit_tab import (
     _sector_breadth_tier,
+    _sector_member_groups,
     _sector_reason_text,
     build_sector_action_rows,
     build_sector_strength_history,
@@ -49,6 +50,47 @@ from market_betting_engine.streamlit_tab import (
 
 
 class DecisionStorageTests(unittest.TestCase):
+    def test_sector_condition_members_are_exposed_by_stock_name(self):
+        detail = {
+            "run": {
+                "derived_evidence": {
+                    "adaptive_universe": {
+                        "stocks": [
+                            {"ticker": "005930", "name": "삼성전자"},
+                            {"ticker": "000660", "name": "SK하이닉스"},
+                        ]
+                    },
+                    "bundle": {
+                        "sectors": {
+                            "반도체": {"observed_members": ["005930", "000660"]}
+                        },
+                        "stocks": {
+                            "005930": {
+                                "features": {
+                                    "vwap_distance_ratio": {"value": 0.01},
+                                    "activity_acceleration": {"value": 0.30},
+                                    "short_return": {"value": 0.02},
+                                },
+                                "relative": {"relative_short_return": {"value": 0.01}},
+                            },
+                            "000660": {
+                                "features": {
+                                    "vwap_distance_ratio": {"value": -0.01},
+                                    "activity_acceleration": {"value": 0.10},
+                                    "short_return": {"value": -0.01},
+                                },
+                                "relative": {"relative_short_return": {"value": 0.02}},
+                            },
+                        },
+                    },
+                }
+            }
+        }
+        groups = _sector_member_groups(detail, "반도체")
+        self.assertEqual(groups["above_vwap"], ["삼성전자"])
+        self.assertEqual(groups["outperforming"], ["삼성전자", "SK하이닉스"])
+        self.assertEqual(groups["activity_confirming"], ["삼성전자"])
+
     def test_sector_breadth_tiers_separate_candidate_expansion_and_genuine(self):
         judgment = {"decision": "NEUTRAL"}
 
