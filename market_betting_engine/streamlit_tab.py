@@ -691,6 +691,7 @@ def render_market_betting_tab(
                 sector_decision = sector_decisions.get(sector_name, "NOT_EVALUABLE")
                 rows.append(
                     {
+                        "_state": state,
                         "종목명": names.get(item["symbol"], item["symbol"]),
                         "섹터": sector_name,
                         "현재 판단": state_label(state),
@@ -713,7 +714,42 @@ def render_market_betting_tab(
                 "진입 신호 실패": 5, "상승 논리 무효": 6,
             }
             rows.sort(key=lambda row: state_order.get(row["현재 판단"], 9))
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+            candidate_count = sum(
+                row["_state"] in {"TRIGGERED", "SETUP"} for row in rows
+            )
+            extended_count = sum(row["_state"] == "EXTENDED" for row in rows)
+            summary_columns = st.columns(3)
+            summary_columns[0].metric("진입 검토·대기", f"{candidate_count}개")
+            summary_columns[1].metric("추격 금지", f"{extended_count}개")
+            summary_columns[2].metric("전체 추적", f"{len(rows)}개")
+
+            st.caption("종목을 누르면 가격 기준과 진입·손절 조건이 잘리지 않고 모두 표시됩니다.")
+            state_icon = {
+                "TRIGGERED": "🟢",
+                "SETUP": "🟡",
+                "WATCH": "⚪",
+                "EXTENDED": "🟠",
+                "FAILED": "🔴",
+                "INVALIDATED": "🔴",
+                "NOT_EVALUABLE": "⚫",
+            }
+            for row in rows:
+                state = row["_state"]
+                title = (
+                    f"{state_icon.get(state, '⚪')} {row['종목명']} · "
+                    f"{row['섹터']} · {row['현재 판단']}"
+                )
+                with st.expander(title, expanded=state in {"TRIGGERED", "SETUP"}):
+                    st.markdown("**지금 할 일**")
+                    st.write(row["지금 할 일"])
+                    st.markdown("**현재 가격 기준**")
+                    st.write(row["현재 가격 기준"])
+                    st.markdown("**진입하려면 확인할 신호**")
+                    st.write(row["진입하려면 확인할 신호"])
+                    st.markdown("**진입 취소·손절 조건**")
+                    st.write(row["진입 취소·손절 조건"])
+                    st.markdown("**판단 이유**")
+                    st.write(row["판단 이유"])
             st.caption(
                 "‘진입 조건 대기’는 후보일 뿐 매수 신호가 아닙니다. 표에 적힌 가격 조건과 함께 "
                 "시장·섹터·상대강도·거래 활동 조건이 유지될 때만 ‘진입 조건 충족’으로 바뀝니다."
