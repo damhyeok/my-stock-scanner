@@ -113,7 +113,7 @@ class OracleRuntimeTests(unittest.TestCase):
         }
         self.assertEqual(judgments[("MARKET", "KOSPI")]["decision"], "ALLOW")
         sector = judgments[("SECTOR", "반도체")]
-        self.assertEqual(sector["decision"], "NEUTRAL")
+        self.assertEqual(sector["decision"], "NOT_EVALUABLE")
         self.assertFalse(
             any(item["code"] == "SECTOR_UNIVERSE_INCOMPLETE" for item in sector["blockers"])
         )

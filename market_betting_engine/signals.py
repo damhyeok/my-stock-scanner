@@ -19,8 +19,10 @@ class SignalThresholds:
     positive_relative_return: float = 0.003
     negative_relative_return: float = -0.003
     positive_activity_acceleration: float = 0.20
-    sector_participation_pass: float = 0.60
+    sector_participation_pass: float = 0.50
     sector_participation_fail: float = 0.40
+    sector_minimum_supporting_members: int = 3
+    sector_minimum_observed_members: int = 4
     placeholder: bool = True
 
 
@@ -238,15 +240,22 @@ def build_sector_axis_signals(
     thresholds: SignalThresholds = SignalThresholds(),
 ) -> Tuple[AxisSignal, ...]:
     def ratio_signal(value: Optional[float], axis: str, code: str) -> AxisSignal:
-        if value is None:
+        if value is None or summary.member_count < thresholds.sector_minimum_observed_members:
             return _signal(axis, AxisStatus.UNAVAILABLE, f"{code}_UNAVAILABLE", f"{axis} is unavailable")
-        if value >= thresholds.sector_participation_pass:
+        supporting_members = round(value * summary.member_count)
+        enough_members = supporting_members >= thresholds.sector_minimum_supporting_members
+        if value >= thresholds.sector_participation_pass and enough_members:
             status = AxisStatus.PASS
-        elif value <= thresholds.sector_participation_fail:
+        elif value < thresholds.sector_participation_fail or not enough_members:
             status = AxisStatus.FAIL
         else:
             status = AxisStatus.WARNING
-        return _signal(axis, status, code, f"equal-weight member ratio={value:.4f}")
+        return _signal(
+            axis,
+            status,
+            code,
+            f"equal-weight member ratio={value:.4f}, supporting members={supporting_members}/{summary.member_count}",
+        )
 
     participation = ratio_signal(summary.above_vwap_ratio, "sector_participation", "SECTOR_ABOVE_VWAP_RATIO")
     breadth = ratio_signal(summary.outperforming_ratio, "sector_relative_strength", "SECTOR_OUTPERFORMING_RATIO")

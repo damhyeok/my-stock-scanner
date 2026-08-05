@@ -1,5 +1,5 @@
 {
-  "config_version": "expert-placeholder-v2-trigger-lifecycle",
+  "config_version": "expert-placeholder-v3-sector-breadth-tiers",
   "placeholder": true,
   "feature": {
     "short_return_bars": 5,
@@ -14,8 +14,10 @@
     "positive_relative_return": 0.003,
     "negative_relative_return": -0.003,
     "positive_activity_acceleration": 0.2,
-    "sector_participation_pass": 0.6,
-    "sector_participation_fail": 0.4
+    "sector_participation_pass": 0.5,
+    "sector_participation_fail": 0.4,
+    "sector_minimum_supporting_members": 3,
+    "sector_minimum_observed_members": 4
   },
   "universe": {
     "candidate_sector_limit": 5,

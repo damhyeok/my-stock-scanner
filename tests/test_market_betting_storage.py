@@ -28,6 +28,7 @@ from market_betting_engine.storage import (
     save_decision_cycle,
 )
 from market_betting_engine.streamlit_tab import (
+    _sector_breadth_tier,
     _sector_reason_text,
     build_sector_action_rows,
     build_sector_strength_history,
@@ -48,6 +49,25 @@ from market_betting_engine.streamlit_tab import (
 
 
 class DecisionStorageTests(unittest.TestCase):
+    def test_sector_breadth_tiers_separate_candidate_expansion_and_genuine(self):
+        judgment = {"decision": "NEUTRAL"}
+
+        def summary(ratio):
+            return {
+                "member_count": 8,
+                "above_vwap_ratio": ratio,
+                "outperforming_ratio": ratio,
+                "activity_confirming_ratio": ratio,
+            }
+
+        self.assertEqual(_sector_breadth_tier(judgment, summary(0.40)), "CANDIDATE")
+        self.assertEqual(_sector_breadth_tier(judgment, summary(0.50)), "EXPANDING")
+        self.assertEqual(_sector_breadth_tier(judgment, summary(0.60)), "GENUINE")
+        self.assertEqual(
+            _sector_breadth_tier(judgment, {**summary(0.75), "member_count": 3}),
+            "NEUTRAL",
+        )
+
     def test_sector_reason_is_explained_in_plain_korean(self):
         reason = _sector_reason_text(
             {

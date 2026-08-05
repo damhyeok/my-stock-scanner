@@ -57,6 +57,11 @@ def load_analysis_config(path: str | Path) -> AnalysisConfig:
     if signals.sector_participation_fail > signals.sector_participation_pass:
         raise ValueError("sector participation fail threshold cannot exceed pass threshold")
     if (
+        signals.sector_minimum_supporting_members < 1
+        or signals.sector_minimum_observed_members < signals.sector_minimum_supporting_members
+    ):
+        raise ValueError("sector member minimums are invalid")
+    if (
         universe.candidate_sector_limit < 1
         or universe.stocks_per_sector < 1
         or universe.total_stock_limit < 1

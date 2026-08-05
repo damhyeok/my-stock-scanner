@@ -196,6 +196,11 @@ class SignalFactoryTests(unittest.TestCase):
         signals = build_sector_axis_signals(summary)
         self.assertEqual(len(signals), 3)
         self.assertEqual({item.axis for item in signals}, {"sector_participation", "sector_relative_strength", "sector_activity"})
+        self.assertTrue(all(item.status == AxisStatus.UNAVAILABLE for item in signals))
+
+        broad_summary = aggregate_sector_features([self.relative] * 4)
+        broad_signals = build_sector_axis_signals(broad_summary)
+        self.assertTrue(all(item.status == AxisStatus.PASS for item in broad_signals))
 
 
 class DerivedPipelineTests(unittest.TestCase):
@@ -278,7 +283,7 @@ class ConfigTests(unittest.TestCase):
     def test_repository_placeholder_config_is_versioned_and_loadable(self):
         path = Path(__file__).resolve().parents[1] / "config" / "market_betting_engine.placeholder.json"
         config = load_analysis_config(path)
-        self.assertEqual(config.config_version, "expert-placeholder-v2-trigger-lifecycle")
+        self.assertEqual(config.config_version, "expert-placeholder-v3-sector-breadth-tiers")
         self.assertTrue(config.placeholder)
         self.assertEqual(config.feature.short_return_bars, 5)
 

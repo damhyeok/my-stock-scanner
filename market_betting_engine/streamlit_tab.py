@@ -458,6 +458,9 @@ def selection_instruction(view: Mapping[str, Any]) -> str:
 
 
 _SECTOR_SCORE = {
+    "GENUINE": 3,
+    "EXPANDING": 2,
+    "CANDIDATE": 1,
     "LEADING": 2,
     "EMERGING": 1,
     "NEUTRAL": 0,
@@ -466,6 +469,9 @@ _SECTOR_SCORE = {
 }
 
 _SECTOR_STRENGTH_KO = {
+    "GENUINE": "진짜 강세",
+    "EXPANDING": "강세 확산",
+    "CANDIDATE": "강세 후보",
     "LEADING": "강세 지속",
     "EMERGING": "강세 시작",
     "NEUTRAL": "중립",
@@ -474,12 +480,78 @@ _SECTOR_STRENGTH_KO = {
     "NOT_EVALUABLE": "자료 부족",
 }
 
+_POSITIVE_SECTOR_TIERS = {"GENUINE", "EXPANDING", "CANDIDATE", "LEADING", "EMERGING"}
 
-def _sector_reason_text(judgment: Mapping[str, Any]) -> str:
+
+def _sector_summary(detail: Mapping[str, Any], sector: str) -> Mapping[str, Any]:
+    run = detail.get("run", {})
+    derived = run.get("derived_evidence") if isinstance(run, Mapping) else None
+    bundle = derived.get("bundle") if isinstance(derived, Mapping) else None
+    sectors = bundle.get("sectors") if isinstance(bundle, Mapping) else None
+    sector_data = sectors.get(sector) if isinstance(sectors, Mapping) else None
+    summary = sector_data.get("summary") if isinstance(sector_data, Mapping) else None
+    return summary if isinstance(summary, Mapping) else {}
+
+
+def _sector_breadth_tier(
+    judgment: Mapping[str, Any], summary: Mapping[str, Any]
+) -> str:
+    """Turn the three breadth ratios into an early/expanding/genuine tier."""
+
+    try:
+        member_count = int(summary.get("member_count") or 0)
+        ratios = [
+            float(summary[name])
+            for name in (
+                "above_vwap_ratio",
+                "outperforming_ratio",
+                "activity_confirming_ratio",
+            )
+            if summary.get(name) is not None
+        ]
+    except (TypeError, ValueError):
+        ratios = []
+        member_count = 0
+    if member_count >= 4 and len(ratios) == 3:
+        supporting_counts = [round(value * member_count) for value in ratios]
+        if min(supporting_counts) >= 3:
+            minimum_ratio = min(ratios)
+            if minimum_ratio >= 0.60:
+                return "GENUINE"
+            if minimum_ratio >= 0.50:
+                return "EXPANDING"
+            if minimum_ratio >= 0.40:
+                return "CANDIDATE"
+    return str(judgment.get("decision", "NOT_EVALUABLE"))
+
+
+def _sector_reason_text(
+    judgment: Mapping[str, Any],
+    summary: Mapping[str, Any] | None = None,
+    tier: str | None = None,
+) -> str:
     """Explain a sector judgment in plain Korean using its saved evidence."""
 
     explanations = []
-    for item in judgment.get("evidence", []):
+    summary = summary or {}
+    member_count = int(summary.get("member_count") or 0)
+    summary_metrics = (
+        ("above_vwap_ratio", "각 종목의 VWAP 위"),
+        ("outperforming_ratio", "같은 시간 코스피보다 강함"),
+        ("activity_confirming_ratio", "거래 증가와 가격 상승이 함께 나타남"),
+    )
+    for name, label in summary_metrics:
+        value = summary.get(name)
+        if value is not None and member_count:
+            ratio = float(value)
+            explanations.append(
+                f"{round(ratio * member_count)}/{member_count}종목({ratio * 100:.0f}%)이 {label}"
+            )
+
+    all_evidence = []
+    for field in ("evidence", "warnings", "counter_evidence", "blockers"):
+        all_evidence.extend(judgment.get(field, []))
+    for item in all_evidence if not explanations else []:
         code = str(item.get("code", ""))
         message = str(item.get("message", ""))
         ratio = re.search(r"equal-weight member ratio=([-+0-9.]+)", message)
@@ -500,8 +572,14 @@ def _sector_reason_text(judgment: Mapping[str, Any]) -> str:
                 if percentage else "섹터 종목 다수에서 거래 증가와 가격 상승이 함께 나타남"
             )
 
-    decision = str(judgment.get("decision", ""))
-    if decision == "LEADING":
+    decision = tier or str(judgment.get("decision", ""))
+    if decision == "GENUINE":
+        explanations.append("세 조건 모두 60% 이상으로 섹터 전반에 힘이 넓게 퍼진 진짜 강세")
+    elif decision == "EXPANDING":
+        explanations.append("세 조건 모두 50% 이상으로 강세가 여러 종목으로 확산 중")
+    elif decision == "CANDIDATE":
+        explanations.append("세 조건 모두 40% 이상이고 최소 3종목이 참여해 초기 강세 후보로 포착")
+    elif decision == "LEADING":
         explanations.append("앞선 분석에서도 강세여서 흐름이 이어지는 중")
     elif decision == "EMERGING":
         explanations.append("이번 분석 시각에 강세 조건을 새로 통과")
@@ -547,16 +625,18 @@ def build_sector_strength_history(
         for judgment in detail.get("judgments", []):
             if judgment.get("scope_type") != "SECTOR":
                 continue
-            decision = str(judgment.get("decision", "NOT_EVALUABLE"))
+            sector = str(judgment.get("scope_id", "기타"))
+            summary = _sector_summary(detail, sector)
+            decision = _sector_breadth_tier(judgment, summary)
             history.append(
                 {
                     "time": data_time,
                     "time_label": data_time.strftime("%H:%M") if data_time else key[-5:],
-                    "sector": str(judgment.get("scope_id", "기타")),
+                    "sector": sector,
                     "decision": decision,
                     "status": _SECTOR_STRENGTH_KO.get(decision, decision),
                     "score": _SECTOR_SCORE.get(decision),
-                    "reason": _sector_reason_text(judgment),
+                    "reason": _sector_reason_text(judgment, summary, decision),
                 }
             )
     return history, selected_run
@@ -585,18 +665,20 @@ def render_sector_strength_flow_tab(
 한 종목만 잠깐 오르는 것이 아니라 **그 섹터의 여러 종목이 함께, 시장보다 강하게, 거래를 동반해 오르는지** 확인합니다.
 
 **1. 섹터 종목들이 자기 평균 매수가격보다 위에 있어야 합니다.**
-추적 중인 섹터 종목의 60% 이상이 **각 종목 자신의 당일 평균 매매가격(VWAP)** 위에 있어야 합니다. VWAP은 코스피 가격이나 섹터 평균가격이 아니라, 그 종목이 오늘 실제로 거래된 가격의 거래량 가중 평균입니다. 현재가가 이 가격 위에 있다는 것은 오늘 매수한 사람 다수가 아직 수익 구간에 있고 가격도 비교적 잘 버티고 있다는 뜻입니다.
+각 종목의 현재가가 **선택 시각까지 거래량을 반영한 평균 거래가격(VWAP)** 위에 있는지 봅니다. VWAP은 코스피나 섹터 평균가격이 아니라 종목마다 따로 계산됩니다. 현재가가 그 위라면 오늘 거래가 많이 이뤄진 중심 가격보다 잘 버티는 상태라는 뜻입니다.
 
 **2. 코스피가 올라서 덩달아 오른 것보다 더 강해야 합니다.**
-추적 종목의 60% 이상이 같은 시간의 코스피보다 더 강하게 움직여야 합니다. 예를 들어 코스피가 1% 오를 때 섹터 종목들도 1% 정도만 올랐다면 그 섹터만 특별히 강하다고 보지 않습니다. 여러 종목이 코스피보다 더 올라야 섹터 고유의 힘이 있다고 판단합니다.
+예를 들어 코스피가 1% 오를 때 섹터 종목도 1% 정도만 올랐다면 그 섹터만 특별히 강한 것은 아닙니다. 여러 종목이 같은 시간의 코스피보다 더 강해야 섹터 고유의 힘이 있다고 봅니다.
 
 **3. 가격 상승에 실제 거래 증가가 따라와야 합니다.**
-추적 종목의 60% 이상에서 최근 거래 활동이 늘면서 가격도 함께 올라야 합니다. 거래 없이 가격만 살짝 오른 경우보다 실제 매수 참여가 넓어지는 움직임을 찾기 위한 조건입니다.
+최근 거래 활동이 늘면서 가격도 함께 오르는 종목이 몇 개인지 봅니다. 거래 없이 가격만 살짝 움직인 경우보다 실제 참여가 커지는 움직임을 찾기 위한 조건입니다.
 
-**세 조건을 모두 통과해야 ‘강세’입니다.**
-처음 통과하면 **강세 시작**, 이전 분석 시각에도 강했고 이번에도 통과하면 **강세 지속**으로 표시합니다. 조건 하나라도 부족하면 섹터 지수가 올랐더라도 이 화면에서는 강세로 확정하지 않습니다.
+**강세는 한 번에 잘라 판단하지 않고 세 단계로 넓게 알려드립니다.**
+- **강세 후보:** 세 조건이 각각 40% 이상이고, 조건마다 최소 3종목이 참여한 초기 움직임
+- **강세 확산:** 세 조건이 각각 50% 이상으로 여러 종목에 힘이 퍼지는 상태
+- **진짜 강세:** 세 조건이 각각 60% 이상으로 섹터 전반의 동반 강세가 확인된 상태
 
-예를 들어 섹터에서 5종목을 추적한다면, 세 조건마다 최소 3종목 이상이 해당되어야 60% 조건을 통과합니다. 여기서 추적 종목은 해당 섹터의 모든 상장 종목이 아니라, 현재 분석 대상으로 선정된 주요 종목입니다.
+최소 4종목 이상이 관측되어야 판정하며, 한 종목의 급등만으로는 강세가 되지 않습니다. **강세 후보는 일찍 알려주는 관심 신호이고, 실제 진입 검토는 강세 확산부터** 가능합니다. 추적 종목은 해당 섹터의 모든 상장 종목이 아니라 현재 분석 대상으로 선정된 주요 종목입니다.
         """
     )
     history, selected_run = build_sector_strength_history(
@@ -613,17 +695,32 @@ def render_sector_strength_flow_tab(
     current_time = frame["time"].max()
     current = frame[frame["time"] == current_time].copy()
     current = current.sort_values(["score", "sector"], ascending=[False, True])
-    strong = current[current["decision"].isin(["LEADING", "EMERGING"])]["sector"].tolist()
+    genuine = current[current["decision"] == "GENUINE"]["sector"].tolist()
+    expanding = current[current["decision"] == "EXPANDING"]["sector"].tolist()
+    candidates = current[current["decision"] == "CANDIDATE"]["sector"].tolist()
+    legacy_strong = current[current["decision"].isin(["LEADING", "EMERGING"])]["sector"].tolist()
     weak = current[current["decision"].isin(["FADING", "AVOID"])]["sector"].tolist()
-    if strong:
-        st.success(f"현재 강한 섹터: {', '.join(strong)}")
-    else:
-        st.warning("현재 강세 기준을 통과한 섹터가 없습니다.")
+    if genuine:
+        st.success(f"🔥 현재 진짜 강세: {', '.join(genuine)}")
+    if expanding:
+        st.info(f"📈 강세가 확산 중인 섹터: {', '.join(expanding)}")
+    if candidates:
+        st.info(f"👀 초기 강세 후보(아직 진입 확정 아님): {', '.join(candidates)}")
+    if legacy_strong:
+        st.success(f"현재 강한 섹터: {', '.join(legacy_strong)}")
+    if not (genuine or expanding or candidates or legacy_strong):
+        st.warning("현재 강세 후보 이상의 조건을 통과한 섹터가 없습니다.")
     if weak:
         st.caption(f"현재 약하거나 약화 중인 섹터: {', '.join(weak)}")
 
-    color_domain = ["강세 지속", "강세 시작", "중립", "강세 약화", "약세·회피"]
-    color_range = ["#0b6e4f", "#55a868", "#b8b8b8", "#e07a5f", "#b23a48"]
+    color_domain = [
+        "진짜 강세", "강세 확산", "강세 후보", "강세 지속", "강세 시작",
+        "중립", "강세 약화", "약세·회피", "자료 부족",
+    ]
+    color_range = [
+        "#07523b", "#19945f", "#8bcf9b", "#0b6e4f", "#55a868",
+        "#b8b8b8", "#e07a5f", "#b23a48", "#d9d9d9",
+    ]
     st.subheader(f"{current_time:%H:%M} 현재 섹터 강약")
     current_chart = (
         alt.Chart(current)
@@ -632,8 +729,8 @@ def render_sector_strength_flow_tab(
             x=alt.X(
                 "score:Q",
                 title="약세  ←  섹터 강도  →  강세",
-                scale=alt.Scale(domain=[-2.2, 2.2]),
-                axis=alt.Axis(values=[-2, -1, 0, 1, 2], labels=False),
+                scale=alt.Scale(domain=[-2.2, 3.2]),
+                axis=alt.Axis(values=[-2, -1, 0, 1, 2, 3], labels=False),
             ),
             y=alt.Y("sector:N", title=None, sort="-x"),
             color=alt.Color(
@@ -683,7 +780,7 @@ def render_sector_strength_flow_tab(
     st.altair_chart(heatmap, use_container_width=True)
 
     st.subheader("현재 강세 섹터를 그렇게 판단한 이유")
-    current_strong = current[current["decision"].isin(["LEADING", "EMERGING"])]
+    current_strong = current[current["decision"].isin(_POSITIVE_SECTOR_TIERS)]
     if current_strong.empty:
         st.info(
             "선택한 시각에는 세 가지 강세 조건을 모두 통과한 섹터가 없습니다. "
@@ -697,7 +794,7 @@ def render_sector_strength_flow_tab(
     leaders = []
     for time_label in time_order:
         snapshot = frame[frame["time_label"] == time_label]
-        passed = snapshot[snapshot["decision"].isin(["LEADING", "EMERGING"])]
+        passed = snapshot[snapshot["decision"].isin(_POSITIVE_SECTOR_TIERS)]
         leaders.append(
             {
                 "시각": time_label,
