@@ -12,6 +12,8 @@ RETENTION = {
     "stock_news": ("date", 15),
     "market_strength_snapshots": ("trade_date", 30),
     "market_program_snapshots": ("trade_date", 30),
+    "stock_program_net_snapshots": ("trade_date", 30),
+    "stock_program_net_runs": ("trade_date", 30),
     "sector_flow_windows": ("trade_date", 30),
     "intraday_stock_bars": ("trade_date", 5),
     "intraday_index_bars": ("trade_date", 5),

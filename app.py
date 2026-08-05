@@ -19,11 +19,6 @@ import altair as alt
 import plotly.express as px
 import plotly.graph_objects as go
 from analyzer import StockAnalyzer
-from model_data_collector import ModelDataCollector
-from model_features import ModelFeatureBuilder
-from model_labels import ModelLabelBuilder
-from model_schema import init_model_tables
-from stock_chart_analyzer import StockChartAnalyzer
 from model_1_scanner import scan_model_tables
 from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
 from market_betting_engine.streamlit_tab import (
@@ -309,13 +304,6 @@ def get_database_path():
     except Exception:
         return local_db_path, "로컬 DB"
 
-def get_chart_model_database_path(base_db_path):
-    # The chart tab must use the same database snapshot as every other tab.
-    # Keeping a second, independently refreshed copy here caused it to lag
-    # behind the dashboard database and report an existing ticker as missing.
-    init_model_tables(base_db_path)
-    return base_db_path
-
 def trigger_github_workflow(run_mode="full", market_strength_mode="manual", requested_at_kst=None):
     token = get_config_value("GITHUB_ACTIONS_TOKEN")
     repo = get_config_value("GITHUB_REPOSITORY", "damhyeok/my-stock-scanner")
@@ -590,6 +578,31 @@ def get_market_strength_data():
         df = apply_current_market_strength_scoring(df)
         return df
     except:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=60)
+def get_program_net_buy_data():
+    try:
+        db_path, _ = get_database_path()
+        with sqlite3.connect(db_path) as conn:
+            return pd.read_sql(
+                "SELECT * FROM stock_program_net_snapshots "
+                "ORDER BY trade_date DESC, session, program_net_buy DESC",
+                conn,
+            )
+    except Exception:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=60)
+def get_program_net_buy_runs():
+    try:
+        db_path, _ = get_database_path()
+        with sqlite3.connect(db_path) as conn:
+            return pd.read_sql(
+                "SELECT * FROM stock_program_net_runs ORDER BY trade_date DESC, session",
+                conn,
+            )
+    except Exception:
         return pd.DataFrame()
 
 
@@ -887,19 +900,6 @@ def get_watchlist_performance():
     except Exception:
         return pd.DataFrame()
 
-def collect_and_build_single_stock(query, db_path):
-    configure_model_runtime_secrets()
-    collector = ModelDataCollector(db_path=db_path)
-    summary = collector.collect_single_stock_ohlcv(
-        query,
-        min_market_cap=500_000_000_000,
-        universe_type="custom_5000eok_plus",
-        lookback_days=180,
-    )
-    ModelFeatureBuilder(db_path=db_path).run("custom_5000eok_plus")
-    ModelLabelBuilder(db_path=db_path).run("custom_5000eok_plus")
-    return summary
-
 # 데이터 로드
 with st.spinner("데이터를 불러오고 있습니다..."):
     dashboard_db_path, dashboard_db_source = get_database_path()
@@ -908,6 +908,8 @@ with st.spinner("데이터를 불러오고 있습니다..."):
     df_intraday_relative_strength = get_intraday_relative_strength_data()
     df_news = get_news_data()
     df_market_strength = get_market_strength_data()
+    df_program_net_buy = get_program_net_buy_data()
+    df_program_net_buy_runs = get_program_net_buy_runs()
     df_sector_flow = get_sector_flow_data()
     df_close_bet = get_close_bet_data()
     df_close_bet_runs = get_close_bet_runs()
@@ -1019,7 +1021,7 @@ else:
         "🧭 오늘 섹터 흐름",
         "🎯 종가베팅 스캐너",
         "🧱 바닥 후보 종목",
-        "🔎 종목 차트 분석",
+        "💻 프로그램 순매수 종목",
         "🧠 장중·오버나이트 분석"
     ])
     
@@ -1240,61 +1242,71 @@ else:
                         st.error(message)
 
     with tab13:
-        st.header("🔎 종목 차트 분석")
-        query = st.text_input("종목명 또는 종목코드", value="", placeholder="예: 삼성전자 또는 005930")
-        if query:
-            base_db_path, _ = get_database_path()
-            db_path = get_chart_model_database_path(base_db_path)
-            init_model_tables(db_path)
-            chart_analyzer = StockChartAnalyzer(db_path=db_path)
-            analysis = chart_analyzer.analyze(query)
-            if analysis is None:
-                st.warning("저장된 모델 데이터에서 종목을 찾지 못했습니다.")
-                st.caption("시총 5천억 이상 종목이면 KIS에서 1년치 일봉을 받아 model_ 전용 DB에 캐시 저장할 수 있습니다.")
-                if st.button("KIS에서 종목 데이터 저장 후 분석"):
-                    with st.spinner("KIS에서 종목 확인 및 일봉 저장 중..."):
-                        try:
-                            summary = collect_and_build_single_stock(query, db_path)
-                            st.success(
-                                f"{summary['stock']['name']} 데이터 저장 완료: "
-                                f"{summary['ohlcv_rows']}개 일봉"
-                            )
-                            st.rerun()
-                        except Exception as error:
-                            st.error(f"데이터 저장 실패: {error}")
-            else:
-                stock = analysis["stock"]
-                metric_cols = st.columns(6)
-                metric_cols[0].metric("종목", f"{stock['name']} ({stock['ticker']})")
-                metric_cols[1].metric("점수", analysis["score"])
-                metric_cols[2].metric("등급", analysis["grade"])
-                metric_cols[3].metric("시장 레짐", analysis.get("market_regime") or "-")
-                metric_cols[4].metric("유사 승률", "-" if analysis["similar_pattern_win_rate"] is None else f"{analysis['similar_pattern_win_rate']}%")
-                metric_cols[5].metric("유사 표본", analysis["similar_pattern_count"])
+        st.header(f"💻 {selected_session_label} 프로그램 순매수 종목")
+        st.caption(
+            "해당 분석 시각의 거래대금 상위 60개 주식을 대상으로 KIS 종목별 프로그램매매를 조회합니다. "
+            "누적 프로그램 순매수 금액이 0원보다 큰 종목만 금액순으로 표시합니다. "
+            "프로그램 비중은 프로그램 순매수 금액 ÷ 누적 거래대금입니다."
+        )
+        program_rows = df_program_net_buy[
+            (df_program_net_buy["trade_date"].astype(str) == str(selected_date))
+            & (df_program_net_buy["session"].astype(str) == str(selected_session))
+        ].copy() if not df_program_net_buy.empty else pd.DataFrame()
+        run_rows = df_program_net_buy_runs[
+            (df_program_net_buy_runs["trade_date"].astype(str) == str(selected_date))
+            & (df_program_net_buy_runs["session"].astype(str) == str(selected_session))
+        ].copy() if not df_program_net_buy_runs.empty else pd.DataFrame()
 
-                score_cols = st.columns(4)
-                score_cols[0].metric("차트", analysis["chart_score"])
-                score_cols[1].metric("수급", analysis["supply_score"])
-                score_cols[2].metric("섹터/시장", analysis["sector_market_score"])
-                score_cols[3].metric("리스크 감점", analysis["risk_penalty"])
+        if run_rows.empty:
+            st.info("선택한 날짜와 시각에는 프로그램 순매수 분석 기록이 없습니다. 다음 자동 분석부터 저장됩니다.")
+        else:
+            run = run_rows.iloc[-1]
+            status = str(run.get("status", ""))
+            status_text = {"success": "정상", "partial": "일부 조회 실패", "failure": "조회 실패"}.get(status, status)
+            metric_cols = st.columns(4)
+            metric_cols[0].metric("수집 상태", status_text)
+            metric_cols[1].metric("분석 대상", f"{int(run.get('universe_count', 0))}종목")
+            metric_cols[2].metric("정상 조회", f"{int(run.get('queried_count', 0))}종목")
+            metric_cols[3].metric("순매수 +", f"{int(run.get('positive_count', 0))}종목")
+            if status == "partial":
+                st.warning(f"일부 종목 조회에 실패했습니다({int(run.get('failure_count', 0))}종목). 표시된 값은 정상 조회된 종목입니다.")
+            elif status == "failure":
+                st.error("프로그램 순매수 API 조회에 실패했습니다. 다음 자동 분석에서 다시 시도합니다.")
 
-                st.plotly_chart(analysis["figure"], use_container_width=True)
-
-                reason_col, risk_col = st.columns(2)
-                with reason_col:
-                    st.subheader("판단 근거")
-                    if analysis["reasons"]:
-                        for reason in analysis["reasons"]:
-                            st.write(f"- {reason}")
-                    else:
-                        st.info("강한 긍정 근거가 아직 부족합니다.")
-                with risk_col:
-                    st.subheader("리스크 근거")
-                    if analysis["risk_reasons"]:
-                        for reason in analysis["risk_reasons"]:
-                            st.write(f"- {reason}")
-                    else:
-                        st.info("큰 리스크 감점 요인이 없습니다.")
+            if program_rows.empty and status != "failure":
+                st.info("이 시각에는 분석 대상 중 프로그램 누적 순매수 금액이 양수인 종목이 없습니다.")
+            elif not program_rows.empty:
+                display = program_rows.sort_values("program_net_buy", ascending=False).copy()
+                display["market_cap_eok"] = pd.to_numeric(display["market_cap"], errors="coerce") / 100_000_000
+                display["trading_value_eok"] = pd.to_numeric(display["trading_value"], errors="coerce") / 100_000_000
+                display["program_net_buy_eok"] = pd.to_numeric(display["program_net_buy"], errors="coerce") / 100_000_000
+                display = display[[
+                    "name", "current_price", "fluctuation_rate", "market_cap_eok",
+                    "trading_value_eok", "program_net_buy_eok", "program_net_ratio",
+                    "sector", "snapshot_time",
+                ]].rename(columns={
+                    "name": "종목명",
+                    "current_price": "현재가",
+                    "fluctuation_rate": "등락률(%)",
+                    "market_cap_eok": "시가총액(억원)",
+                    "trading_value_eok": "거래대금(억원)",
+                    "program_net_buy_eok": "프로그램 순매수(억원)",
+                    "program_net_ratio": "프로그램 비중(%)",
+                    "sector": "업종",
+                    "snapshot_time": "수급 기준시각",
+                })
+                st.dataframe(
+                    display.style.format({
+                        "현재가": "{:,.0f}원",
+                        "등락률(%)": "{:+.2f}%",
+                        "시가총액(억원)": "{:,.0f}",
+                        "거래대금(억원)": "{:,.1f}",
+                        "프로그램 순매수(억원)": "{:,.1f}",
+                        "프로그램 비중(%)": "{:.2f}%",
+                    }, na_rep="-"),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
     # 탭 1: 분석 시각까지의 분봉으로 계산한 지수 대비 상대강도
     with tab1:

@@ -10,6 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 from dotenv import load_dotenv
+from program_net_buy_scanner import ProgramNetBuyScanner
 
 # .env 파일에서 환경변수 로드
 load_dotenv()
@@ -1092,6 +1093,12 @@ class StockCrawler:
         df_vol_top = apply_sector(df_vol_top)
         df_for_top = apply_sector(df_for_top)
         df_inst_top = apply_sector(df_inst_top)
+
+        # 거래대금 상위 60개 주식의 종목별 프로그램 순매수를 같은 시각 기준으로 저장합니다.
+        try:
+            ProgramNetBuyScanner(self).run(df_vol_top, session=session)
+        except Exception as error:
+            print(f"[Program Net Buy Warning] 프로그램 순매수 수집 실패: {error}")
         
         # --- DB 저장 ---
         print("DB에 데이터를 저장합니다...")
