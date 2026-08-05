@@ -11,10 +11,37 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def calculate_daily_market_strength(session_scores):
+    """Turn the closing cumulative state into a path-aware daily judgment."""
+    required = ["morning", "afternoon", "closing"]
+    if any(name not in session_scores or pd.isna(session_scores[name]) for name in required):
+        return None, 0, "오전·오후·종가 데이터가 모두 있어야 계산됩니다."
+    morning, afternoon, closing = (float(session_scores[name]) for name in required)
+    adjustment = 0
+    reason = "시간대 흐름이 엇갈려 별도 보정 없음"
+    if morning < afternoon < closing:
+        adjustment = 5
+        reason = "누적 강도가 오전부터 종가까지 계속 개선되어 +5점"
+    elif morning > afternoon > closing:
+        adjustment = -10
+        reason = "누적 강도가 오전부터 종가까지 계속 약화되어 -10점"
+    elif closing >= max(morning, afternoon) + 20 and (morning + afternoon) / 2 < 50:
+        adjustment = -5
+        reason = "종가 누적점수만 급반등해 신뢰도 보정 -5점"
+    total = max(0, min(100, round(closing + adjustment)))
+    return total, adjustment, reason
+
+
 class MarketStrengthAnalyzer:
     MORNING_SNAPSHOT_TIMES = ["09:15", "09:30", "09:45"]
-    AFTERNOON_SNAPSHOT_TIMES = ["13:30", "13:45", "14:00"]
-    CLOSING_SNAPSHOT_TIMES = ["14:30", "15:00", "15:20", "15:30"]
+    MIDDAY_SNAPSHOT_TIMES = ["10:30", "11:30", "12:30", "13:00"]
+    CHECKPOINT_SNAPSHOT_TIMES = MORNING_SNAPSHOT_TIMES + MIDDAY_SNAPSHOT_TIMES[:2]
+    AFTERNOON_SEGMENT_TIMES = ["13:30", "13:45", "14:00"]
+    CLOSING_SEGMENT_TIMES = ["14:30", "15:00", "15:20", "15:30"]
+    AFTERNOON_SNAPSHOT_TIMES = (
+        MORNING_SNAPSHOT_TIMES + MIDDAY_SNAPSHOT_TIMES + AFTERNOON_SEGMENT_TIMES
+    )
+    CLOSING_SNAPSHOT_TIMES = AFTERNOON_SNAPSHOT_TIMES + CLOSING_SEGMENT_TIMES
     BASIS_MAX_ABS = 20.0
     BASIS_MAX_TIME_GAP_SECONDS = 60
 
@@ -69,6 +96,8 @@ class MarketStrengthAnalyzer:
             return times
         if self.analysis_type == "morning":
             return self.MORNING_SNAPSHOT_TIMES
+        if self.analysis_type == "checkpoint":
+            return self.CHECKPOINT_SNAPSHOT_TIMES
         if self.analysis_type == "afternoon":
             return self.AFTERNOON_SNAPSHOT_TIMES
         return self.CLOSING_SNAPSHOT_TIMES
@@ -76,8 +105,9 @@ class MarketStrengthAnalyzer:
     def _analysis_label(self):
         labels = {
             "morning": "오전 흐름",
-            "afternoon": "오후 흐름",
-            "closing": "종가 흐름",
+            "checkpoint": "11:30 누적 기준값",
+            "afternoon": "오후까지 누적",
+            "closing": "종가까지 누적",
             "manual": "수동 흐름",
         }
         if self.analysis_type == "manual":
@@ -330,9 +360,10 @@ class MarketStrengthAnalyzer:
                     """
                     SELECT snapshot_time, program_net, arbitrage_net, non_arbitrage_net
                     FROM market_program_snapshots
-                    WHERE trade_date = ? AND analysis_type = ?
+                    WHERE trade_date = ?
+                    ORDER BY collected_at_kst, analysis_type
                     """,
-                    (self.target_date, self.analysis_type),
+                    (self.target_date,),
                 ).fetchall()
                 conn.close()
             except sqlite3.OperationalError:
@@ -363,8 +394,10 @@ class MarketStrengthAnalyzer:
             },
         )
         rows = data.get("output", []) or []
-        snapshots = {}
+        snapshots = dict(collected)
         for snapshot_time in self.snapshot_times:
+            if snapshot_time in snapshots:
+                continue
             row = self._nearest_row(rows, self._time_to_hhmmss(snapshot_time), "bsop_hour")
             snapshots[snapshot_time] = {
                 "program_net": self._to_float(row.get("whol_smtn_ntby_tr_pbmn")),
@@ -372,6 +405,27 @@ class MarketStrengthAnalyzer:
                 "non_arbitrage_net": self._to_float(row.get("nabt_smtn_ntby_tr_pbmn")),
             }
         return snapshots
+
+    def _load_stored_snapshots(self):
+        """Reuse confirmed earlier-session values when a late REST window cannot reach them."""
+        fields = [
+            "foreign_futures_net", "basis", "program_net", "arbitrage_net",
+            "non_arbitrage_net", "kospi200_futures_price", "futures_day_high",
+            "futures_day_low", "futures_vwap",
+        ]
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                f"""SELECT snapshot_time, {', '.join(fields)}
+                FROM market_strength_snapshots
+                WHERE trade_date=?
+                ORDER BY collected_at_kst, analysis_type""",
+                (self.target_date,),
+            ).fetchall()
+        return {
+            row[0]: {field: row[index + 1] for index, field in enumerate(fields)}
+            for row in rows
+            if row[0] in self.snapshot_times
+        }
 
     def _fetch_active_futures_code(self):
         data = self._kis_get(
@@ -803,12 +857,26 @@ class MarketStrengthAnalyzer:
         }
 
     def _combine_snapshots(self, program_snapshots, futures_snapshots):
+        stored_snapshots = self._load_stored_snapshots()
         snapshots = {}
         for snapshot_time in self.snapshot_times:
+            current_futures = {
+                key: value
+                for key, value in futures_snapshots.get(snapshot_time, {}).items()
+                if value is not None
+                and not (
+                    key in {
+                        "kospi200_futures_price", "futures_day_high",
+                        "futures_day_low", "futures_vwap",
+                    }
+                    and value == 0
+                )
+            }
             snapshots[snapshot_time] = {
                 "foreign_futures_net": None,
+                **stored_snapshots.get(snapshot_time, {}),
                 **program_snapshots.get(snapshot_time, {}),
-                **futures_snapshots.get(snapshot_time, {}),
+                **current_futures,
             }
         return snapshots
 

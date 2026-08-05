@@ -26,8 +26,10 @@ class ProgramTradeCollector:
     }
     SESSION_CONFIG = {
         "morning": {
-            "targets": ["09:15", "09:30", "09:45"],
-            "stop_time": "09:46",
+            "targets": [
+                "09:15", "09:30", "09:45", "10:30", "11:30", "12:30", "13:00",
+            ],
+            "stop_time": "13:01",
         },
         "afternoon": {
             "targets": ["13:30", "13:45", "14:00"],
@@ -49,9 +51,9 @@ class ProgramTradeCollector:
         self.trade_date = datetime.now(self.KST).strftime("%Y%m%d")
         self.targets = self.SESSION_CONFIG[analysis_type]["targets"]
         self.stop_at = self._today_at(self.SESSION_CONFIG[analysis_type]["stop_time"])
-        self.saved = set()
-        self.last_tick = None
         self._init_db()
+        self.saved = self._load_saved_targets()
+        self.last_tick = None
 
     def _today_at(self, hhmm):
         hour, minute = map(int, hhmm.split(":"))
@@ -74,6 +76,16 @@ class ProgramTradeCollector:
                 )
                 """
             )
+
+    def _load_saved_targets(self):
+        """Resume safely after a service reconnect or restart during the session."""
+        with sqlite3.connect(self.db_path, timeout=30) as conn:
+            rows = conn.execute(
+                """SELECT snapshot_time FROM market_program_snapshots
+                WHERE trade_date=? AND analysis_type=?""",
+                (self.trade_date, self.analysis_type),
+            ).fetchall()
+        return {row[0] for row in rows if row[0] in self.targets}
 
     def _get_approval_key(self):
         if not self.app_key or not self.app_secret:

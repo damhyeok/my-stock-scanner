@@ -25,7 +25,7 @@ from model_labels import ModelLabelBuilder
 from model_schema import init_model_tables
 from stock_chart_analyzer import StockChartAnalyzer
 from model_1_scanner import scan_model_tables
-from market_strength import MarketStrengthAnalyzer
+from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
 from market_betting_engine.streamlit_tab import render_market_betting_tab
 from close_bet_staged.rule_model_ui import render_rule_model_section
 
@@ -496,26 +496,6 @@ def market_strength_status(score):
     return "위험"
 
 
-def calculate_daily_market_strength(session_scores):
-    required = ['morning', 'afternoon', 'closing']
-    if any(name not in session_scores or pd.isna(session_scores[name]) for name in required):
-        return None, 0, "오전·오후·종가 데이터가 모두 있어야 계산됩니다."
-    morning, afternoon, closing = (float(session_scores[name]) for name in required)
-    base = morning * 0.20 + afternoon * 0.30 + closing * 0.50
-    adjustment = 0
-    reason = "시간대 흐름이 엇갈려 별도 보정 없음"
-    if morning < afternoon < closing:
-        adjustment = 5
-        reason = "장중 강도가 계속 개선되어 +5점"
-    elif morning > afternoon > closing:
-        adjustment = -10
-        reason = "장중 강도가 계속 약화되어 -10점"
-    elif closing >= max(morning, afternoon) + 20 and (morning + afternoon) / 2 < 50:
-        adjustment = -5
-        reason = "종가만 급반등해 신뢰도 보정 -5점"
-    total = max(0, min(100, round(base + adjustment)))
-    return total, adjustment, reason
-
 def display_sector_summary(df, title="📊 업종별 종목 묶음 보기", show_rate=False):
     """해당 리스트의 업종별 요약과 포함된 종목 리스트를 아래에 출력합니다."""
     if 'sector' in df.columns and not df.empty:
@@ -600,8 +580,8 @@ def get_market_strength_data():
         if 'analysis_label' not in df.columns:
             df['analysis_label'] = df['analysis_type'].map({
                 'morning': '오전 흐름',
-                'afternoon': '오후 흐름',
-                'closing': '종가 흐름',
+                'afternoon': '오후까지 누적',
+                'closing': '종가까지 누적',
                 'manual': '수동 흐름',
             }).fillna(df['analysis_type'])
         df = apply_current_market_strength_scoring(df)
@@ -1964,7 +1944,9 @@ else:
             else:
                 all_strength_groups = strength_selected.copy()
                 group_options = (
-                    strength_selected[['analysis_type', 'analysis_label']]
+                    strength_selected[
+                        strength_selected['analysis_type'] != 'checkpoint'
+                    ][['analysis_type', 'analysis_label']]
                     .drop_duplicates()
                 )
                 group_order = {'morning': 1, 'afternoon': 2, 'closing': 3, 'manual': 4}
@@ -1991,8 +1973,8 @@ else:
                     st.subheader("오늘 시장강도 종합")
                     summary_types = [
                         ('morning', '오전'),
-                        ('afternoon', '오후'),
-                        ('closing', '종가'),
+                        ('afternoon', '오후까지 누적'),
+                        ('closing', '종가까지 누적'),
                     ]
                     session_scores = {}
                     for analysis_type, _ in summary_types:
@@ -2017,7 +1999,10 @@ else:
                         summary_columns[3].metric("하루 종합", "데이터 없음")
                     else:
                         summary_columns[3].metric("하루 종합", f"{daily_score}점", market_strength_status(daily_score))
-                        st.caption(f"하루 종합 · 오전 20% + 오후 30% + 종가 50% · {daily_reason}")
+                        st.caption(
+                            "하루 종합 · 종가까지 누적점수를 기본으로 사용하고 "
+                            f"오전→오후→종가 경로를 보정 · {daily_reason}"
+                        )
 
                 selected_group_label = st.selectbox(
                     "시장강도 흐름 선택",

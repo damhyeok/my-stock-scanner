@@ -109,7 +109,10 @@ def run_full_analysis(manual=False):
         ]
         _, scheduled_cron = min(schedule_slots, key=lambda item: abs(item[0] - current_minutes))
         env["GITHUB_EVENT_SCHEDULE"] = scheduled_cron
-        if scheduled_cron != "50 0 * * 1-5":
+        if scheduled_cron == "30 2 * * 1-5":
+            # 14시 누적 분석에서 API 조회 범위를 벗어나는 오전 값을 보존한다.
+            env["MARKET_STRENGTH_MODE"] = "checkpoint"
+        elif scheduled_cron != "50 0 * * 1-5":
             env["SKIP_MARKET_STRENGTH"] = "1"
     run_command([sys.executable, "main.py"], env=env)
 

@@ -1,10 +1,14 @@
-from market_strength import MarketStrengthAnalyzer
+import sqlite3
+
+from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
+from program_ws_collector import ProgramTradeCollector
 
 
 def make_analyzer(tmp_path):
     return MarketStrengthAnalyzer(
         db_path=str(tmp_path / "market.db"),
         analysis_type="closing",
+        snapshot_times=MarketStrengthAnalyzer.CLOSING_SEGMENT_TIMES,
     )
 
 
@@ -174,3 +178,90 @@ def test_basis_outside_safe_range_is_invalid(tmp_path):
     snapshots = suspicious_snapshots()
     snapshots["14:30"]["basis"] = analyzer.BASIS_MAX_ABS + 0.01
     assert analyzer._basis_is_valid(snapshots) is False
+
+
+def test_market_strength_windows_are_cumulative():
+    assert MarketStrengthAnalyzer.MORNING_SNAPSHOT_TIMES == ["09:15", "09:30", "09:45"]
+    assert MarketStrengthAnalyzer.AFTERNOON_SNAPSHOT_TIMES[0] == "09:15"
+    assert MarketStrengthAnalyzer.AFTERNOON_SNAPSHOT_TIMES[-1] == "14:00"
+    assert MarketStrengthAnalyzer.CLOSING_SNAPSHOT_TIMES[0] == "09:15"
+    assert MarketStrengthAnalyzer.CLOSING_SNAPSHOT_TIMES[-1] == "15:30"
+    assert "11:30" in MarketStrengthAnalyzer.CLOSING_SNAPSHOT_TIMES
+    assert MarketStrengthAnalyzer.CHECKPOINT_SNAPSHOT_TIMES == [
+        "09:15", "09:30", "09:45", "10:30", "11:30",
+    ]
+
+
+def test_program_collector_extends_through_lunch(tmp_path):
+    collector = ProgramTradeCollector("morning", db_path=str(tmp_path / "program.db"))
+    assert collector.targets == [
+        "09:15", "09:30", "09:45", "10:30", "11:30", "12:30", "13:00",
+    ]
+    assert collector.stop_at.strftime("%H:%M") == "13:01"
+
+
+def test_cumulative_program_data_combines_session_rows(tmp_path, monkeypatch):
+    program_db = tmp_path / "program.db"
+    with sqlite3.connect(program_db) as conn:
+        conn.execute(
+            """CREATE TABLE market_program_snapshots (
+            trade_date TEXT, analysis_type TEXT, snapshot_time TEXT,
+            program_net REAL, arbitrage_net REAL, non_arbitrage_net REAL,
+            source TEXT, collected_at_kst TEXT,
+            PRIMARY KEY (trade_date, analysis_type, snapshot_time))"""
+        )
+    analyzer = MarketStrengthAnalyzer(
+        db_path=str(tmp_path / "market.db"), analysis_type="afternoon"
+    )
+    with sqlite3.connect(program_db) as conn:
+        for index, snapshot_time in enumerate(analyzer.snapshot_times):
+            analysis_type = "morning" if snapshot_time <= "13:00" else "afternoon"
+            conn.execute(
+                "INSERT INTO market_program_snapshots VALUES (?,?,?,?,?,?,?,?)",
+                (
+                    analyzer.target_date, analysis_type, snapshot_time, index,
+                    index + 1, index + 2, "TEST", f"2026-08-05 {snapshot_time}:00",
+                ),
+            )
+    monkeypatch.setenv("PROGRAM_SNAPSHOT_DB", str(program_db))
+    snapshots = analyzer._fetch_program_snapshots()
+    assert list(snapshots) == analyzer.snapshot_times
+    assert snapshots["09:15"]["program_net"] == 0
+    assert snapshots["14:00"]["program_net"] == len(analyzer.snapshot_times) - 1
+
+
+def test_stored_morning_values_fill_late_api_gaps(tmp_path):
+    analyzer = MarketStrengthAnalyzer(
+        db_path=str(tmp_path / "market.db"), analysis_type="closing"
+    )
+    with sqlite3.connect(analyzer.db_path) as conn:
+        conn.execute(
+            """INSERT INTO market_strength_snapshots
+            (trade_date,analysis_type,analysis_label,snapshot_time,basis,
+             program_net,arbitrage_net,non_arbitrage_net,kospi200_futures_price,
+             futures_day_high,futures_day_low,futures_vwap,collected_at_kst)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                analyzer.target_date, "morning", "오전 흐름", "09:15", 1.2,
+                10, 1, 9, 100, 101, 99, 100, "2026-08-05 09:50:00",
+            ),
+        )
+    combined = analyzer._combine_snapshots(
+        {"09:15": {"program_net": 20, "arbitrage_net": 2, "non_arbitrage_net": 18}},
+        {"09:15": {"basis": None, "kospi200_futures_price": 0}},
+    )
+    assert combined["09:15"]["basis"] == 1.2
+    assert combined["09:15"]["kospi200_futures_price"] == 100
+    assert combined["09:15"]["program_net"] == 20
+
+
+def test_daily_score_uses_closing_cumulative_state_and_path_adjustment():
+    assert calculate_daily_market_strength(
+        {"morning": 50, "afternoon": 60, "closing": 70}
+    )[:2] == (75, 5)
+    assert calculate_daily_market_strength(
+        {"morning": 80, "afternoon": 70, "closing": 60}
+    )[:2] == (50, -10)
+    assert calculate_daily_market_strength(
+        {"morning": 55, "afternoon": 50, "closing": 65}
+    )[:2] == (65, 0)
