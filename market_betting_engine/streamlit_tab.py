@@ -659,9 +659,9 @@ def render_sector_strength_flow_tab(
         "장중·오버나이트 분석과 동일한 기준으로 섹터를 판정합니다. "
         "초록색은 강세, 회색은 중립, 붉은색은 약세입니다."
     )
-    st.subheader("강세 조건이란? 쉽게 말하면")
-    st.markdown(
-        """
+    with st.expander("📖 강세 조건이란? 쉽게 보기", expanded=False):
+        st.markdown(
+            """
 한 종목만 잠깐 오르는 것이 아니라 **그 섹터의 여러 종목이 함께, 시장보다 강하게, 거래를 동반해 오르는지** 확인합니다.
 
 **1. 섹터 종목들이 자기 평균 매수가격보다 위에 있어야 합니다.**
@@ -679,8 +679,8 @@ def render_sector_strength_flow_tab(
 - **진짜 강세:** 세 조건이 각각 60% 이상으로 섹터 전반의 동반 강세가 확인된 상태
 
 최소 4종목 이상이 관측되어야 판정하며, 한 종목의 급등만으로는 강세가 되지 않습니다. **강세 후보는 일찍 알려주는 관심 신호이고, 실제 진입 검토는 강세 확산부터** 가능합니다. 추적 종목은 해당 섹터의 모든 상장 종목이 아니라 현재 분석 대상으로 선정된 주요 종목입니다.
-        """
-    )
+            """
+        )
     history, selected_run = build_sector_strength_history(
         db_path, selected_date, selected_session
     )
