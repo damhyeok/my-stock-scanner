@@ -29,6 +29,7 @@ from market_betting_engine.storage import (
 )
 from market_betting_engine.streamlit_tab import (
     build_sector_action_rows,
+    build_sector_strength_history,
     build_run_view,
     contextual_stock_action,
     decision_label,
@@ -133,6 +134,24 @@ class DecisionStorageTests(unittest.TestCase):
         self.assertEqual(view["market"]["decision"], "ALLOW")
         self.assertEqual(view["overnight"]["CLOSE_NEW_ENTRY"]["decision"], "ALLOWED")
         self.assertEqual(view["sectors"][0]["scope_id"], "반도체")
+
+    def test_sector_strength_history_uses_saved_market_betting_judgments(self):
+        save_decision_cycle(
+            self.db_path,
+            context=self.context,
+            result=self.result,
+            config_version="v1",
+            engine_version="e1",
+            run_id="sector-history",
+        )
+        history, selected = build_sector_strength_history(
+            str(self.db_path), "20260731", "정규장(16:00)"
+        )
+        self.assertEqual(selected["run_id"], "sector-history")
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["sector"], "반도체")
+        self.assertEqual(history[0]["status"], "강세 지속")
+        self.assertEqual(history[0]["score"], 2)
 
     def test_duplicate_run_id_rolls_back_second_transaction(self):
         kwargs = dict(

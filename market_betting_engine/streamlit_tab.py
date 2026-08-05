@@ -457,6 +457,195 @@ def selection_instruction(view: Mapping[str, Any]) -> str:
     return f"{prefix} 선별 대상은 강세 섹터뿐입니다. {details}"
 
 
+_SECTOR_SCORE = {
+    "LEADING": 2,
+    "EMERGING": 1,
+    "NEUTRAL": 0,
+    "FADING": -1,
+    "AVOID": -2,
+}
+
+_SECTOR_STRENGTH_KO = {
+    "LEADING": "강세 지속",
+    "EMERGING": "강세 시작",
+    "NEUTRAL": "중립",
+    "FADING": "강세 약화",
+    "AVOID": "약세·회피",
+    "NOT_EVALUABLE": "자료 부족",
+}
+
+
+def build_sector_strength_history(
+    db_path: str,
+    selected_date: str,
+    selected_session: str,
+) -> tuple[list[dict[str, Any]], Mapping[str, Any] | None]:
+    """Build one clean sector-state snapshot per underlying market-data minute."""
+
+    runs = list_decision_runs(
+        db_path,
+        target_trade_date=normalize_trade_date(selected_date),
+        limit=100,
+    )
+    selected_run = select_run_for_session(runs, selected_date, selected_session)
+    if selected_run is None:
+        return [], None
+    cutoff = _run_data_time(selected_run)
+    grouped: dict[str, Mapping[str, Any]] = {}
+
+    def usable(run: Mapping[str, Any]) -> bool:
+        return not run.get("quality_blocking") and run.get("market_decision") != "NOT_EVALUABLE"
+
+    for run in runs:
+        data_time = _run_data_time(run)
+        if data_time is None or (cutoff is not None and data_time > cutoff):
+            continue
+        key = data_time.strftime("%Y-%m-%dT%H:%M")
+        existing = grouped.get(key)
+        if existing is None or (usable(run) and not usable(existing)):
+            grouped[key] = run
+
+    history = []
+    for key, run in sorted(grouped.items()):
+        detail = load_decision_run(db_path, str(run["run_id"]))
+        if detail is None:
+            continue
+        data_time = _run_data_time(run)
+        for judgment in detail.get("judgments", []):
+            if judgment.get("scope_type") != "SECTOR":
+                continue
+            decision = str(judgment.get("decision", "NOT_EVALUABLE"))
+            history.append(
+                {
+                    "time": data_time,
+                    "time_label": data_time.strftime("%H:%M") if data_time else key[-5:],
+                    "sector": str(judgment.get("scope_id", "기타")),
+                    "decision": decision,
+                    "status": _SECTOR_STRENGTH_KO.get(decision, decision),
+                    "score": _SECTOR_SCORE.get(decision),
+                }
+            )
+    return history, selected_run
+
+
+def render_sector_strength_flow_tab(
+    st,
+    *,
+    db_path: str,
+    selected_date: str,
+    selected_session: str,
+) -> None:
+    """Render sector strength from the same decisions used by market betting."""
+
+    import altair as alt
+    import pandas as pd
+
+    st.header(f"🧭 오늘 섹터 강약 흐름 ({selected_date} · {selected_session})")
+    st.caption(
+        "장중·오버나이트 분석과 동일한 기준으로 섹터를 판정합니다. "
+        "초록색은 강세, 회색은 중립, 붉은색은 약세입니다."
+    )
+    history, selected_run = build_sector_strength_history(
+        db_path, selected_date, selected_session
+    )
+    if not history or selected_run is None:
+        st.info("선택한 날짜·시간까지 저장된 섹터 강약 분석이 없습니다.")
+        return
+
+    frame = pd.DataFrame(history).dropna(subset=["score"])
+    if frame.empty:
+        st.info("섹터 상태를 그래프로 표시할 수 있는 분석 기록이 없습니다.")
+        return
+    current_time = frame["time"].max()
+    current = frame[frame["time"] == current_time].copy()
+    current = current.sort_values(["score", "sector"], ascending=[False, True])
+    strong = current[current["decision"].isin(["LEADING", "EMERGING"])]["sector"].tolist()
+    weak = current[current["decision"].isin(["FADING", "AVOID"])]["sector"].tolist()
+    if strong:
+        st.success(f"현재 강한 섹터: {', '.join(strong)}")
+    else:
+        st.warning("현재 강세 기준을 통과한 섹터가 없습니다.")
+    if weak:
+        st.caption(f"현재 약하거나 약화 중인 섹터: {', '.join(weak)}")
+
+    color_domain = ["강세 지속", "강세 시작", "중립", "강세 약화", "약세·회피"]
+    color_range = ["#0b6e4f", "#55a868", "#b8b8b8", "#e07a5f", "#b23a48"]
+    st.subheader(f"{current_time:%H:%M} 현재 섹터 강약")
+    current_chart = (
+        alt.Chart(current)
+        .mark_bar(cornerRadiusEnd=5)
+        .encode(
+            x=alt.X(
+                "score:Q",
+                title="약세  ←  섹터 강도  →  강세",
+                scale=alt.Scale(domain=[-2.2, 2.2]),
+                axis=alt.Axis(values=[-2, -1, 0, 1, 2], labels=False),
+            ),
+            y=alt.Y("sector:N", title=None, sort="-x"),
+            color=alt.Color(
+                "status:N",
+                title="판정",
+                scale=alt.Scale(domain=color_domain, range=color_range),
+            ),
+            tooltip=[
+                alt.Tooltip("sector:N", title="섹터"),
+                alt.Tooltip("status:N", title="현재 상태"),
+                alt.Tooltip("time_label:N", title="데이터 시각"),
+            ],
+        )
+        .properties(height=max(260, len(current) * 48))
+    )
+    st.altair_chart(current_chart, use_container_width=True)
+
+    st.subheader("아침부터 선택 시각까지 강약 변화")
+    sector_order = current["sector"].tolist()
+    time_order = (
+        frame[["time", "time_label"]]
+        .drop_duplicates()
+        .sort_values("time")["time_label"]
+        .tolist()
+    )
+    heatmap = (
+        alt.Chart(frame)
+        .mark_rect(cornerRadius=3)
+        .encode(
+            x=alt.X("time_label:N", title="분석 데이터 시각", sort=time_order),
+            y=alt.Y("sector:N", title=None, sort=sector_order),
+            color=alt.Color(
+                "status:N",
+                title="판정",
+                scale=alt.Scale(domain=color_domain, range=color_range),
+            ),
+            tooltip=[
+                alt.Tooltip("time_label:N", title="시각"),
+                alt.Tooltip("sector:N", title="섹터"),
+                alt.Tooltip("status:N", title="상태"),
+            ],
+        )
+        .properties(height=max(260, len(sector_order) * 48))
+    )
+    st.altair_chart(heatmap, use_container_width=True)
+
+    leaders = []
+    for time_label in time_order:
+        snapshot = frame[frame["time_label"] == time_label]
+        passed = snapshot[snapshot["decision"].isin(["LEADING", "EMERGING"])]
+        leaders.append(
+            {
+                "시각": time_label,
+                "강세로 통과한 섹터": ", ".join(
+                    passed.sort_values("score", ascending=False)["sector"].tolist()
+                ) or "없음",
+            }
+        )
+    st.subheader("시각별 강세 섹터 요약")
+    st.dataframe(leaders, use_container_width=True, hide_index=True)
+    st.caption(
+        "이 그래프는 거래대금 자체를 돈의 순유입으로 단정하지 않습니다. "
+        "섹터 종목의 VWAP 위치, KOSPI 대비 강도, 거래 활동 증가와 가격 방향을 함께 사용합니다."
+    )
+
+
 def evidence_table(items: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
     return [
         {

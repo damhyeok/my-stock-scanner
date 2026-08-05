@@ -26,7 +26,10 @@ from model_schema import init_model_tables
 from stock_chart_analyzer import StockChartAnalyzer
 from model_1_scanner import scan_model_tables
 from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
-from market_betting_engine.streamlit_tab import render_market_betting_tab
+from market_betting_engine.streamlit_tab import (
+    render_market_betting_tab,
+    render_sector_strength_flow_tab,
+)
 from close_bet_staged.rule_model_ui import render_rule_model_section
 
 # Make local desktop runs read this project's .env regardless of the launch cwd.
@@ -2282,6 +2285,16 @@ else:
         render_market_betting_tab(st, **market_betting_kwargs)
 
     with tab10:
+        render_sector_strength_flow_tab(
+            st,
+            db_path=dashboard_db_path,
+            selected_date=str(selected_date),
+            selected_session=str(selected_session),
+        )
+        # The legacy turnover-normalization charts below are intentionally no
+        # longer rendered.  The user-facing sector-flow tab now uses the same
+        # market-betting judgments as the intraday/overnight tab.
+        st.stop()
         st.header(f"🧭 오늘 섹터 자금 이동 ({selected_date})")
         today_top60 = df_raw[
             (df_raw['date'] == selected_date)
