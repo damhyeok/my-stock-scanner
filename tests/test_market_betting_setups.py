@@ -63,12 +63,15 @@ class StructuralSetupTests(unittest.TestCase):
         self.assertEqual(result.setup_type, EntrySetupType.BREAKOUT)
         self.assertEqual(result.state_hint, StockState.TRIGGERED)
         self.assertLess(result.invalidation_price, result.entry_reference)
+        self.assertAlmostEqual(result.trigger_price, 100.1)
         self.assertGreaterEqual(result.reward_risk_ratio, 1.5)
 
     def test_near_resistance_waits_in_setup(self):
         result = self.assess(breakout_bars(99.8))
         self.assertEqual(result.setup_type, EntrySetupType.BREAKOUT)
         self.assertEqual(result.state_hint, StockState.SETUP)
+        self.assertAlmostEqual(result.trigger_price, 100.1)
+        self.assertAlmostEqual(result.entry_reference, result.trigger_price)
 
     def test_far_above_breakout_with_bad_risk_reward_is_extended(self):
         result = self.assess(breakout_bars(108.0))

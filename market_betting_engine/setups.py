@@ -40,6 +40,7 @@ class EntrySetupAssessment:
     state_hint: StockState
     evaluable: bool
     entry_reference: float | None = None
+    trigger_price: float | None = None
     invalidation_price: float | None = None
     reward_reference: float | None = None
     risk_per_share: float | None = None
@@ -79,6 +80,7 @@ def _finalize(
     setup_type: EntrySetupType,
     triggered: bool,
     entry: float,
+    trigger_price: float | None,
     invalidation: float,
     target: float,
     reference: float,
@@ -109,6 +111,7 @@ def _finalize(
         state_hint=state,
         evaluable=True,
         entry_reference=entry,
+        trigger_price=trigger_price,
         invalidation_price=invalidation,
         reward_reference=target,
         risk_per_share=risk,
@@ -151,7 +154,11 @@ def assess_entry_setup(
         return _finalize(
             setup_type=EntrySetupType.BREAKOUT,
             triggered=breakout_confirmed,
-            entry=current.close,
+            # For a pending breakout, risk/reward must be measured from the
+            # price that would actually confirm entry, not from the still-below-
+            # resistance current close.  Once confirmed, use the observed close.
+            entry=current.close if breakout_confirmed else breakout_trigger,
+            trigger_price=breakout_trigger,
             invalidation=invalidation,
             target=target,
             reference=resistance,
@@ -195,6 +202,11 @@ def assess_entry_setup(
         setup_type=EntrySetupType.PULLBACK,
         triggered=rebound_confirmed,
         entry=current.close,
+        # A pullback trigger is relational rather than a fixed price: the next
+        # minute must close above both its own open and the preceding close.
+        # Store the known preceding-close floor; the live bar's open remains a
+        # second condition at evaluation time.
+        trigger_price=current.close,
         invalidation=invalidation,
         target=resistance,
         reference=vwap,

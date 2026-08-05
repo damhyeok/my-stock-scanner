@@ -31,8 +31,11 @@ from market_betting_engine.streamlit_tab import (
     build_sector_action_rows,
     build_run_view,
     decision_label,
+    entry_condition_text,
     evidence_table,
+    invalidation_condition_text,
     reason_label,
+    reference_values_text,
     state_label,
     normalize_trade_date,
     select_run_for_session,
@@ -254,6 +257,27 @@ class DashboardViewTests(unittest.TestCase):
         self.assertIn("삼성전자", rows[0]["장중에는"])
         self.assertIn("조건부 후보", rows[0]["종가에는"])
         self.assertIn("반도체", selection_instruction(view))
+
+    def test_breakout_candidate_explains_trigger_and_invalidation_prices(self):
+        setup = {
+            "setup_type": "BREAKOUT",
+            "trigger_price": 25575.55,
+            "invalidation_price": 25473.35,
+            "reward_reference": 25750,
+        }
+        entry = entry_condition_text(setup, "SETUP")
+        invalidation = invalidation_condition_text(setup, "SETUP")
+        self.assertIn("25,576원", entry)
+        self.assertIn("1분봉 종가", entry)
+        self.assertIn("25,473원", invalidation)
+        self.assertIn("2개 연속", invalidation)
+        self.assertIn("추격하지 않습니다", invalidation)
+        references = reference_values_text(
+            setup,
+            {"features": {"last_close": 25500, "session_vwap": {"value": 25454.75}}},
+        )
+        self.assertIn("현재 약 25,500원", references)
+        self.assertIn("당일 종목 VWAP 약 25,455원", references)
 
     def test_korean_labels_and_evidence_rows(self):
         self.assertEqual(decision_label("SELECTIVE"), "선별 진입")

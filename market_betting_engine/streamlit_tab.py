@@ -266,11 +266,94 @@ def _stock_action(state: str) -> str:
     }.get(state, "관찰")
 
 
+def _price_text(value: Any) -> str:
+    try:
+        return f"약 {float(value):,.0f}원"
+    except (TypeError, ValueError):
+        return "계산 불가"
+
+
+def _setup_trigger_price(setup: Mapping[str, Any]) -> float | None:
+    value = setup.get("trigger_price")
+    if value is not None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+    if setup.get("setup_type") == "BREAKOUT" and setup.get("reference_level") is not None:
+        # Backward compatibility for runs saved before trigger_price was added.
+        return float(setup["reference_level"]) * 1.001
+    return None
+
+
+def entry_condition_text(setup: Mapping[str, Any], state: str) -> str:
+    """Explain the exact observable event required before an entry review."""
+
+    if state == "EXTENDED":
+        return "현재는 손익비가 불리합니다. 새 눌림 구조와 가까운 손절선이 다시 만들어질 때까지 기다립니다."
+    if state in {"FAILED", "INVALIDATED"}:
+        return "현재 상승 구조가 깨졌으므로 새 진입 구조가 다시 생기기 전에는 매수하지 않습니다."
+    if state == "NOT_EVALUABLE":
+        return "필수 분봉 자료가 확보된 뒤 다시 계산합니다."
+    setup_type = str(setup.get("setup_type", "NONE"))
+    if setup_type == "BREAKOUT":
+        trigger = _price_text(_setup_trigger_price(setup))
+        return (
+            f"1분봉 종가가 돌파 확인선 {trigger} 이상에서 마감하고, 그 시점의 당일 종목 VWAP 위를 "
+            "유지하며, KOSPI 대비 강세와 거래 활동 증가가 함께 확인되어야 합니다."
+        )
+    if setup_type == "PULLBACK":
+        return (
+            "1분봉이 직전 1분봉 종가보다 높고 양봉으로 마감하면서, 그 시점의 당일 종목 VWAP "
+            "부근 지지를 유지하고 KOSPI 대비 강세·거래 활동 증가가 함께 확인되어야 합니다."
+        )
+    return "아직 돌파 또는 눌림목 구조가 없어 구체적인 진입 가격을 제시할 수 없습니다."
+
+
+def invalidation_condition_text(setup: Mapping[str, Any], state: str) -> str:
+    invalidation = setup.get("invalidation_price")
+    target = setup.get("reward_reference")
+    if invalidation is None:
+        return "구조적 손절선을 계산하지 못했으므로 진입하지 않습니다."
+    text = f"진입 후 1분봉 종가가 구조 무효화선 {_price_text(invalidation)} 아래에서 2개 연속 마감하면 무효입니다."
+    if target is not None and state in {"SETUP", "TRIGGERED"}:
+        text += f" 시초가부터 목표 참고선 {_price_text(target)} 부근을 크게 넘겨 출발하면 추격하지 않습니다."
+    return text
+
+
+def reference_values_text(
+    setup: Mapping[str, Any],
+    stock_evidence: Mapping[str, Any],
+) -> str:
+    features = stock_evidence.get("features", {}) if isinstance(stock_evidence, Mapping) else {}
+    vwap = features.get("session_vwap", {}) if isinstance(features, Mapping) else {}
+    parts = []
+    if features.get("last_close") is not None:
+        parts.append(f"현재 {_price_text(features['last_close'])}")
+    if isinstance(vwap, Mapping) and vwap.get("value") is not None:
+        parts.append(f"당일 종목 VWAP {_price_text(vwap['value'])}")
+    if setup.get("setup_type") == "BREAKOUT" and setup.get("reference_level") is not None:
+        parts.append(f"저항선 {_price_text(setup['reference_level'])}")
+    trigger = _setup_trigger_price(setup)
+    if trigger is not None:
+        parts.append(f"진입 확인선 {_price_text(trigger)}")
+    return " · ".join(parts) if parts else "계산 가능한 참고값 없음"
+
+
+def _candidate_text(name: str, setup: Mapping[str, Any]) -> str:
+    if setup.get("setup_type") == "BREAKOUT":
+        return f"{name} — 1분봉 종가 {_price_text(_setup_trigger_price(setup))} 이상 확인 필요"
+    if setup.get("setup_type") == "PULLBACK":
+        return f"{name} — VWAP 지지 후 1분봉 반등 확인 필요"
+    return f"{name} — 새 가격 구조 확인 필요"
+
+
 def build_sector_action_rows(view: Mapping[str, Any]) -> list[dict[str, str]]:
     """Turn engine states into direct intraday/close-bet instructions."""
 
     names, stock_sectors = _stock_identity(view)
     stock_rows = list(view.get("stocks", []))
+    setups_by_symbol = view.get("setups", {}) if isinstance(view.get("setups"), Mapping) else {}
     market_decision = str(view.get("market", {}).get("decision", "NOT_EVALUABLE"))
     close_decision = str(
         view.get("overnight", {}).get("CLOSE_NEW_ENTRY", {}).get("decision", "NOT_EVALUABLE")
@@ -291,14 +374,18 @@ def build_sector_action_rows(view: Mapping[str, Any]) -> list[dict[str, str]]:
             row for row in stock_rows
             if stock_sectors.get(str(row.get("symbol", "")).zfill(6)) == sector_name
         ]
-        triggered = [
-            names.get(str(row.get("symbol", "")).zfill(6), str(row.get("symbol", "")))
-            for row in members if row.get("current_state") == "TRIGGERED"
-        ]
-        setups = [
-            names.get(str(row.get("symbol", "")).zfill(6), str(row.get("symbol", "")))
-            for row in members if row.get("current_state") == "SETUP"
-        ]
+        triggered = []
+        setups = []
+        for row in members:
+            symbol = str(row.get("symbol", "")).zfill(6)
+            candidate = _candidate_text(
+                names.get(symbol, symbol),
+                setups_by_symbol.get(symbol, {}),
+            )
+            if row.get("current_state") == "TRIGGERED":
+                triggered.append(candidate)
+            elif row.get("current_state") == "SETUP":
+                setups.append(candidate)
         if decision in {"FADING", "AVOID"}:
             intraday = "신규매수 피하기"
             close = "종가베팅 피하기"
@@ -306,13 +393,13 @@ def build_sector_action_rows(view: Mapping[str, Any]) -> list[dict[str, str]]:
             if triggered:
                 intraday = f"진입 검토: {', '.join(triggered[:3])}"
             elif setups:
-                intraday = f"후보: {', '.join(setups[:3])} — 아직 가격 신호 전"
+                intraday = f"후보: {', '.join(setups[:3])}"
             else:
                 intraday = "강한 섹터지만 현재 진입 신호 종목 없음"
             if close_decision in {"ALLOWED", "SELECTIVE"} and triggered:
                 close = f"종가베팅 검토: {', '.join(triggered[:3])}"
             elif close_decision in {"ALLOWED", "SELECTIVE"} and setups:
-                close = f"조건부 후보: {', '.join(setups[:3])} — 마감 신호 확인 필요"
+                close = f"조건부 후보: {', '.join(setups[:3])}"
             elif close_decision in {"ALLOWED", "SELECTIVE"}:
                 close = "현재 종가베팅 후보 없음"
             else:
@@ -498,6 +585,10 @@ def render_market_betting_tab(
                 f"{row['섹터']}: {row['종가에는']}" for row in close_candidates[:3]
             )
             st.info(f"종가 신규진입은 ‘{close_label}’입니다. {candidate_text}")
+            st.caption(
+                "조건부 후보는 아직 매수 승인이 아닙니다. 다음 거래일에는 그날의 시장·섹터·VWAP을 "
+                "새로 계산하며, 시초가가 확인선을 크게 뛰어넘으면 추격하지 않습니다."
+            )
         else:
             st.info(f"종가 신규진입은 ‘{close_label}’이지만 현재 종가베팅 조건을 갖춘 종목은 없습니다.")
 
@@ -568,20 +659,27 @@ def render_market_betting_tab(
             st.info("저장된 종목 상태가 없습니다.")
         else:
             names, stock_sectors = _stock_identity(view)
+            derived = run.get("derived_evidence") if isinstance(run, Mapping) else {}
+            bundle = derived.get("bundle", {}) if isinstance(derived, Mapping) else {}
+            stock_evidence = bundle.get("stocks", {}) if isinstance(bundle, Mapping) else {}
             rows = []
             for item in view["stocks"]:
                 setup = view["setups"].get(item["symbol"], {})
-                lifecycle = view["lifecycles"].get(item["symbol"], {})
+                state = str(item["current_state"])
                 rows.append(
                     {
                         "종목명": names.get(item["symbol"], item["symbol"]),
-                        "종목코드": item["symbol"],
                         "섹터": stock_sectors.get(item["symbol"], "기타"),
-                        "현재 판단": state_label(item["current_state"]),
-                        "지금 할 일": _stock_action(str(item["current_state"])),
+                        "현재 판단": state_label(state),
+                        "지금 할 일": _stock_action(state),
+                        "현재 가격 기준": reference_values_text(
+                            setup,
+                            stock_evidence.get(item["symbol"], {})
+                            if isinstance(stock_evidence, Mapping) else {},
+                        ),
+                        "진입하려면 확인할 신호": entry_condition_text(setup, state),
+                        "진입 취소·손절 조건": invalidation_condition_text(setup, state),
                         "판단 이유": reason_label(item["reason_code"]),
-                        "진입 참고가": setup.get("entry_reference"),
-                        "손절 기준가": setup.get("invalidation_price"),
                     }
                 )
             state_order = {
@@ -592,9 +690,8 @@ def render_market_betting_tab(
             rows.sort(key=lambda row: state_order.get(row["현재 판단"], 9))
             st.dataframe(rows, use_container_width=True, hide_index=True)
             st.caption(
-                "‘진입 조건 대기’는 후보일 뿐 매수 신호가 아닙니다. 가격이 진입 참고가를 돌파·지지하고 "
-                "시장과 섹터 조건까지 유지될 때 ‘진입 조건 충족’으로 바뀝니다. 빈 가격 칸은 해당 종목에서 "
-                "안전한 진입·손절 구조를 아직 만들지 못했다는 뜻입니다."
+                "‘진입 조건 대기’는 후보일 뿐 매수 신호가 아닙니다. 표에 적힌 가격 조건과 함께 "
+                "시장·섹터·상대강도·거래 활동 조건이 유지될 때만 ‘진입 조건 충족’으로 바뀝니다."
             )
             with st.expander("트리거와 상태가 무엇인지 보기"):
                 st.markdown(
