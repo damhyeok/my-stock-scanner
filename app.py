@@ -2288,8 +2288,11 @@ else:
             "db_source": dashboard_db_source,
         }
         # Streamlit Cloud can briefly keep an older imported module alive while
-        # reloading app.py. Only pass the new callback when that module supports it.
-        if "position_api" in inspect.signature(render_market_betting_tab).parameters:
+        # reloading app.py. Only pass newer arguments when that module supports them.
+        market_betting_parameters = inspect.signature(render_market_betting_tab).parameters
+        if "selected_session" in market_betting_parameters:
+            market_betting_kwargs["selected_session"] = str(selected_session)
+        if "position_api" in market_betting_parameters:
             market_betting_kwargs["position_api"] = oracle_request
         render_market_betting_tab(st, **market_betting_kwargs)
 

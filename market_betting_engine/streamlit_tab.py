@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Any, Callable, Mapping, Sequence
 
 from .storage import list_decision_runs, load_decision_run
@@ -40,7 +41,7 @@ _AXIS_KO = {
 }
 
 _CODE_KO = {
-    "PRICE_VWAP_STRUCTURE": "현재 가격이 당일 평균 매매가격(VWAP) 위인지와 최근 가격 방향",
+    "PRICE_VWAP_STRUCTURE": "현재 값이 분봉 기반 VWAP 기준선 위인지와 최근 가격 방향",
     "PRICE_STRUCTURE_UNAVAILABLE": "VWAP 및 최근 가격 방향 자료",
     "CLV_FLOW_PROXY_POSITIVE": "분봉 종가 위치로 추정한 매수 우위 — 실제 순매수 금액은 아님",
     "CLV_FLOW_PROXY_NEGATIVE": "분봉 종가 위치로 추정한 매도 우위 — 실제 순매수 금액은 아님",
@@ -56,7 +57,7 @@ _CODE_KO = {
     "RISING_ACTIVITY_CONFIRMS_DECLINE": "거래 활동 증가가 가격 하락과 함께 나타남",
     "ACTIVITY_NOT_EXPANDING": "최근 거래 활동이 뚜렷하게 증가하지 않음",
     "ACTIVITY_CONFIRMATION_UNAVAILABLE": "최근 거래 활동 증가 여부 자료",
-    "SECTOR_ABOVE_VWAP_RATIO": "추적 종목 중 당일 평균가격(VWAP) 위에 있는 종목 비율",
+    "SECTOR_ABOVE_VWAP_RATIO": "추적 종목 중 각 종목의 분봉 기반 VWAP 위에 있는 종목 비율",
     "SECTOR_ABOVE_VWAP_RATIO_UNAVAILABLE": "VWAP 위에 있는 섹터 종목 비율",
     "SECTOR_OUTPERFORMING_RATIO": "추적 종목 중 시장보다 강한 종목 비율",
     "SECTOR_OUTPERFORMING_RATIO_UNAVAILABLE": "시장보다 강한 섹터 종목 비율",
@@ -176,6 +177,183 @@ def normalize_trade_date(value: Any) -> str:
     return text
 
 
+def selected_session_time(selected_date: Any, selected_session: Any) -> datetime | None:
+    """Parse the dashboard session label into a naive KST wall-clock target."""
+
+    normalized = normalize_trade_date(selected_date)
+    match = re.search(r"(\d{1,2}):(\d{2})", str(selected_session or ""))
+    if not match:
+        return None
+    try:
+        return datetime.fromisoformat(
+            f"{normalized}T{int(match.group(1)):02d}:{int(match.group(2)):02d}:00"
+        )
+    except ValueError:
+        return None
+
+
+def _run_data_time(run: Mapping[str, Any]) -> datetime | None:
+    derived = run.get("derived_evidence")
+    if isinstance(derived, Mapping):
+        bundle = derived.get("bundle")
+        if isinstance(bundle, Mapping):
+            market = bundle.get("market_features")
+            if isinstance(market, Mapping) and market.get("as_of"):
+                try:
+                    return datetime.fromisoformat(str(market["as_of"])).replace(tzinfo=None)
+                except ValueError:
+                    pass
+    try:
+        return datetime.fromisoformat(str(run.get("evaluated_at_kst"))).replace(tzinfo=None)
+    except (TypeError, ValueError):
+        return None
+
+
+def select_run_for_session(
+    runs: Sequence[Mapping[str, Any]],
+    selected_date: Any,
+    selected_session: Any,
+) -> Mapping[str, Any] | None:
+    """Choose the usable run whose underlying market data is closest to the UI time."""
+
+    if not runs:
+        return None
+    target = selected_session_time(selected_date, selected_session)
+    if target is None:
+        return runs[0]
+
+    def distance(run: Mapping[str, Any]) -> float:
+        run_time = _run_data_time(run)
+        return abs((run_time - target).total_seconds()) if run_time else float("inf")
+
+    nearest_distance = min(distance(run) for run in runs)
+    # Never replace a 09:50 view with a valid-but-distant 15:30 result merely
+    # because the 09:50-era run was not evaluable.  Prefer a usable run only
+    # among records representing essentially the same selected time.
+    near = [run for run in runs if distance(run) <= nearest_distance + 5 * 60]
+    usable_near = [
+        run for run in near
+        if not run.get("quality_blocking") and run.get("market_decision") != "NOT_EVALUABLE"
+    ]
+    return min(usable_near or near, key=distance)
+
+
+def _stock_identity(view: Mapping[str, Any]) -> tuple[dict[str, str], dict[str, str]]:
+    run = view.get("run", {})
+    derived = run.get("derived_evidence") if isinstance(run, Mapping) else {}
+    adaptive = derived.get("adaptive_universe", {}) if isinstance(derived, Mapping) else {}
+    rows = adaptive.get("stocks", []) if isinstance(adaptive, Mapping) else []
+    names: dict[str, str] = {}
+    sectors: dict[str, str] = {}
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, Mapping):
+            continue
+        ticker = str(row.get("ticker", "")).zfill(6)
+        names[ticker] = str(row.get("name") or ticker)
+        sectors[ticker] = str(row.get("sector") or "기타")
+    return names, sectors
+
+
+def _stock_action(state: str) -> str:
+    return {
+        "TRIGGERED": "진입가·손절가를 확인하고 진입 검토",
+        "SETUP": "후보 종목 — 가격 신호가 나올 때까지 대기",
+        "WATCH": "아직 매수 대상 아님 — 관찰",
+        "EXTENDED": "이미 많이 올라 추격 매수 금지",
+        "FAILED": "신호 실패 — 매수하지 않기",
+        "INVALIDATED": "상승 논리 훼손 — 매수하지 않기",
+        "NOT_EVALUABLE": "자료 부족 — 판단 보류",
+    }.get(state, "관찰")
+
+
+def build_sector_action_rows(view: Mapping[str, Any]) -> list[dict[str, str]]:
+    """Turn engine states into direct intraday/close-bet instructions."""
+
+    names, stock_sectors = _stock_identity(view)
+    stock_rows = list(view.get("stocks", []))
+    market_decision = str(view.get("market", {}).get("decision", "NOT_EVALUABLE"))
+    close_decision = str(
+        view.get("overnight", {}).get("CLOSE_NEW_ENTRY", {}).get("decision", "NOT_EVALUABLE")
+    )
+    result = []
+    strength_label = {
+        "LEADING": "강세 지속",
+        "EMERGING": "강세 시작",
+        "NEUTRAL": "중립",
+        "FADING": "강세 약화",
+        "AVOID": "약세·회피",
+        "NOT_EVALUABLE": "자료 부족",
+    }
+    for sector in view.get("sectors", []):
+        sector_name = str(sector.get("scope_id", "기타"))
+        decision = str(sector.get("decision", "NOT_EVALUABLE"))
+        members = [
+            row for row in stock_rows
+            if stock_sectors.get(str(row.get("symbol", "")).zfill(6)) == sector_name
+        ]
+        triggered = [
+            names.get(str(row.get("symbol", "")).zfill(6), str(row.get("symbol", "")))
+            for row in members if row.get("current_state") == "TRIGGERED"
+        ]
+        setups = [
+            names.get(str(row.get("symbol", "")).zfill(6), str(row.get("symbol", "")))
+            for row in members if row.get("current_state") == "SETUP"
+        ]
+        if decision in {"FADING", "AVOID"}:
+            intraday = "신규매수 피하기"
+            close = "종가베팅 피하기"
+        elif decision in {"LEADING", "EMERGING"} and market_decision in {"ALLOW", "SELECTIVE"}:
+            if triggered:
+                intraday = f"진입 검토: {', '.join(triggered[:3])}"
+            elif setups:
+                intraday = f"후보: {', '.join(setups[:3])} — 아직 가격 신호 전"
+            else:
+                intraday = "강한 섹터지만 현재 진입 신호 종목 없음"
+            if close_decision in {"ALLOWED", "SELECTIVE"} and triggered:
+                close = f"종가베팅 검토: {', '.join(triggered[:3])}"
+            elif close_decision in {"ALLOWED", "SELECTIVE"} and setups:
+                close = f"조건부 후보: {', '.join(setups[:3])} — 마감 신호 확인 필요"
+            elif close_decision in {"ALLOWED", "SELECTIVE"}:
+                close = "현재 종가베팅 후보 없음"
+            else:
+                close = "시장 종가 조건이 열리지 않음"
+        elif decision == "NEUTRAL":
+            intraday = "강세 확인 전까지 관찰"
+            close = "종가베팅 대기"
+        else:
+            intraday = "자료 부족 — 판단 보류"
+            close = "자료 부족 — 판단 보류"
+        result.append(
+            {
+                "섹터": sector_name,
+                "현재 강도": strength_label.get(decision, decision_label(decision)),
+                "장중에는": intraday,
+                "종가에는": close,
+            }
+        )
+    order = {"LEADING": 0, "EMERGING": 1, "NEUTRAL": 2, "FADING": 3, "AVOID": 4, "NOT_EVALUABLE": 5}
+    decision_by_sector = {str(item.get("scope_id")): str(item.get("decision")) for item in view.get("sectors", [])}
+    return sorted(result, key=lambda row: order.get(decision_by_sector.get(row["섹터"], ""), 9))
+
+
+def selection_instruction(view: Mapping[str, Any]) -> str:
+    market = str(view.get("market", {}).get("decision", "NOT_EVALUABLE"))
+    sector_rows = build_sector_action_rows(view)
+    eligible = [row for row in sector_rows if row["현재 강도"] in {"강세 지속", "강세 시작"}]
+    if market == "ALLOW":
+        prefix = "시장 환경은 신규 진입을 허용합니다."
+    elif market == "SELECTIVE":
+        prefix = "시장 전체를 사는 장은 아닙니다."
+    elif market == "BLOCK":
+        return "지금은 신규 진입을 쉬는 구간입니다. 강한 종목이 보여도 새 매수는 피하세요."
+    else:
+        return "필수 시장 자료가 부족해 지금 매수해도 되는지 판단할 수 없습니다."
+    if not eligible:
+        return f"{prefix} 현재 강세로 통과한 섹터가 없어 신규매수는 기다리세요."
+    details = " / ".join(f"{row['섹터']}: {row['장중에는']}" for row in eligible[:3])
+    return f"{prefix} 선별 대상은 강세 섹터뿐입니다. {details}"
+
+
 def evidence_table(items: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
     return [
         {
@@ -240,15 +418,16 @@ def render_market_betting_tab(
     *,
     db_path: str,
     selected_date: str,
+    selected_session: str = "",
     db_source: str = "",
     position_api: Callable[..., tuple[Mapping[str, Any] | None, str]] | None = None,
 ) -> None:
     """Render into an already-created Streamlit tab container."""
 
-    st.header(f"🧠 장중·오버나이트 베팅 분석 ({selected_date})")
+    st.header(f"🧠 장중·오버나이트 베팅 분석 ({selected_date} · {selected_session or '최근 시각'})")
     st.caption(
-        "시장 → 섹터 → 종목 순서로 진입 가능성을 점검합니다. "
-        "분석 보조 기능이며 주문을 실행하지 않습니다."
+        "선택한 시간까지의 시장을 기준으로 지금 신규매수가 가능한지, 어느 섹터와 종목을 "
+        "봐야 하는지, 종가까지 보유할 만한지를 순서대로 보여줍니다."
     )
     runs = list_decision_runs(
         db_path,
@@ -264,28 +443,11 @@ def render_market_betting_tab(
             st.caption(f"조회 DB: {db_source}")
         return
 
-    labels = {
-        row["run_id"]: (
-            f"{row['evaluated_at_kst'][11:19]} · {decision_label(row['market_decision'])} · "
-            f"{row['session_phase']}"
-        )
-        for row in runs
-    }
-    default_run_index = next(
-        (
-            index for index, row in enumerate(runs)
-            if row.get("market_decision") != "NOT_EVALUABLE"
-        ),
-        0,
-    )
-    selected_run_id = st.selectbox(
-        "분석 실행 시각",
-        options=[row["run_id"] for row in runs],
-        format_func=lambda run_id: labels[run_id],
-        index=default_run_index,
-        key=f"market_betting_run_{selected_date}",
-    )
-    detail = load_decision_run(db_path, selected_run_id)
+    selected_run = select_run_for_session(runs, selected_date, selected_session)
+    if selected_run is None:
+        st.info("선택 시간에 대응하는 분석 기록이 없습니다.")
+        return
+    detail = load_decision_run(db_path, str(selected_run["run_id"]))
     if detail is None:
         st.error("선택한 실행 기록을 읽지 못했습니다.")
         return
@@ -293,19 +455,65 @@ def render_market_betting_tab(
     run = view["run"]
     market = view["market"]
     quality = run.get("quality") or {}
+    close_new = view["overnight"].get("CLOSE_NEW_ENTRY")
+    hold_existing = view["overnight"].get("HOLD_EXISTING")
+
+    target_time = selected_session_time(selected_date, selected_session)
+    data_time = _run_data_time(run)
+    if target_time and data_time:
+        gap_minutes = abs((data_time - target_time).total_seconds()) / 60
+        time_text = (
+            f"선택 시간 {target_time:%H:%M} · 실제 사용 데이터 {data_time:%H:%M}"
+        )
+        if gap_minutes > 10:
+            st.warning(f"{time_text} — 정확히 일치하는 분석이 없어 가장 가까운 기록을 사용했습니다.")
+        else:
+            st.caption(time_text)
+
+    st.subheader("지금 어떻게 행동하면 되나")
+    instruction = selection_instruction(view)
+    if str(market.get("decision")) == "BLOCK":
+        st.error(instruction)
+    elif str(market.get("decision")) == "NOT_EVALUABLE":
+        st.warning(instruction)
+    else:
+        st.info(instruction)
+
+    sector_actions = build_sector_action_rows(view)
+    close_candidates = [
+        row for row in sector_actions
+        if row["종가에는"].startswith(("종가베팅 검토", "조건부 후보"))
+    ]
+    if close_new:
+        close_label = decision_label(str(close_new.get("decision", "NOT_EVALUABLE")))
+        if close_candidates:
+            candidate_text = " / ".join(
+                f"{row['섹터']}: {row['종가에는']}" for row in close_candidates[:3]
+            )
+            st.info(f"종가 신규진입은 ‘{close_label}’입니다. {candidate_text}")
+        else:
+            st.info(f"종가 신규진입은 ‘{close_label}’이지만 현재 종가베팅 조건을 갖춘 종목은 없습니다.")
+
+    with st.expander("VWAP가 정확히 무엇인지 보기"):
+        st.markdown(
+            "- **종목 VWAP**: 해당 종목의 1분봉 대표가격을 거래량으로 가중한 당일 평균 기준선입니다. "
+            "실제 틱 체결 전체로 계산한 증권사 VWAP와는 조금 다를 수 있습니다.\n"
+            "- **KOSPI VWAP**: KOSPI는 직접 사고파는 종목이 아니므로 ‘코스피 매수가’가 아닙니다. "
+            "KOSPI 1분 지수값을 KIS가 제공한 지수 활동량으로 가중한 **장중 평균 지수 기준선**입니다.\n"
+            "- **선물 VWAP**: 분석 중인 KOSPI200 선물의 분봉 가격을 계약 거래량으로 가중한 평균 기준선입니다.\n\n"
+            "가격이 VWAP 위면 오늘 거래가 집중된 평균 구간보다 위에서 버티는 것이고, "
+            "아래면 평균 구간보다 약하다는 뜻입니다. VWAP 하나만으로 매수하지는 않습니다."
+        )
 
     cards = st.columns(5)
     cards[0].metric("장중 시장", decision_label(str(market.get("decision", run.get("market_decision", "-")))))
-    close_new = view["overnight"].get("CLOSE_NEW_ENTRY")
-    hold_existing = view["overnight"].get("HOLD_EXISTING")
     cards[1].metric("종가 신규진입", decision_label(close_new["decision"]) if close_new else "미평가")
     cards[2].metric("기존 보유", decision_label(hold_existing["decision"]) if hold_existing else "미평가")
     cards[3].metric("데이터 품질", "차단" if run.get("quality_blocking") else "통과")
     cards[4].metric("관측값", f"{int(run.get('observation_count', 0)):,}개")
 
     st.caption(
-        f"평가시각 {run.get('evaluated_at_kst', '-')} · 설정 {run.get('config_version', '-')} · "
-        f"엔진 {run.get('engine_version', '-')} · DB {db_source or db_path}"
+        f"분석 작업 완료 {run.get('evaluated_at_kst', '-')} · DB {db_source or db_path}"
     )
     if run.get("quality_blocking"):
         st.error("필수 데이터의 날짜·신선도·필드 의미가 확인되지 않아 투자 판단으로 승격하지 않았습니다.")
@@ -313,7 +521,7 @@ def render_market_betting_tab(
         st.warning("현재 임계값은 전문가 초깃값(placeholder)이며 확정 운영값이 아닙니다.")
 
     summary_tab, sector_tab, stock_tab, position_tab, verification_tab, quality_tab = st.tabs(
-        ["판단 근거", "섹터", "종목 상태", "보유 종목", "API 검증", "데이터 품질"]
+        ["왜 이런 결론인가", "섹터 강약·종가베팅", "종목별 지금 할 일", "보유 종목", "API 검증", "데이터 품질"]
     )
     with summary_tab:
         for title, judgment in [
@@ -324,65 +532,70 @@ def render_market_betting_tab(
             if not judgment:
                 continue
             st.subheader(f"{title}: {decision_label(judgment['decision'])}")
-            _render_evidence_group(st, "지지 근거", judgment.get("evidence", []), "success")
-            _render_evidence_group(st, "반대 증거", judgment.get("counter_evidence", []), "error")
-            _render_evidence_group(st, "경고", judgment.get("warnings", []), "warning")
-            _render_evidence_group(st, "차단 사유", judgment.get("blockers", []), "error")
+            st.caption(
+                "‘들어가도 되는 이유’가 우세해야 진입 쪽으로 판단합니다. "
+                "‘조심해야 하는 이유’는 약세 증거, ‘추가 확인할 점’은 확신을 낮추는 요소입니다."
+            )
+            _render_evidence_group(st, "들어가도 되는 이유", judgment.get("evidence", []), "success")
+            _render_evidence_group(st, "조심해야 하는 이유", judgment.get("counter_evidence", []), "error")
+            _render_evidence_group(st, "추가 확인할 점", judgment.get("warnings", []), "warning")
+            _render_evidence_group(st, "지금 들어가면 안 되는 이유", judgment.get("blockers", []), "error")
 
     with sector_tab:
         st.caption(
-            "섹터 판정은 시장 전체가 아니라 거래 활동으로 선별한 추적 종목 표본을 기준으로 합니다."
+            "강세 섹터와 약세 섹터, 장중 대응, 현재 시점 기준 종가베팅 후보를 한 번에 보여줍니다. "
+            "섹터 전체 종목이 아니라 거래가 활발한 추적 종목 표본을 기준으로 합니다."
         )
         if not view["sectors"]:
             st.info("저장된 섹터 판단이 없습니다.")
         else:
-            rows = [
-                {
-                    "섹터": item["scope_id"],
-                    "상태": decision_label(item["decision"]),
-                    "지지 근거 수": len(item.get("evidence", [])),
-                    "반대 증거 수": len(item.get("counter_evidence", [])),
-                    "경고 수": len(item.get("warnings", [])),
-                }
-                for item in view["sectors"]
-            ]
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+            st.dataframe(sector_actions, use_container_width=True, hide_index=True)
             for item in view["sectors"]:
                 with st.expander(f"{item['scope_id']} · {decision_label(item['decision'])}"):
-                    _render_evidence_group(st, "지지 근거", item.get("evidence", []), "success")
-                    _render_evidence_group(st, "반대 증거", item.get("counter_evidence", []), "error")
-                    _render_evidence_group(st, "경고", item.get("warnings", []), "warning")
+                    _render_evidence_group(st, "강하다고 보는 이유", item.get("evidence", []), "success")
+                    _render_evidence_group(st, "약하다고 보는 이유", item.get("counter_evidence", []), "error")
+                    _render_evidence_group(st, "추가 확인할 점", item.get("warnings", []), "warning")
 
     with stock_tab:
         if not view["stocks"]:
             st.info("저장된 종목 상태가 없습니다.")
         else:
+            names, stock_sectors = _stock_identity(view)
             rows = []
             for item in view["stocks"]:
                 setup = view["setups"].get(item["symbol"], {})
                 lifecycle = view["lifecycles"].get(item["symbol"], {})
                 rows.append(
                     {
+                        "종목명": names.get(item["symbol"], item["symbol"]),
                         "종목코드": item["symbol"],
-                        "진입 유형": state_label(setup.get("setup_type", "NONE")),
-                        "이전 상태": state_label(item["previous_state"]),
-                        "현재 상태": state_label(item["current_state"]),
-                        "진입 기준가": setup.get("entry_reference"),
-                        "무효화 가격": setup.get("invalidation_price"),
-                        "목표 참고가": setup.get("reward_reference"),
-                        "손익비": setup.get("reward_risk_ratio"),
-                        "트리거 추적": " / ".join(
-                            reason_label(reason) for reason in lifecycle.get("reasons", [])
-                        ),
-                        "트리거 후 분봉": lifecycle.get("bars_since_trigger", 0),
-                        "전환 사유": reason_label(item["reason_code"]),
+                        "섹터": stock_sectors.get(item["symbol"], "기타"),
+                        "현재 판단": state_label(item["current_state"]),
+                        "지금 할 일": _stock_action(str(item["current_state"])),
+                        "판단 이유": reason_label(item["reason_code"]),
+                        "진입 참고가": setup.get("entry_reference"),
+                        "손절 기준가": setup.get("invalidation_price"),
                     }
                 )
+            state_order = {
+                "진입 조건 충족": 0, "진입 조건 대기": 1, "관찰 중": 2,
+                "과열·추격 금지": 3, "판단 자료 부족": 4,
+                "진입 신호 실패": 5, "상승 논리 무효": 6,
+            }
+            rows.sort(key=lambda row: state_order.get(row["현재 판단"], 9))
             st.dataframe(rows, use_container_width=True, hide_index=True)
             st.caption(
-                "진입 기준가와 무효화 가격은 구조적 참고값입니다. "
-                "실제 신규 진입 검토는 시장·섹터 게이트까지 통과한 TRIGGERED 상태에서만 가능합니다."
+                "‘진입 조건 대기’는 후보일 뿐 매수 신호가 아닙니다. 가격이 진입 참고가를 돌파·지지하고 "
+                "시장과 섹터 조건까지 유지될 때 ‘진입 조건 충족’으로 바뀝니다. 빈 가격 칸은 해당 종목에서 "
+                "안전한 진입·손절 구조를 아직 만들지 못했다는 뜻입니다."
             )
+            with st.expander("트리거와 상태가 무엇인지 보기"):
+                st.markdown(
+                    "- **트리거**: 관심 후보가 실제 매수 검토 단계로 넘어가기 위한 가격 신호입니다. "
+                    "예를 들어 저항 돌파 후 유지, 눌림목에서 VWAP 지지 등이 해당합니다.\n"
+                    "- **신호가 아직 없음**: 오류가 아니라, 후보 조건은 있어도 실제 가격 확인이 끝나지 않았다는 뜻입니다.\n"
+                    "- **가격 칸이 비어 있음**: 돌파·눌림 구조 또는 손절 기준을 계산할 수 없어 억지로 가격을 만들지 않은 것입니다."
+                )
 
     with position_tab:
         st.subheader("내 보유 종목")

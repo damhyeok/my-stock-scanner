@@ -28,12 +28,16 @@ from market_betting_engine.storage import (
     save_decision_cycle,
 )
 from market_betting_engine.streamlit_tab import (
+    build_sector_action_rows,
     build_run_view,
     decision_label,
     evidence_table,
     reason_label,
     state_label,
     normalize_trade_date,
+    select_run_for_session,
+    selected_session_time,
+    selection_instruction,
 )
 
 
@@ -197,6 +201,60 @@ class DecisionStorageTests(unittest.TestCase):
 
 
 class DashboardViewTests(unittest.TestCase):
+    def test_sidebar_session_selects_closest_usable_market_data_time(self):
+        runs = [
+            {
+                "run_id": "0940",
+                "market_decision": "SELECTIVE",
+                "quality_blocking": 0,
+                "evaluated_at_kst": "2026-08-05T09:40:00+09:00",
+                "derived_evidence": {"bundle": {"market_features": {"as_of": "2026-08-05T09:40:00+09:00"}}},
+            },
+            {
+                "run_id": "0954",
+                "market_decision": "ALLOW",
+                "quality_blocking": 0,
+                "evaluated_at_kst": "2026-08-05T09:54:00+09:00",
+                "derived_evidence": {"bundle": {"market_features": {"as_of": "2026-08-05T09:54:00+09:00"}}},
+            },
+        ]
+        selected = select_run_for_session(runs, "20260805", "장중(09:50)")
+        self.assertEqual(selected["run_id"], "0954")
+        self.assertEqual(
+            selected_session_time("20260805", "장중(09:50)"),
+            datetime(2026, 8, 5, 9, 50),
+        )
+
+    def test_time_matching_does_not_substitute_distant_valid_run(self):
+        runs = [
+            {
+                "run_id": "close-valid", "market_decision": "SELECTIVE", "quality_blocking": 0,
+                "evaluated_at_kst": "2026-08-05T15:30:00+09:00",
+            },
+            {
+                "run_id": "morning-unavailable", "market_decision": "NOT_EVALUABLE", "quality_blocking": 1,
+                "evaluated_at_kst": "2026-08-05T09:52:00+09:00",
+            },
+        ]
+        selected = select_run_for_session(runs, "20260805", "장중(09:50)")
+        self.assertEqual(selected["run_id"], "morning-unavailable")
+
+    def test_sector_action_names_the_sector_and_candidate_stock(self):
+        view = {
+            "run": {"derived_evidence": {"adaptive_universe": {"stocks": [
+                {"ticker": "005930", "name": "삼성전자", "sector": "반도체"},
+            ]}}},
+            "market": {"decision": "SELECTIVE"},
+            "overnight": {"CLOSE_NEW_ENTRY": {"decision": "SELECTIVE"}},
+            "sectors": [{"scope_id": "반도체", "decision": "LEADING"}],
+            "stocks": [{"symbol": "005930", "current_state": "SETUP"}],
+        }
+        rows = build_sector_action_rows(view)
+        self.assertEqual(rows[0]["현재 강도"], "강세 지속")
+        self.assertIn("삼성전자", rows[0]["장중에는"])
+        self.assertIn("조건부 후보", rows[0]["종가에는"])
+        self.assertIn("반도체", selection_instruction(view))
+
     def test_korean_labels_and_evidence_rows(self):
         self.assertEqual(decision_label("SELECTIVE"), "선별 진입")
         self.assertEqual(decision_label("UNKNOWN_STATE"), "UNKNOWN_STATE")
@@ -206,7 +264,7 @@ class DashboardViewTests(unittest.TestCase):
             "message": "VWAP distance=0.0012, short return=0.0025",
         }])
         self.assertEqual(rows[0]["분석 항목"], "가격 흐름")
-        self.assertIn("당일 평균 매매가격", rows[0]["무엇을 보는지"])
+        self.assertIn("분봉 기반 VWAP", rows[0]["무엇을 보는지"])
         self.assertEqual(rows[0]["현재 관측"], "가격의 VWAP 대비 위치 +0.12%, 최근 수익률 +0.25%")
         self.assertEqual(state_label("EXTENDED"), "과열·추격 금지")
         self.assertIn("추격하지 않습니다", reason_label("RISK_REWARD_EXTENDED"))
