@@ -697,6 +697,58 @@ def build_sector_strength_history(
     return history, selected_run
 
 
+def build_daily_sector_strength_history(
+    db_path: str,
+    selected_date: str,
+    selected_session: str,
+    *,
+    recent_days: int = 10,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Build one same-session sector snapshot for each recent trade date."""
+
+    target_date = normalize_trade_date(selected_date)
+    runs = [
+        run
+        for run in list_decision_runs(db_path, limit=1000)
+        if str(run.get("target_trade_date", "")) <= target_date
+    ]
+    dates = sorted({str(run.get("target_trade_date")) for run in runs if run.get("target_trade_date")})
+    dates = dates[-max(1, min(int(recent_days), 30)):]
+    history = []
+    for trade_date in dates:
+        date_runs = [run for run in runs if str(run.get("target_trade_date")) == trade_date]
+        selected_run = select_run_for_session(date_runs, trade_date, selected_session)
+        if selected_run is None:
+            continue
+        detail = load_decision_run(db_path, str(selected_run["run_id"]))
+        if detail is None:
+            continue
+        data_time = _run_data_time(selected_run)
+        for judgment in detail.get("judgments", []):
+            if judgment.get("scope_type") != "SECTOR":
+                continue
+            sector = str(judgment.get("scope_id", "기타"))
+            summary = _sector_summary(detail, sector)
+            member_groups = _sector_member_groups(detail, sector)
+            decision = _sector_breadth_tier(judgment, summary)
+            history.append(
+                {
+                    "date": trade_date,
+                    "date_label": trade_date[5:].replace("-", "/"),
+                    "data_time_label": data_time.strftime("%H:%M") if data_time else "-",
+                    "sector": sector,
+                    "decision": decision,
+                    "status": _SECTOR_STRENGTH_KO.get(decision, decision),
+                    "score": _SECTOR_SCORE.get(decision),
+                    "reason": _sector_reason_text(judgment, summary, decision),
+                    "vwap_members": ", ".join(member_groups["above_vwap"]),
+                    "outperforming_members": ", ".join(member_groups["outperforming"]),
+                    "activity_members": ", ".join(member_groups["activity_confirming"]),
+                }
+            )
+    return history, dates
+
+
 def render_sector_strength_flow_tab(
     st,
     *,
@@ -770,11 +822,11 @@ def render_sector_strength_flow_tab(
 
     color_domain = [
         "진짜 강세", "강세 확산", "강세 후보", "강세 지속", "강세 시작",
-        "중립", "강세 약화", "약세·회피", "자료 부족",
+        "중립", "강세 약화", "약세·회피", "자료 부족", "미추적",
     ]
     color_range = [
         "#07523b", "#19945f", "#8bcf9b", "#0b6e4f", "#55a868",
-        "#b8b8b8", "#e07a5f", "#b23a48", "#d9d9d9",
+        "#b8b8b8", "#e07a5f", "#b23a48", "#d9d9d9", "#f2f2f2",
     ]
     st.subheader(f"{current_time:%H:%M} 현재 섹터 강약")
     current_chart = (
@@ -855,6 +907,127 @@ def render_sector_strength_flow_tab(
         .properties(height=max(260, len(sector_order) * 48))
     )
     st.altair_chart(heatmap, use_container_width=True)
+
+    st.divider()
+    st.subheader("📅 최근 거래일별 섹터 강약 흐름")
+    st.caption(
+        f"각 거래일의 {selected_session}에 가장 가까운 분석 결과를 한 칸으로 표시합니다. "
+        "같은 시간 기준으로 비교하므로 하루 중 서로 다른 시각을 섞지 않습니다."
+    )
+    recent_days = st.selectbox(
+        "최근 몇 거래일을 볼까요?",
+        [5, 10, 20],
+        index=1,
+        key=f"daily_sector_days_{selected_date}_{selected_session}",
+    )
+    daily_history, daily_dates = build_daily_sector_strength_history(
+        db_path,
+        selected_date,
+        selected_session,
+        recent_days=recent_days,
+    )
+    if not daily_history:
+        st.info("최근 거래일별 섹터 분석 기록이 아직 없습니다.")
+    else:
+        daily_frame = pd.DataFrame(daily_history)
+        ranking = (
+            daily_frame.groupby("sector", as_index=False)["score"]
+            .max()
+            .sort_values(["score", "sector"], ascending=[False, True])
+        )
+        latest_daily_date = max(daily_dates)
+        latest_sectors = daily_frame[daily_frame["date"] == latest_daily_date]["sector"].tolist()
+        positive_sectors = ranking[ranking["score"] > 0]["sector"].tolist()
+        default_sectors = list(dict.fromkeys(latest_sectors + positive_sectors))[:10]
+        sector_options = ranking["sector"].tolist()
+        selected_sectors = st.multiselect(
+            "그래프에 표시할 섹터",
+            sector_options,
+            default=default_sectors,
+            key=f"daily_sector_selection_{selected_date}_{selected_session}",
+        )
+        if not selected_sectors:
+            st.info("그래프에서 확인할 섹터를 하나 이상 선택해 주세요.")
+        else:
+            lookup = {
+                (str(row.date), str(row.sector)): row._asdict()
+                for row in daily_frame.itertuples(index=False)
+            }
+            daily_grid = []
+            for trade_date in daily_dates:
+                for sector in selected_sectors:
+                    row = lookup.get((trade_date, sector))
+                    daily_grid.append(
+                        row
+                        or {
+                            "date": trade_date,
+                            "date_label": trade_date[5:].replace("-", "/"),
+                            "data_time_label": "-",
+                            "sector": sector,
+                            "decision": "UNTRACKED",
+                            "status": "미추적",
+                            "score": None,
+                            "reason": "이 거래일에는 주요 분석 섹터로 선정되지 않음",
+                            "vwap_members": "",
+                            "outperforming_members": "",
+                            "activity_members": "",
+                        }
+                    )
+            daily_grid_frame = pd.DataFrame(daily_grid)
+            date_order = [date[5:].replace("-", "/") for date in daily_dates]
+            daily_chart = (
+                alt.Chart(daily_grid_frame)
+                .mark_rect(cornerRadius=3)
+                .encode(
+                    x=alt.X("date_label:N", title="거래일", sort=date_order),
+                    y=alt.Y("sector:N", title=None, sort=selected_sectors),
+                    color=alt.Color(
+                        "status:N",
+                        title="판정",
+                        scale=alt.Scale(domain=color_domain, range=color_range),
+                    ),
+                    tooltip=[
+                        alt.Tooltip("date:N", title="날짜"),
+                        alt.Tooltip("data_time_label:N", title="사용한 데이터 시각"),
+                        alt.Tooltip("sector:N", title="섹터"),
+                        alt.Tooltip("status:N", title="상태"),
+                        alt.Tooltip("reason:N", title="판단 이유"),
+                    ],
+                )
+                .properties(height=max(260, len(selected_sectors) * 48))
+            )
+            st.altair_chart(daily_chart, use_container_width=True)
+            st.caption(
+                "흰색 ‘미추적’은 약세라는 뜻이 아니라, 해당 날짜에 거래활동 상위 분석 섹터로 "
+                "선정되지 않았다는 뜻입니다."
+            )
+
+            with st.expander("🔎 날짜별 판정 이유와 종목 보기", expanded=False):
+                detail_date = st.selectbox(
+                    "날짜",
+                    list(reversed(daily_dates)),
+                    key=f"daily_sector_detail_date_{selected_date}_{selected_session}",
+                )
+                detail_sector = st.selectbox(
+                    "섹터",
+                    selected_sectors,
+                    key=f"daily_sector_detail_name_{selected_date}_{selected_session}",
+                )
+                detail_rows = daily_grid_frame[
+                    (daily_grid_frame["date"] == detail_date)
+                    & (daily_grid_frame["sector"] == detail_sector)
+                ]
+                if detail_rows.empty or detail_rows.iloc[0]["status"] == "미추적":
+                    st.info("선택한 날짜에는 이 섹터가 주요 분석 대상으로 선정되지 않았습니다.")
+                else:
+                    detail_row = detail_rows.iloc[0]
+                    st.markdown(f"**{detail_sector} · {detail_row['status']}**")
+                    st.write(detail_row["reason"])
+                    st.markdown(
+                        f"**각 종목의 VWAP 위**  \n{member_line(detail_row['vwap_members'])}\n\n"
+                        f"**같은 시간 코스피보다 강함**  \n{member_line(detail_row['outperforming_members'])}\n\n"
+                        f"**거래 증가와 가격 상승이 함께 나타남**  \n{member_line(detail_row['activity_members'])}"
+                    )
 
     st.subheader("현재 강세 섹터를 그렇게 판단한 이유")
     current_strong = current[current["decision"].isin(_POSITIVE_SECTOR_TIERS)]

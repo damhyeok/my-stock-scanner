@@ -32,6 +32,7 @@ from market_betting_engine.streamlit_tab import (
     _sector_member_groups,
     _sector_reason_text,
     build_sector_action_rows,
+    build_daily_sector_strength_history,
     build_sector_strength_history,
     build_run_view,
     contextual_stock_action,
@@ -50,6 +51,31 @@ from market_betting_engine.streamlit_tab import (
 
 
 class DecisionStorageTests(unittest.TestCase):
+    def test_daily_sector_history_uses_one_same_session_snapshot_per_date(self):
+        for day, hour, run_id in ((30, 15, "day-30"), (31, 15, "day-31")):
+            context = SessionContext(
+                date(2026, 7, day),
+                datetime(2026, 7, day, hour, 25, tzinfo=KST),
+                True,
+                "TEST_CALENDAR",
+            )
+            save_decision_cycle(
+                self.db_path,
+                context=context,
+                result=self.result,
+                config_version="v1",
+                engine_version="e1",
+                run_id=run_id,
+            )
+
+        history, dates = build_daily_sector_strength_history(
+            str(self.db_path), "20260731", "정규장(16:00)", recent_days=10
+        )
+        self.assertEqual(dates, ["2026-07-30", "2026-07-31"])
+        self.assertEqual(len(history), 2)
+        self.assertEqual({row["date"] for row in history}, set(dates))
+        self.assertTrue(all(row["status"] == "강세 지속" for row in history))
+
     def test_sector_condition_members_are_exposed_by_stock_name(self):
         detail = {
             "run": {
