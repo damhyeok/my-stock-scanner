@@ -439,6 +439,56 @@ def build_sector_action_rows(view: Mapping[str, Any]) -> list[dict[str, str]]:
     return sorted(result, key=lambda row: order.get(decision_by_sector.get(row["섹터"], ""), 9))
 
 
+def build_sector_member_rows(view: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """List the tracked stocks behind each sector judgment with snapshot returns."""
+
+    run = view.get("run", {})
+    derived = run.get("derived_evidence") if isinstance(run, Mapping) else {}
+    adaptive = derived.get("adaptive_universe", {}) if isinstance(derived, Mapping) else {}
+    stocks = adaptive.get("stocks", []) if isinstance(adaptive, Mapping) else []
+    state_by_symbol = {
+        str(item.get("symbol", "")).zfill(6): str(item.get("current_state", "NOT_EVALUABLE"))
+        for item in view.get("stocks", [])
+        if isinstance(item, Mapping)
+    }
+    decision_by_sector = {
+        str(item.get("scope_id", "기타")): str(item.get("decision", "NOT_EVALUABLE"))
+        for item in view.get("sectors", [])
+        if isinstance(item, Mapping)
+    }
+    result = []
+    for item in stocks if isinstance(stocks, list) else []:
+        if not isinstance(item, Mapping):
+            continue
+        ticker = str(item.get("ticker", "")).zfill(6)
+        sector = str(item.get("sector") or "기타")
+        if sector not in decision_by_sector:
+            continue
+        try:
+            return_rate = float(item.get("fluctuation_rate") or 0)
+        except (TypeError, ValueError):
+            return_rate = 0.0
+        try:
+            trading_value_eok = float(item.get("trading_value") or 0) / 100_000_000
+        except (TypeError, ValueError):
+            trading_value_eok = 0.0
+        decision = decision_by_sector[sector]
+        result.append(
+            {
+                "섹터": sector,
+                "섹터 강도": _SECTOR_STRENGTH_KO.get(decision, decision_label(decision)),
+                "종목명": str(item.get("name") or ticker),
+                "현재 등락률(%)": return_rate,
+                "거래대금(억원)": trading_value_eok,
+                "현재 판단": state_label(state_by_symbol.get(ticker, "NOT_EVALUABLE")),
+            }
+        )
+    return sorted(
+        result,
+        key=lambda row: (row["섹터"], -row["현재 등락률(%)"], -row["거래대금(억원)"]),
+    )
+
+
 def selection_instruction(view: Mapping[str, Any]) -> str:
     market = str(view.get("market", {}).get("decision", "NOT_EVALUABLE"))
     sector_rows = build_sector_action_rows(view)
@@ -1281,6 +1331,45 @@ def render_market_betting_tab(
             st.info("저장된 섹터 판단이 없습니다.")
         else:
             st.dataframe(sector_actions, use_container_width=True, hide_index=True)
+            member_rows = build_sector_member_rows(view)
+            st.subheader("섹터별 분석 종목과 현재 등락률")
+            st.caption(
+                "각 수치는 실시간 현재값이 아니라 선택한 분석 시각에 저장된 값입니다. "
+                "해당 섹터 전체 상장 종목이 아니라 이번 분석에서 추적한 종목만 표시합니다."
+            )
+            if not member_rows:
+                st.info("이 분석 기록에는 섹터별 종목 등락률이 저장되어 있지 않습니다.")
+            else:
+                sector_order = [row["섹터"] for row in sector_actions]
+                for sector_name in sector_order:
+                    sector_members = [
+                        row for row in member_rows if row["섹터"] == sector_name
+                    ]
+                    if not sector_members:
+                        continue
+                    average_return = sum(
+                        row["현재 등락률(%)"] for row in sector_members
+                    ) / len(sector_members)
+                    sector_strength = sector_members[0]["섹터 강도"]
+                    title = (
+                        f"{sector_name} · {sector_strength} · {len(sector_members)}종목 · "
+                        f"평균 {average_return:+.2f}%"
+                    )
+                    with st.expander(title, expanded=False):
+                        display_rows = [
+                            {
+                                "종목명": row["종목명"],
+                                "현재 등락률": f"{row['현재 등락률(%)']:+.2f}%",
+                                "거래대금": f"{row['거래대금(억원)']:,.1f}억원",
+                                "현재 판단": row["현재 판단"],
+                            }
+                            for row in sector_members
+                        ]
+                        st.dataframe(
+                            display_rows,
+                            use_container_width=True,
+                            hide_index=True,
+                        )
             for item in view["sectors"]:
                 with st.expander(f"{item['scope_id']} · {decision_label(item['decision'])}"):
                     _render_evidence_group(st, "강하다고 보는 이유", item.get("evidence", []), "success")

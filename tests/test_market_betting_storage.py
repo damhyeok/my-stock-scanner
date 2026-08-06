@@ -33,6 +33,7 @@ from market_betting_engine.streamlit_tab import (
     _sector_reason_text,
     build_sector_action_rows,
     build_daily_sector_strength_history,
+    build_sector_member_rows,
     build_sector_strength_history,
     build_run_view,
     contextual_stock_action,
@@ -392,6 +393,37 @@ class DashboardViewTests(unittest.TestCase):
         self.assertIn("삼성전자", rows[0]["장중에는"])
         self.assertIn("조건부 후보", rows[0]["종가에는"])
         self.assertIn("반도체", selection_instruction(view))
+
+    def test_sector_member_rows_include_snapshot_return_and_sort_strongest_first(self):
+        view = {
+            "run": {"derived_evidence": {"adaptive_universe": {"stocks": [
+                {
+                    "ticker": "005930", "name": "삼성전자", "sector": "반도체",
+                    "fluctuation_rate": 1.25, "trading_value": 200_000_000_000,
+                },
+                {
+                    "ticker": "000660", "name": "SK하이닉스", "sector": "반도체",
+                    "fluctuation_rate": 3.5, "trading_value": 300_000_000_000,
+                },
+                {
+                    "ticker": "035420", "name": "NAVER", "sector": "인터넷",
+                    "fluctuation_rate": 5.0, "trading_value": 100_000_000_000,
+                },
+            ]}}},
+            "sectors": [{"scope_id": "반도체", "decision": "LEADING"}],
+            "stocks": [
+                {"symbol": "005930", "current_state": "WATCH"},
+                {"symbol": "000660", "current_state": "SETUP"},
+            ],
+        }
+
+        rows = build_sector_member_rows(view)
+
+        self.assertEqual([row["종목명"] for row in rows], ["SK하이닉스", "삼성전자"])
+        self.assertEqual(rows[0]["현재 등락률(%)"], 3.5)
+        self.assertEqual(rows[0]["거래대금(억원)"], 3000.0)
+        self.assertEqual(rows[0]["현재 판단"], "진입 조건 대기")
+        self.assertEqual(rows[0]["섹터 강도"], "강세 지속")
 
     def test_breakout_candidate_explains_trigger_and_invalidation_prices(self):
         setup = {
