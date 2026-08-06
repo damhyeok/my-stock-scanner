@@ -21,6 +21,7 @@ import plotly.graph_objects as go
 from analyzer import StockAnalyzer
 from model_1_scanner import scan_model_tables
 from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
+from program_net_divergence import build_program_price_divergence
 from market_betting_engine.streamlit_tab import (
     render_market_betting_tab,
     render_sector_strength_flow_tab,
@@ -1252,6 +1253,10 @@ else:
             (df_program_net_buy["trade_date"].astype(str) == str(selected_date))
             & (df_program_net_buy["session"].astype(str) == str(selected_session))
         ].copy() if not df_program_net_buy.empty else pd.DataFrame()
+        if not program_rows.empty:
+            program_rows = program_rows[
+                pd.to_numeric(program_rows["program_net_buy"], errors="coerce").fillna(0) > 0
+            ].copy()
         run_rows = df_program_net_buy_runs[
             (df_program_net_buy_runs["trade_date"].astype(str) == str(selected_date))
             & (df_program_net_buy_runs["session"].astype(str) == str(selected_session))
@@ -1306,6 +1311,101 @@ else:
                     }, na_rep="-"),
                     use_container_width=True,
                     hide_index=True,
+                )
+
+        st.divider()
+        st.subheader("📉 프로그램 순매수 증가 · 주가 등락률 하락")
+        st.caption(
+            "최근 최대 3회의 연속 분석에서 프로그램 누적 순매수 금액은 매번 증가했지만 "
+            "종목의 당일 등락률은 매번 낮아진 종목입니다. 매물을 받아내는 과정일 수 있지만 "
+            "그 자체가 매수 신호는 아니므로 가격 지지 여부를 함께 확인해야 합니다."
+        )
+        divergence_summary, divergence_history = build_program_price_divergence(
+            df_program_net_buy,
+            df_program_net_buy_runs,
+            str(selected_date),
+            str(selected_session),
+        )
+        if divergence_summary.empty:
+            st.info(
+                "선택 시각까지 연속 분석값이 2회 이상 쌓이지 않았거나, "
+                "프로그램 순매수 증가와 등락률 하락이 동시에 이어진 종목이 없습니다."
+            )
+        else:
+            divergence_display = divergence_summary.copy()
+            divergence_display["current_price"] = divergence_display["current_price"].map(
+                lambda value: f"{float(value):,.0f}원" if pd.notna(value) else "-"
+            )
+            divergence_display["current_return"] = divergence_display["current_return"].map(
+                lambda value: f"{float(value):+.2f}%"
+            )
+            divergence_display["return_change"] = divergence_display["return_change"].map(
+                lambda value: f"{float(value):+.2f}%p"
+            )
+            divergence_display["program_net_buy"] = divergence_display["program_net_buy"].map(
+                lambda value: f"{float(value) / 100_000_000:+,.1f}억원"
+            )
+            divergence_display["program_increase"] = divergence_display["program_increase"].map(
+                lambda value: f"{float(value) / 100_000_000:+,.1f}억원"
+            )
+            divergence_display = divergence_display[[
+                "name", "sector", "current_price", "current_return", "return_change",
+                "program_net_buy", "program_increase", "comparison_count",
+                "session_flow", "return_flow", "program_flow",
+            ]].rename(columns={
+                "name": "종목명",
+                "sector": "업종",
+                "current_price": "현재가",
+                "current_return": "현재 등락률",
+                "return_change": "등락률 변화",
+                "program_net_buy": "현재 프로그램 순매수",
+                "program_increase": "프로그램 증가액",
+                "comparison_count": "연속 괴리 구간",
+                "session_flow": "분석 시각",
+                "return_flow": "등락률 흐름",
+                "program_flow": "프로그램 순매수 흐름",
+            })
+            st.dataframe(divergence_display, use_container_width=True, hide_index=True)
+
+            candidate_options = divergence_summary["ticker"].astype(str).tolist()
+            candidate_names = dict(zip(
+                divergence_summary["ticker"].astype(str),
+                divergence_summary["name"].astype(str),
+            ))
+            selected_divergence_ticker = st.selectbox(
+                "흐름 차트로 확인할 종목",
+                candidate_options,
+                format_func=lambda ticker: f"{candidate_names.get(ticker, ticker)} ({ticker})",
+                key=f"program_price_divergence_{selected_date}_{selected_session}",
+            )
+            chart_data = divergence_history[
+                divergence_history["ticker"].astype(str) == str(selected_divergence_ticker)
+            ].sort_values("session_order")
+            session_order = chart_data["session_label"].tolist()
+            rate_col, program_col = st.columns(2)
+            with rate_col:
+                st.altair_chart(
+                    alt.Chart(chart_data).mark_line(point=True, color="#d95f02").encode(
+                        x=alt.X("session_label:N", title="분석 시각", sort=session_order),
+                        y=alt.Y("fluctuation_rate:Q", title="당일 등락률(%)"),
+                        tooltip=[
+                            alt.Tooltip("session_label:N", title="시각"),
+                            alt.Tooltip("fluctuation_rate:Q", title="등락률(%)", format="+.2f"),
+                        ],
+                    ).properties(title="종목 등락률 흐름", height=280),
+                    use_container_width=True,
+                )
+            with program_col:
+                st.altair_chart(
+                    alt.Chart(chart_data).mark_line(point=True, color="#1b9e77").encode(
+                        x=alt.X("session_label:N", title="분석 시각", sort=session_order),
+                        y=alt.Y("program_net_buy_eok:Q", title="프로그램 순매수(억원)"),
+                        tooltip=[
+                            alt.Tooltip("session_label:N", title="시각"),
+                            alt.Tooltip("program_net_buy_eok:Q", title="순매수(억원)", format="+,.1f"),
+                        ],
+                    ).properties(title="프로그램 순매수 흐름", height=280),
+                    use_container_width=True,
                 )
 
     # 탭 1: 분석 시각까지의 분봉으로 계산한 지수 대비 상대강도

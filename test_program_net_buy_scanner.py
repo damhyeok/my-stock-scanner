@@ -93,13 +93,13 @@ class ProgramNetBuyScannerTest(unittest.TestCase):
 
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute(
-                "SELECT ticker, program_net_buy FROM stock_program_net_snapshots"
+                "SELECT ticker, program_net_buy FROM stock_program_net_snapshots ORDER BY ticker"
             ).fetchall()
             run = conn.execute(
                 "SELECT status, universe_count, queried_count, positive_count, failure_count "
                 "FROM stock_program_net_runs"
             ).fetchone()
-        self.assertEqual(rows, [("005930", 5_000_000_000)])
+        self.assertEqual(rows, [("000660", -100_000_000), ("005930", 5_000_000_000)])
         self.assertEqual(run, ("success", 2, 2, 1, 0))
 
     def test_records_partial_status_without_discarding_good_rows(self):

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from analysis_schedule import closest_full_analysis_cron
 from market_strength import MarketStrengthAnalyzer
 from program_ws_collector import ProgramTradeCollector
 from sector_flow_collector import SectorFlowCollector
@@ -99,15 +100,7 @@ def run_full_analysis(manual=False):
     if manual:
         env["ANALYSIS_RUN_MODE"] = "full"
     else:
-        current_minutes = now.hour * 60 + now.minute
-        schedule_slots = [
-            (9 * 60 + 30, "30 0 * * 1-5"),
-            (9 * 60 + 50, "50 0 * * 1-5"),
-            (11 * 60 + 30, "30 2 * * 1-5"),
-            (14 * 60, "0 5 * * 1-5"),
-            (16 * 60, "0 7 * * 1-5"),
-        ]
-        _, scheduled_cron = min(schedule_slots, key=lambda item: abs(item[0] - current_minutes))
+        scheduled_cron = closest_full_analysis_cron(now.hour, now.minute)
         env["GITHUB_EVENT_SCHEDULE"] = scheduled_cron
         if scheduled_cron == "30 2 * * 1-5":
             # 14시 누적 분석에서 API 조회 범위를 벗어나는 오전 값을 보존한다.

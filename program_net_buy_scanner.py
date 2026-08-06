@@ -142,8 +142,6 @@ class ProgramNetBuyScanner:
                 if not program_row:
                     continue
                 program_net_buy = int(self._number(program_row.get("whol_smtn_ntby_tr_pbmn")))
-                if program_net_buy <= 0:
-                    continue
                 trading_value = int(self._number(row.get("trading_value")))
                 records.append(
                     {
@@ -183,6 +181,7 @@ class ProgramNetBuyScanner:
             status = "partial"
         else:
             status = "success"
+        positive_records = [row for row in records if row["program_net_buy"] > 0]
 
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
@@ -218,7 +217,7 @@ class ProgramNetBuyScanner:
                     status,
                     len(universe),
                     queried_count,
-                    len(records),
+                    len(positive_records),
                     len(failures),
                     " | ".join(failures[:5]) or None,
                     completed_at,
@@ -228,6 +227,6 @@ class ProgramNetBuyScanner:
         print(
             "[Program Net Buy] "
             f"session={session}, universe={len(universe)}, queried={queried_count}, "
-            f"positive={len(records)}, failures={len(failures)}, status={status}"
+            f"positive={len(positive_records)}, failures={len(failures)}, status={status}"
         )
-        return pd.DataFrame(records)
+        return pd.DataFrame(positive_records)

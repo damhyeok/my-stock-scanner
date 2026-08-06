@@ -10,6 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 from dotenv import load_dotenv
+from analysis_schedule import FULL_ANALYSIS_SESSION_BY_CRON
 from program_net_buy_scanner import ProgramNetBuyScanner
 
 # .env 파일에서 환경변수 로드
@@ -515,16 +516,8 @@ class StockCrawler:
     def _get_session_name(self):
         now = datetime.now(self.kst)
         hour, minute = now.hour, now.minute
-        scheduled_sessions = {
-            "30 0 * * 1-5": "장중(09:30)",
-            "50 0 * * 1-5": "장중(09:50)",
-            "30 2 * * 1-5": "장중(11:30)",
-            "0 5 * * 1-5": "장중(14:00)",
-            "0 7 * * 1-5": "정규장(16:00)",
-        }
-
-        if self.scheduled_cron in scheduled_sessions:
-            return scheduled_sessions[self.scheduled_cron]
+        if self.scheduled_cron in FULL_ANALYSIS_SESSION_BY_CRON:
+            return FULL_ANALYSIS_SESSION_BY_CRON[self.scheduled_cron]
 
         if self.run_mode == "full":
             return f"수동({hour:02d}:{minute:02d})"
