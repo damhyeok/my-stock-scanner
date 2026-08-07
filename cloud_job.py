@@ -60,6 +60,46 @@ def pull_latest():
         run_command(["git", "pull", "--rebase", "--autostash", "origin", "main"])
 
 
+def refresh_stock_analysis_timer():
+    """Keep the installed Oracle full-analysis timer in sync with the repo.
+
+    Pulling the repository does not update the copy already installed under
+    /etc/systemd/system. Oracle Ubuntu images normally grant the ubuntu user
+    passwordless sudo, so a regular analysis run can repair a stale timer
+    without requiring another interactive SSH session.
+    """
+
+    if os.name == "nt":
+        return False
+
+    source = PROJECT_DIR / "deploy" / "oracle-cloud" / "stock-analysis.timer"
+    target = Path("/etc/systemd/system/stock-analysis.timer")
+    if not source.is_file():
+        print(f"[Timer Refresh Warning] source timer not found: {source}")
+        return False
+
+    try:
+        if target.is_file() and source.read_bytes() == target.read_bytes():
+            return False
+    except OSError as error:
+        print(f"[Timer Refresh] installed timer comparison skipped: {error}")
+
+    try:
+        run_command(
+            ["sudo", "-n", "install", "-m", "0644", str(source), str(target)]
+        )
+        run_command(["sudo", "-n", "systemctl", "daemon-reload"])
+        run_command(["sudo", "-n", "systemctl", "restart", "stock-analysis.timer"])
+        print("[Timer Refresh] stock-analysis.timer updated and restarted.")
+        return True
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(
+            "[Timer Refresh Warning] automatic timer update failed; "
+            f"the current analysis continues: {error}"
+        )
+        return False
+
+
 def push_outputs(task_name):
     watchlist_summary = refresh_watchlist(PROJECT_DIR / "stock_data.db")
     print(
@@ -244,6 +284,8 @@ def main():
     else:
         with file_lock(".cloud_data.lock"):
             pull_latest()
+            if args.task == "full-analysis":
+                refresh_stock_analysis_timer()
             restore_working_database(
                 PROJECT_DIR / "web_data.db", PROJECT_DIR / "stock_data.db"
             )
