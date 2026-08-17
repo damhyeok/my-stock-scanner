@@ -1,6 +1,6 @@
 {
-  "started_at_kst": "2026-08-17T23:43:44+09:00",
-  "completed_at_kst": "2026-08-17T23:43:48+09:00",
+  "started_at_kst": "2026-08-17T23:52:27+09:00",
+  "completed_at_kst": "2026-08-18T00:07:35+09:00",
   "policy": {
     "stock_data": {
       "daily_stocks": [
@@ -107,9 +107,9 @@
   },
   "disk": {
     "total_bytes": 48274628608,
-    "used_bytes_before": 14074712064,
-    "used_bytes_after": 14074712064,
-    "free_bytes_after": 34183139328,
+    "used_bytes_before": 14074789888,
+    "used_bytes_after": 14074753024,
+    "free_bytes_after": 34183098368,
     "used_percent": 29.16,
     "status": "OK"
   },
@@ -147,8 +147,8 @@
       "sqlite": {
         "page_size": 4096,
         "page_count": 49286,
-        "free_pages": 3549,
-        "free_ratio": 0.07200827821287993
+        "free_pages": 3545,
+        "free_ratio": 0.07192711926307674
       },
       "integrity": "ok"
     },
@@ -175,8 +175,27 @@
     "deleted_observations": 0
   },
   "git": {
-    "exists": true,
-    "count_objects": "count: 5566\nsize: 6.88 GiB\nin-pack: 19958\npacks: 2\nsize-pack: 159.38 MiB\nprune-packable: 16\ngarbage: 0\nsize-garbage: 0 bytes",
-    "return_code": 0
+    "before": {
+      "exists": true,
+      "count_objects": "count: 5575\nsize: 7215000\nin-pack: 19958\npacks: 2\nsize-pack: 163209\nprune-packable: 16\ngarbage: 0\nsize-garbage: 0",
+      "return_code": 0,
+      "loose_objects": 5575,
+      "loose_bytes": 7388160000,
+      "packed_bytes": 167126016
+    },
+    "gc": {
+      "attempted": true,
+      "threshold_bytes": 536870912,
+      "return_code": null,
+      "error": "Command '['git', 'gc', '--prune=now']' timed out after 900 seconds"
+    },
+    "after": {
+      "exists": true,
+      "count_objects": "count: 5575\nsize: 7215000\nin-pack: 19958\npacks: 2\nsize-pack: 163209\nprune-packable: 16\ngarbage: 0\nsize-garbage: 0",
+      "return_code": 0,
+      "loose_objects": 5575,
+      "loose_bytes": 7388160000,
+      "packed_bytes": 167126016
+    }
   }
 }
