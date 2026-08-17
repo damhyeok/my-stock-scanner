@@ -56,7 +56,8 @@ class StorageMaintenanceTest(unittest.TestCase):
                 {"exists": True, "loose_bytes": 600 * 1024 * 1024},
             )
         self.assertTrue(above["attempted"])
-        run.assert_called_once()
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual(above["return_code"], 0)
 
 
 if __name__ == "__main__":

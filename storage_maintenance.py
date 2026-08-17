@@ -159,18 +159,44 @@ def _compact_git_repository(project_dir: Path, before: dict) -> dict:
     if not before.get("exists") or before.get("loose_bytes", 0) < threshold:
         return result
     result["attempted"] = True
+    commands = [
+        [
+            "git",
+            "-c",
+            "pack.threads=1",
+            "-c",
+            "pack.windowMemory=64m",
+            "repack",
+            "-d",
+            "--window=5",
+            "--depth=20",
+        ],
+        ["git", "prune-packed"],
+        ["git", "prune", "--expire", "now"],
+    ]
+    result["commands"] = []
     try:
-        completed = subprocess.run(
-            ["git", "gc", "--prune=now"],
-            cwd=project_dir,
-            capture_output=True,
-            text=True,
-            timeout=900,
-            check=False,
-        )
-        result["return_code"] = completed.returncode
-        result["stdout"] = completed.stdout.strip()
-        result["stderr"] = completed.stderr.strip()
+        for command in commands:
+            completed = subprocess.run(
+                command,
+                cwd=project_dir,
+                capture_output=True,
+                text=True,
+                timeout=14400,
+                check=False,
+            )
+            command_result = {
+                "command": " ".join(command),
+                "return_code": completed.returncode,
+                "stdout": completed.stdout.strip(),
+                "stderr": completed.stderr.strip(),
+            }
+            result["commands"].append(command_result)
+            if completed.returncode:
+                result["return_code"] = completed.returncode
+                break
+        else:
+            result["return_code"] = 0
     except (OSError, subprocess.SubprocessError) as error:
         result["error"] = str(error)
     return result
