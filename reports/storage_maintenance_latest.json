@@ -1,6 +1,6 @@
 {
-  "started_at_kst": "2026-08-17T23:25:00+09:00",
-  "completed_at_kst": "2026-08-17T23:25:05+09:00",
+  "started_at_kst": "2026-08-17T23:43:44+09:00",
+  "completed_at_kst": "2026-08-17T23:43:48+09:00",
   "policy": {
     "stock_data": {
       "daily_stocks": [
@@ -107,10 +107,10 @@
   },
   "disk": {
     "total_bytes": 48274628608,
-    "used_bytes_before": 14055723008,
-    "used_bytes_after": 14055727104,
-    "free_bytes_after": 34202124288,
-    "used_percent": 29.12,
+    "used_bytes_before": 14074712064,
+    "used_bytes_after": 14074712064,
+    "free_bytes_after": 34183139328,
+    "used_percent": 29.16,
     "status": "OK"
   },
   "databases": {
@@ -147,15 +147,15 @@
       "sqlite": {
         "page_size": 4096,
         "page_count": 49286,
-        "free_pages": 3555,
-        "free_ratio": 0.07213001663758471
+        "free_pages": 3549,
+        "free_ratio": 0.07200827821287993
       },
       "integrity": "ok"
     },
     "program_snapshots": {
       "path": "/home/ubuntu/my-stock-scanner/program_snapshots.db",
       "exists": true,
-      "bytes_before": 53248,
+      "bytes_before": 57344,
       "bytes_after": 57344,
       "deleted_rows": {
         "market_program_snapshots": 0
@@ -176,7 +176,7 @@
   },
   "git": {
     "exists": true,
-    "count_objects": "count: 5551\nsize: 6.88 GiB\nin-pack: 19958\npacks: 2\nsize-pack: 159.38 MiB\nprune-packable: 16\ngarbage: 0\nsize-garbage: 0 bytes",
+    "count_objects": "count: 5566\nsize: 6.88 GiB\nin-pack: 19958\npacks: 2\nsize-pack: 159.38 MiB\nprune-packable: 16\ngarbage: 0\nsize-garbage: 0 bytes",
     "return_code": 0
   }
 }
