@@ -2,8 +2,13 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from storage_maintenance import prune_database, run_storage_maintenance
+from storage_maintenance import (
+    _compact_git_repository,
+    prune_database,
+    run_storage_maintenance,
+)
 
 
 class StorageMaintenanceTest(unittest.TestCase):
@@ -37,6 +42,21 @@ class StorageMaintenanceTest(unittest.TestCase):
         self.assertIn(report["disk"]["status"], {"OK", "WARNING", "CRITICAL"})
         self.assertFalse(report["databases"]["stock_data"]["exists"])
         self.assertTrue((self.root / "reports" / "storage_maintenance_latest.json").is_file())
+
+    def test_git_compaction_runs_only_above_threshold(self):
+        below = _compact_git_repository(self.root, {"exists": True, "loose_bytes": 1})
+        self.assertFalse(below["attempted"])
+
+        with patch("storage_maintenance.subprocess.run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = ""
+            run.return_value.stderr = ""
+            above = _compact_git_repository(
+                self.root,
+                {"exists": True, "loose_bytes": 600 * 1024 * 1024},
+            )
+        self.assertTrue(above["attempted"])
+        run.assert_called_once()
 
 
 if __name__ == "__main__":

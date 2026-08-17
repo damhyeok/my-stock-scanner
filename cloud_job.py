@@ -334,9 +334,10 @@ def main():
                 if should_maintain:
                     allow_vacuum = datetime.now(KST).weekday() == 4
                     try:
-                        report = run_storage_maintenance(
-                            PROJECT_DIR, allow_vacuum=allow_vacuum
-                        )
+                        with file_lock(".cloud_git.lock"):
+                            report = run_storage_maintenance(
+                                PROJECT_DIR, allow_vacuum=allow_vacuum
+                            )
                         print(
                             "[Storage Maintenance] "
                             f"disk={report['disk']['used_percent']:.2f}% "

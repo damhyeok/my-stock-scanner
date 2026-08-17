@@ -127,7 +127,7 @@ def _git_storage(project_dir: Path) -> dict:
         return result
     try:
         completed = subprocess.run(
-            ["git", "count-objects", "-vH"],
+            ["git", "count-objects", "-v"],
             cwd=project_dir,
             capture_output=True,
             text=True,
@@ -136,6 +136,41 @@ def _git_storage(project_dir: Path) -> dict:
         )
         result["count_objects"] = completed.stdout.strip()
         result["return_code"] = completed.returncode
+        values = {}
+        for line in completed.stdout.splitlines():
+            key, separator, value = line.partition(":")
+            if separator:
+                values[key.strip()] = value.strip()
+        result["loose_objects"] = int(values.get("count", "0") or 0)
+        result["loose_bytes"] = int(values.get("size", "0") or 0) * 1024
+        result["packed_bytes"] = int(values.get("size-pack", "0") or 0) * 1024
+    except (OSError, subprocess.SubprocessError) as error:
+        result["error"] = str(error)
+    return result
+
+
+def _compact_git_repository(project_dir: Path, before: dict) -> dict:
+    threshold = 512 * 1024 * 1024
+    result = {
+        "attempted": False,
+        "threshold_bytes": threshold,
+        "return_code": None,
+    }
+    if not before.get("exists") or before.get("loose_bytes", 0) < threshold:
+        return result
+    result["attempted"] = True
+    try:
+        completed = subprocess.run(
+            ["git", "gc", "--prune=now"],
+            cwd=project_dir,
+            capture_output=True,
+            text=True,
+            timeout=900,
+            check=False,
+        )
+        result["return_code"] = completed.returncode
+        result["stdout"] = completed.stdout.strip()
+        result["stderr"] = completed.stderr.strip()
     except (OSError, subprocess.SubprocessError) as error:
         result["error"] = str(error)
     return result
@@ -162,6 +197,7 @@ def run_storage_maintenance(project_dir, *, allow_vacuum=False) -> dict:
     root = Path(project_dir).resolve()
     started = datetime.now(KST)
     disk_before = shutil.disk_usage(root)
+    git_before = _git_storage(root)
 
     stock_result = prune_database(
         root / "stock_data.db", STOCK_DATA_RETENTION, allow_vacuum=allow_vacuum
@@ -176,6 +212,8 @@ def run_storage_maintenance(project_dir, *, allow_vacuum=False) -> dict:
         keep_run_trade_dates=30,
         keep_raw_observation_trade_dates=2,
     )
+    git_gc = _compact_git_repository(root, git_before)
+    git_after = _git_storage(root)
 
     disk_after = shutil.disk_usage(root)
     used_ratio = disk_after.used / disk_after.total if disk_after.total else 0.0
@@ -204,7 +242,11 @@ def run_storage_maintenance(project_dir, *, allow_vacuum=False) -> dict:
             "deleted_runs": decision_prune.deleted_runs,
             "deleted_observations": decision_prune.deleted_observations,
         },
-        "git": _git_storage(root),
+        "git": {
+            "before": git_before,
+            "gc": git_gc,
+            "after": git_after,
+        },
     }
     _write_report(root / "reports" / "storage_maintenance_latest.json", report)
     return report
