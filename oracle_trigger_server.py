@@ -254,13 +254,31 @@ class TriggerHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         body = b""
-        if self.path not in ("/status", "/positions", "/verification-readiness"):
+        if self.path not in (
+            "/status", "/positions", "/verification-readiness", "/web-data"
+        ):
             self.send_json(404, {"error": "not_found"})
             return
         if not is_authorized(self, body):
             self.send_json(401, {"error": "unauthorized"})
             return
-        if self.path == "/positions":
+        if self.path == "/web-data":
+            compressed_db = PROJECT_DIR / "web_data.db.gz"
+            if not compressed_db.is_file():
+                self.send_json(503, {"error": "web_data_not_ready"})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/gzip")
+            self.send_header("Content-Length", str(compressed_db.stat().st_size))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            try:
+                with compressed_db.open("rb") as db_file:
+                    while chunk := db_file.read(1024 * 1024):
+                        self.wfile.write(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+        elif self.path == "/positions":
             try:
                 positions = [asdict(item) for item in list_positions(PROJECT_DIR / "stock_data.db")]
             except Exception:

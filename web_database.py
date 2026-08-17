@@ -1,5 +1,6 @@
 """Build the bounded SQLite snapshot deployed with the Streamlit app."""
 import argparse
+import gzip
 import os
 import shutil
 import sqlite3
@@ -105,11 +106,81 @@ def build_web_database(source="stock_data.db", target="web_data.db"):
     }
 
 
-def restore_working_database(web_db="web_data.db", working_db="stock_data.db"):
+def compress_web_database(source="web_data.db", target="web_data.db.gz"):
+    """Write a deterministic, atomically replaced gzip copy of a web DB."""
+
+    source_path = Path(source)
+    target_path = Path(target)
+    if not source_path.is_file():
+        raise FileNotFoundError(f"Web database not found: {source_path}")
+
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f"{target_path.stem}_", suffix=".gz", dir=target_path.parent
+    )
+    os.close(fd)
+    temp_path = Path(temp_name)
+    try:
+        with source_path.open("rb") as source_file, temp_path.open("wb") as raw_target:
+            with gzip.GzipFile(
+                filename=source_path.name,
+                mode="wb",
+                fileobj=raw_target,
+                mtime=0,
+            ) as compressed_file:
+                shutil.copyfileobj(source_file, compressed_file, length=1024 * 1024)
+        os.replace(temp_path, target_path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+    return {
+        "source_bytes": source_path.stat().st_size,
+        "compressed_bytes": target_path.stat().st_size,
+    }
+
+
+def decompress_web_database(source="web_data.db.gz", target="web_data.db"):
+    """Restore a gzip snapshot atomically and verify its SQLite header."""
+
+    source_path = Path(source)
+    target_path = Path(target)
+    if not source_path.is_file():
+        raise FileNotFoundError(f"Compressed web database not found: {source_path}")
+
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f"{target_path.stem}_", suffix=".db", dir=target_path.parent
+    )
+    os.close(fd)
+    temp_path = Path(temp_name)
+    try:
+        with gzip.open(source_path, "rb") as compressed_file, temp_path.open("wb") as db_file:
+            shutil.copyfileobj(compressed_file, db_file, length=1024 * 1024)
+        with temp_path.open("rb") as db_file:
+            if db_file.read(16) != b"SQLite format 3\000":
+                raise ValueError("Decompressed file is not a SQLite database.")
+        os.replace(temp_path, target_path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+    return target_path
+
+
+def restore_working_database(
+    web_db="web_data.db",
+    working_db="stock_data.db",
+    compressed_web_db="web_data.db.gz",
+    bootstrap_web_db="web_data.bootstrap.db.gz",
+):
     web_path = Path(web_db)
     working_path = Path(working_db)
     if working_path.is_file():
         return False
+    if not web_path.is_file() and Path(compressed_web_db).is_file():
+        decompress_web_database(compressed_web_db, web_path)
+    if not web_path.is_file() and Path(bootstrap_web_db).is_file():
+        decompress_web_database(bootstrap_web_db, web_path)
     if not web_path.is_file():
         raise FileNotFoundError(f"Neither {working_path} nor {web_path} exists")
     shutil.copy2(web_path, working_path)
@@ -120,6 +191,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", default="stock_data.db")
     parser.add_argument("--target", default="web_data.db")
+    parser.add_argument("--compressed-target", default="")
     args = parser.parse_args()
     summary = build_web_database(args.source, args.target)
     print(
@@ -127,3 +199,10 @@ if __name__ == "__main__":
         f"{summary['source_bytes'] / 1048576:.1f} MB -> "
         f"{summary['target_bytes'] / 1048576:.1f} MB"
     )
+    if args.compressed_target:
+        compressed = compress_web_database(args.target, args.compressed_target)
+        print(
+            "Web DB compressed: "
+            f"{compressed['source_bytes'] / 1048576:.1f} MB -> "
+            f"{compressed['compressed_bytes'] / 1048576:.1f} MB"
+        )

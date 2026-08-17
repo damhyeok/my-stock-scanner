@@ -22,6 +22,7 @@ from analyzer import StockAnalyzer
 from model_1_scanner import scan_model_tables
 from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
 from program_net_divergence import build_program_price_divergence
+from web_database import decompress_web_database
 from market_betting_engine.streamlit_tab import (
     render_market_betting_tab,
     render_sector_strength_flow_tab,
@@ -274,36 +275,54 @@ def configure_model_runtime_secrets():
 
 @st.cache_resource(show_spinner=False)
 def get_database_path():
-    repo = get_config_value("GITHUB_REPOSITORY", "damhyeok/my-stock-scanner")
-    branch = get_config_value("GITHUB_BRANCH", "main")
-    db_url = get_config_value(
-        "WEB_DB_URL",
-        f"https://raw.githubusercontent.com/{repo}/{branch}/web_data.db"
-    )
-    local_db_path = "web_data.db"
+    runtime_path = os.path.join(tempfile.gettempdir(), "web_data_runtime.db")
+    base_url = get_config_value(
+        "ORACLE_TRIGGER_URL", "http://161.33.27.132:8765"
+    ).rstrip("/")
+    secret = get_config_value("ORACLE_TRIGGER_SECRET")
 
+    if secret:
+        timestamp = str(int(time.time()))
+        nonce = uuid.uuid4().hex
+        body_hash = hashlib.sha256(b"").hexdigest()
+        payload = f"GET\n/web-data\n{timestamp}\n{nonce}\n{body_hash}".encode("utf-8")
+        signature = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+        download_fd, download_name = tempfile.mkstemp(
+            prefix="web_data_download_", suffix=".db.gz"
+        )
+        os.close(download_fd)
+        try:
+            response = requests.get(
+                f"{base_url}/web-data",
+                headers={
+                    "X-Trigger-Timestamp": timestamp,
+                    "X-Trigger-Nonce": nonce,
+                    "X-Trigger-Signature": signature,
+                },
+                stream=True,
+                timeout=(10, 120),
+            )
+            response.raise_for_status()
+            with open(download_name, "wb") as compressed_file:
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        compressed_file.write(chunk)
+            decompress_web_database(download_name, runtime_path)
+            return runtime_path, "Oracle 최신 DB"
+        except Exception:
+            pass
+        finally:
+            try:
+                os.remove(download_name)
+            except OSError:
+                pass
+
+    bootstrap_path = "web_data.bootstrap.db.gz"
     try:
-        with open(local_db_path, "rb") as db_file:
-            if db_file.read(16) == b"SQLite format 3\000":
-                return local_db_path, "웹 경량 DB"
-    except OSError:
-        pass
-
-    try:
-        remote_db_path = os.path.join(tempfile.gettempdir(), "web_data_latest.db")
-        response = requests.get(db_url, stream=True, timeout=(10, 60))
-        response.raise_for_status()
-        with open(remote_db_path, "wb") as db_file:
-            for chunk in response.iter_content(chunk_size=1024 * 1024):
-                if chunk:
-                    db_file.write(chunk)
-
-        with open(remote_db_path, "rb") as db_file:
-            if db_file.read(16) != b"SQLite format 3\000":
-                raise ValueError("Downloaded file is not a SQLite database.")
-        return remote_db_path, "GitHub 최신 DB"
+        decompress_web_database(bootstrap_path, runtime_path)
+        return runtime_path, "내장 압축 DB"
     except Exception:
-        return local_db_path, "로컬 DB"
+        return "web_data.db", "로컬 DB"
 
 def trigger_github_workflow(run_mode="full", market_strength_mode="manual", requested_at_kst=None):
     token = get_config_value("GITHUB_ACTIONS_TOKEN")
@@ -996,6 +1015,7 @@ else:
 
     st.sidebar.divider()
     if st.sidebar.button("🔄 데이터 새로고침"):
+        get_database_path.clear()
         st.cache_data.clear()
         st.rerun()
 

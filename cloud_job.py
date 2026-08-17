@@ -17,7 +17,11 @@ from crawler import StockCrawler
 from intraday_relative_strength import IntradayRelativeStrengthScanner
 from market_betting_engine.runtime import run_market_betting_analysis
 from market_betting_engine.positions import Position, remove_position, upsert_position
-from web_database import build_web_database, restore_working_database
+from web_database import (
+    build_web_database,
+    compress_web_database,
+    restore_working_database,
+)
 from watchlist import WatchlistManager, refresh_watchlist
 
 
@@ -100,6 +104,25 @@ def refresh_stock_analysis_timer():
         return False
 
 
+def restart_trigger_server():
+    """Reload the long-running trigger API after repository code updates."""
+
+    if os.name == "nt":
+        return False
+    try:
+        run_command(
+            ["sudo", "-n", "systemctl", "try-restart", "stock-trigger.service"]
+        )
+        print("[Trigger Refresh] stock-trigger.service restarted.")
+        return True
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(
+            "[Trigger Refresh Warning] trigger server restart failed; "
+            f"the scheduled analysis continues: {error}"
+        )
+        return False
+
+
 def push_outputs(task_name):
     watchlist_summary = refresh_watchlist(PROJECT_DIR / "stock_data.db")
     print(
@@ -108,8 +131,10 @@ def push_outputs(task_name):
         f"failures={len(watchlist_summary['failures'])}"
     )
     build_web_database(PROJECT_DIR / "stock_data.db", PROJECT_DIR / "web_data.db")
+    compress_web_database(
+        PROJECT_DIR / "web_data.db", PROJECT_DIR / "web_data.db.gz"
+    )
     with file_lock(".cloud_git.lock"):
-        run_command(["git", "add", "--", "web_data.db"])
         reports_dir = PROJECT_DIR / "reports"
         if reports_dir.is_dir():
             run_command(["git", "add", "--", "reports/"])
@@ -286,6 +311,7 @@ def main():
             pull_latest()
             if args.task == "full-analysis":
                 refresh_stock_analysis_timer()
+                restart_trigger_server()
             restore_working_database(
                 PROJECT_DIR / "web_data.db", PROJECT_DIR / "stock_data.db"
             )

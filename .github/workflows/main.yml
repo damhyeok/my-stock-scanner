@@ -61,14 +61,13 @@ jobs:
 
       - name: 웹용 경량 DB 생성
         if: always()
-        run: python web_database.py --source stock_data.db --target web_data.db
+        run: python web_database.py --source stock_data.db --target web_data.db --compressed-target web_data.db.gz
         
       - name: 누적된 DB 및 엑셀 파일 깃허브 저장소에 커밋 및 푸시
         if: always()
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- web_data.db
           if [ -d reports ]; then
             git add -- reports/
           fi

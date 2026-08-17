@@ -4,6 +4,8 @@
 
 WebSocket 원시값은 VM의 `program_snapshots.db`에만 저장하고, 시장강도 계산 결과만 기존 `stock_data.db`에 반영해 09:30 종목 분석과의 SQLite 충돌을 방지합니다.
 
+웹용 최신 데이터는 VM에서 `web_data.db.gz`로 압축한 뒤 인증된 `/web-data` API로 제공합니다. Git 저장소에는 최초 기동용 `web_data.bootstrap.db.gz`만 두므로, 매 분석마다 SQLite 바이너리 이력이 누적되지 않습니다. Streamlit의 `데이터 새로고침` 버튼은 Oracle 최신 압축 DB를 다시 내려받습니다.
+
 ## 1. 무료 VM 생성
 
 Oracle Cloud에서 `Always Free Eligible` 표시가 있는 VM을 생성합니다.

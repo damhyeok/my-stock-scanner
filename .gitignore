@@ -15,4 +15,6 @@ venv/
 **/__pycache__/
 *.pyc
 *.db
+*.db.gz
+!web_data.bootstrap.db.gz
 *.xlsx
