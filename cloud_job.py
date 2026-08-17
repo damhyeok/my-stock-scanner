@@ -22,6 +22,7 @@ from web_database import (
     compress_web_database,
     restore_working_database,
 )
+from storage_maintenance import run_storage_maintenance
 from watchlist import WatchlistManager, refresh_watchlist
 
 
@@ -173,6 +174,7 @@ def run_full_analysis(manual=False):
         elif scheduled_cron != "50 0 * * 1-5":
             env["SKIP_MARKET_STRENGTH"] = "1"
     run_command([sys.executable, "main.py"], env=env)
+    return scheduled_cron if not manual else None
 
 
 def run_market_strength(analysis_type):
@@ -316,13 +318,35 @@ def main():
                 PROJECT_DIR / "web_data.db", PROJECT_DIR / "stock_data.db"
             )
             if args.task in ("full-analysis", "manual-analysis"):
-                run_full_analysis(manual=args.task == "manual-analysis")
+                scheduled_cron = run_full_analysis(manual=args.task == "manual-analysis")
                 try:
                     run_market_betting()
                 except Exception as error:
                     # The new decision-support engine must never prevent the
                     # existing scanner output from being published.
                     print(f"[Market Betting Warning] analysis failed; existing pipeline continues: {error}")
+                maintenance_report = PROJECT_DIR / "reports" / "storage_maintenance_latest.json"
+                should_maintain = (
+                    args.task == "manual-analysis"
+                    or scheduled_cron == "0 7 * * 1-5"
+                    or not maintenance_report.is_file()
+                )
+                if should_maintain:
+                    allow_vacuum = datetime.now(KST).weekday() == 4
+                    try:
+                        report = run_storage_maintenance(
+                            PROJECT_DIR, allow_vacuum=allow_vacuum
+                        )
+                        print(
+                            "[Storage Maintenance] "
+                            f"disk={report['disk']['used_percent']:.2f}% "
+                            f"status={report['disk']['status']}"
+                        )
+                    except Exception as error:
+                        print(
+                            "[Storage Maintenance Warning] cleanup failed; "
+                            f"analysis output continues: {error}"
+                        )
             elif args.task == "morning-strength":
                 run_market_strength("morning")
             elif args.task == "afternoon-strength":

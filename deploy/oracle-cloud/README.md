@@ -6,6 +6,8 @@ WebSocket 원시값은 VM의 `program_snapshots.db`에만 저장하고, 시장�
 
 웹용 최신 데이터는 VM에서 `web_data.db.gz`로 압축한 뒤 인증된 `/web-data` API로 제공합니다. Git 저장소에는 최초 기동용 `web_data.bootstrap.db.gz`만 두므로, 매 분석마다 SQLite 바이너리 이력이 누적되지 않습니다. Streamlit의 `데이터 새로고침` 버튼은 Oracle 최신 압축 DB를 다시 내려받습니다.
 
+16:00 전체 분석과 수동 분석 후에는 저장공간 정리를 실행합니다. 종목 분봉은 60거래일, 지수 분봉·분석 결과는 260거래일, 뉴스는 90거래일, 일봉·모델 학습 데이터는 1,260거래일을 보존합니다. 결과는 `reports/storage_maintenance_latest.json`에 기록하며 디스크 사용률 70%부터 경고, 85%부터 위험으로 표시합니다. 금요일에는 SQLite 미사용 페이지가 20% 이상이고 임시 여유 공간이 충분할 때만 `VACUUM`을 실행합니다.
+
 ## 1. 무료 VM 생성
 
 Oracle Cloud에서 `Always Free Eligible` 표시가 있는 VM을 생성합니다.
