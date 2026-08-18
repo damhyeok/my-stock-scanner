@@ -300,7 +300,11 @@ def get_database_path():
                     "X-Trigger-Signature": signature,
                 },
                 stream=True,
-                timeout=(10, 120),
+                # Keep the dashboard usable while the 1-core Oracle VM is
+                # performing low-priority storage maintenance. A slow data
+                # refresh falls back to the bundled snapshot instead of
+                # leaving the whole Streamlit page blank for two minutes.
+                timeout=(5, 30),
             )
             response.raise_for_status()
             with open(download_name, "wb") as compressed_file:
