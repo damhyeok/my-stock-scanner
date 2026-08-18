@@ -356,9 +356,10 @@ def main():
     else:
         with file_lock(".cloud_data.lock"):
             pull_latest()
-            if args.task == "full-analysis":
+            if args.task in ("full-analysis", "manual-analysis"):
                 refresh_stock_analysis_timer()
                 refresh_storage_maintenance_timer()
+            if args.task == "full-analysis":
                 restart_trigger_server()
             restore_working_database(
                 PROJECT_DIR / "web_data.db", PROJECT_DIR / "stock_data.db"
