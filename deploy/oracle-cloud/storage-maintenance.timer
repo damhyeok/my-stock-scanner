@@ -1,0 +1,11 @@
+[Unit]
+Description=Run low-priority stock scanner storage maintenance after market jobs
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 18:30:00 Asia/Seoul
+Unit=stock-scanner@storage-maintenance.service
+AccuracySec=1s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -13,6 +13,7 @@ OnCalendar=Mon..Fri *-*-* 14:50:00 Asia/Seoul
 OnCalendar=Mon..Fri *-*-* 16:00:00 Asia/Seoul
 Unit=stock-scanner@full-analysis.service
 AccuracySec=1s
+Persistent=true
 
 [Install]
 WantedBy=timers.target

@@ -159,7 +159,7 @@ def _compact_git_repository(project_dir: Path, before: dict) -> dict:
     if not before.get("exists") or before.get("loose_bytes", 0) < threshold:
         return result
     result["attempted"] = True
-    commands = [
+    git_commands = [
         [
             "git",
             "-c",
@@ -174,6 +174,13 @@ def _compact_git_repository(project_dir: Path, before: dict) -> dict:
         ["git", "prune-packed"],
         ["git", "prune", "--expire", "now"],
     ]
+    priority_prefix = []
+    if os.name != "nt":
+        if shutil.which("ionice"):
+            priority_prefix.extend(["ionice", "-c", "3"])
+        if shutil.which("nice"):
+            priority_prefix.extend(["nice", "-n", "19"])
+    commands = [priority_prefix + command for command in git_commands]
     result["commands"] = []
     try:
         for command in commands:

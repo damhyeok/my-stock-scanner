@@ -58,7 +58,8 @@ sudo systemctl enable --now \
   sector-flow.timer \
   market-betting.timer \
   market-betting-verification.timer \
+  storage-maintenance.timer \
   stock-analysis.timer
 
 echo "Installed timers:"
-systemctl list-timers --all | grep -E 'morning-|afternoon-|closing-|index-bars|sector-flow|market-betting|stock-analysis' || true
+systemctl list-timers --all | grep -E 'morning-|afternoon-|closing-|index-bars|sector-flow|market-betting|storage-maintenance|stock-analysis' || true

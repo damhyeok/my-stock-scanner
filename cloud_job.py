@@ -83,25 +83,68 @@ def refresh_stock_analysis_timer():
         print(f"[Timer Refresh Warning] source timer not found: {source}")
         return False
 
+    needs_install = True
     try:
         if target.is_file() and source.read_bytes() == target.read_bytes():
-            return False
+            needs_install = False
     except OSError as error:
         print(f"[Timer Refresh] installed timer comparison skipped: {error}")
 
     try:
+        if needs_install:
+            run_command(
+                ["sudo", "-n", "install", "-m", "0644", str(source), str(target)]
+            )
+            run_command(["sudo", "-n", "systemctl", "daemon-reload"])
         run_command(
-            ["sudo", "-n", "install", "-m", "0644", str(source), str(target)]
+            ["sudo", "-n", "systemctl", "enable", "--now", "stock-analysis.timer"]
         )
-        run_command(["sudo", "-n", "systemctl", "daemon-reload"])
-        run_command(["sudo", "-n", "systemctl", "restart", "stock-analysis.timer"])
-        print("[Timer Refresh] stock-analysis.timer updated and restarted.")
-        return True
+        if needs_install:
+            run_command(["sudo", "-n", "systemctl", "restart", "stock-analysis.timer"])
+            print("[Timer Refresh] stock-analysis.timer updated and restarted.")
+        else:
+            print("[Timer Refresh] stock-analysis.timer is enabled and active.")
+        return needs_install
     except (OSError, subprocess.CalledProcessError) as error:
         print(
             "[Timer Refresh Warning] automatic timer update failed; "
             f"the current analysis continues: {error}"
         )
+        return False
+
+
+def refresh_storage_maintenance_timer():
+    """Install and enable the independent off-hours maintenance timer."""
+
+    if os.name == "nt":
+        return False
+
+    timer_name = "storage-maintenance.timer"
+    source = PROJECT_DIR / "deploy" / "oracle-cloud" / timer_name
+    target = Path("/etc/systemd/system") / timer_name
+    if not source.is_file():
+        print(f"[Timer Refresh Warning] source timer not found: {source}")
+        return False
+
+    needs_install = True
+    try:
+        if target.is_file() and source.read_bytes() == target.read_bytes():
+            needs_install = False
+    except OSError as error:
+        print(f"[Timer Refresh] installed timer comparison skipped: {error}")
+
+    try:
+        if needs_install:
+            run_command(
+                ["sudo", "-n", "install", "-m", "0644", str(source), str(target)]
+            )
+            run_command(["sudo", "-n", "systemctl", "daemon-reload"])
+        run_command(["sudo", "-n", "systemctl", "enable", "--now", timer_name])
+        if needs_install:
+            run_command(["sudo", "-n", "systemctl", "restart", timer_name])
+        return needs_install
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(f"[Timer Refresh Warning] {timer_name} update failed: {error}")
         return False
 
 
@@ -124,6 +167,22 @@ def restart_trigger_server():
         return False
 
 
+def push_reports(task_name):
+    """Commit lightweight operational reports without rebuilding market data."""
+
+    with file_lock(".cloud_git.lock"):
+        reports_dir = PROJECT_DIR / "reports"
+        if reports_dir.is_dir():
+            run_command(["git", "add", "--", "reports/"])
+        changed = run_command(["git", "diff", "--staged", "--quiet"], check=False)
+        if changed.returncode == 0:
+            print("[Cloud Job] GitHub에 반영할 변경사항이 없습니다.")
+            return
+        run_command(["git", "commit", "-m", f"Cloud update: {task_name} [skip ci]"])
+        run_command(["git", "pull", "--rebase", "--autostash", "origin", "main"])
+        run_command(["git", "push", "origin", "main"])
+
+
 def push_outputs(task_name):
     watchlist_summary = refresh_watchlist(PROJECT_DIR / "stock_data.db")
     print(
@@ -135,24 +194,7 @@ def push_outputs(task_name):
     compress_web_database(
         PROJECT_DIR / "web_data.db", PROJECT_DIR / "web_data.db.gz"
     )
-    with file_lock(".cloud_git.lock"):
-        reports_dir = PROJECT_DIR / "reports"
-        if reports_dir.is_dir():
-            run_command(["git", "add", "--", "reports/"])
-        changed = run_command(["git", "diff", "--staged", "--quiet"], check=False)
-        if changed.returncode == 0:
-            print("[Cloud Job] GitHub에 반영할 변경사항이 없습니다.")
-            return
-        run_command(
-            [
-                "git",
-                "commit",
-                "-m",
-                f"Cloud update: {task_name} [skip ci]",
-            ]
-        )
-        run_command(["git", "pull", "--rebase", "--autostash", "origin", "main"])
-        run_command(["git", "push", "origin", "main"])
+    push_reports(task_name)
 
 
 def run_full_analysis(manual=False):
@@ -274,6 +316,7 @@ def main():
             "api-verification",
             "position-upsert",
             "position-remove",
+            "storage-maintenance",
         ],
     )
     parser.add_argument("--ticker")
@@ -290,6 +333,8 @@ def main():
 
     if args.task == "morning-collector":
         pull_latest()
+        refresh_stock_analysis_timer()
+        refresh_storage_maintenance_timer()
         run_collector("morning")
     elif args.task == "afternoon-collector":
         pull_latest()
@@ -313,6 +358,7 @@ def main():
             pull_latest()
             if args.task == "full-analysis":
                 refresh_stock_analysis_timer()
+                refresh_storage_maintenance_timer()
                 restart_trigger_server()
             restore_working_database(
                 PROJECT_DIR / "web_data.db", PROJECT_DIR / "stock_data.db"
@@ -325,29 +371,6 @@ def main():
                     # The new decision-support engine must never prevent the
                     # existing scanner output from being published.
                     print(f"[Market Betting Warning] analysis failed; existing pipeline continues: {error}")
-                maintenance_report = PROJECT_DIR / "reports" / "storage_maintenance_latest.json"
-                should_maintain = (
-                    args.task == "manual-analysis"
-                    or scheduled_cron == "0 7 * * 1-5"
-                    or not maintenance_report.is_file()
-                )
-                if should_maintain:
-                    allow_vacuum = datetime.now(KST).weekday() == 4
-                    try:
-                        with file_lock(".cloud_git.lock"):
-                            report = run_storage_maintenance(
-                                PROJECT_DIR, allow_vacuum=allow_vacuum
-                            )
-                        print(
-                            "[Storage Maintenance] "
-                            f"disk={report['disk']['used_percent']:.2f}% "
-                            f"status={report['disk']['status']}"
-                        )
-                    except Exception as error:
-                        print(
-                            "[Storage Maintenance Warning] cleanup failed; "
-                            f"analysis output continues: {error}"
-                        )
             elif args.task == "morning-strength":
                 run_market_strength("morning")
             elif args.task == "afternoon-strength":
@@ -391,6 +414,19 @@ def main():
                 print(f"[Intraday RS Backfill] saved={len(result)}")
             elif args.task == "market-betting":
                 run_market_betting()
+            elif args.task == "storage-maintenance":
+                allow_vacuum = datetime.now(KST).weekday() == 4
+                with file_lock(".cloud_git.lock"):
+                    report = run_storage_maintenance(
+                        PROJECT_DIR, allow_vacuum=allow_vacuum
+                    )
+                print(
+                    "[Storage Maintenance] "
+                    f"disk={report['disk']['used_percent']:.2f}% "
+                    f"status={report['disk']['status']}"
+                )
+                push_reports(args.task)
+                return
             push_outputs(args.task)
 
 
