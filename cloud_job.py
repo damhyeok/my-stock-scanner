@@ -99,11 +99,26 @@ def refresh_stock_analysis_timer():
         run_command(
             ["sudo", "-n", "systemctl", "enable", "--now", "stock-analysis.timer"]
         )
+        # An enabled timer can remain in an elapsed/stale state with no next
+        # trigger. Restart it on every watchdog pass, not only when the unit
+        # file changed, so the next OnCalendar event is recalculated.
+        run_command(["sudo", "-n", "systemctl", "restart", "stock-analysis.timer"])
+        run_command(
+            [
+                "sudo",
+                "-n",
+                "systemctl",
+                "show",
+                "stock-analysis.timer",
+                "--property=ActiveState",
+                "--property=UnitFileState",
+                "--property=NextElapseUSecRealtime",
+            ]
+        )
         if needs_install:
-            run_command(["sudo", "-n", "systemctl", "restart", "stock-analysis.timer"])
             print("[Timer Refresh] stock-analysis.timer updated and restarted.")
         else:
-            print("[Timer Refresh] stock-analysis.timer is enabled and active.")
+            print("[Timer Refresh] stock-analysis.timer restarted and verified.")
         return needs_install
     except (OSError, subprocess.CalledProcessError) as error:
         print(
@@ -377,6 +392,9 @@ def main():
             elif args.task == "afternoon-strength":
                 run_market_strength("afternoon")
             elif args.task == "closing-strength":
+                # This independent timer is a second daily watchdog for the
+                # next trading day even when every full-analysis run was missed.
+                refresh_stock_analysis_timer()
                 run_market_strength("closing")
                 run_bottom_model()
             elif args.task == "sector-flow":
@@ -416,6 +434,9 @@ def main():
             elif args.task == "market-betting":
                 run_market_betting()
             elif args.task == "storage-maintenance":
+                # The maintenance timer is independently scheduled and gives
+                # us one more recovery point before the next market open.
+                refresh_stock_analysis_timer()
                 allow_vacuum = datetime.now(KST).weekday() == 4
                 with file_lock(".cloud_git.lock"):
                     report = run_storage_maintenance(
