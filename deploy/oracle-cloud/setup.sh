@@ -47,6 +47,7 @@ done
 
 sudo systemctl daemon-reload
 sudo systemctl disable --now morning-strength.timer 2>/dev/null || true
+sudo systemctl disable --now stock-analysis.timer 2>/dev/null || true
 sudo systemctl enable --now \
   stock-trigger.service \
   morning-program.timer \
@@ -59,7 +60,15 @@ sudo systemctl enable --now \
   market-betting.timer \
   market-betting-verification.timer \
   storage-maintenance.timer \
-  stock-analysis.timer
+  stock-analysis-0930.timer \
+  stock-analysis-0950.timer \
+  stock-analysis-1050.timer \
+  stock-analysis-1130.timer \
+  stock-analysis-1150.timer \
+  stock-analysis-1250.timer \
+  stock-analysis-1400.timer \
+  stock-analysis-1450.timer \
+  stock-analysis-1600.timer
 
 echo "Installed timers:"
 systemctl list-timers --all | grep -E 'morning-|afternoon-|closing-|index-bars|sector-flow|market-betting|storage-maintenance|stock-analysis' || true

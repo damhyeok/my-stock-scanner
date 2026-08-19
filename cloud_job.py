@@ -65,61 +65,44 @@ def pull_latest():
         run_command(["git", "pull", "--rebase", "--autostash", "origin", "main"])
 
 
-def refresh_stock_analysis_timer():
-    """Keep the installed Oracle full-analysis timer in sync with the repo.
+STOCK_ANALYSIS_TIMERS = (
+    "stock-analysis-0930.timer",
+    "stock-analysis-0950.timer",
+    "stock-analysis-1050.timer",
+    "stock-analysis-1130.timer",
+    "stock-analysis-1150.timer",
+    "stock-analysis-1250.timer",
+    "stock-analysis-1400.timer",
+    "stock-analysis-1450.timer",
+    "stock-analysis-1600.timer",
+)
 
-    Pulling the repository does not update the copy already installed under
-    /etc/systemd/system. Oracle Ubuntu images normally grant the ubuntu user
-    passwordless sudo, so a regular analysis run can repair a stale timer
-    without requiring another interactive SSH session.
-    """
+
+def install_stock_analysis_timers():
+    """Install nine independent full-analysis timers from the repository."""
 
     if os.name == "nt":
         return False
 
-    source = PROJECT_DIR / "deploy" / "oracle-cloud" / "stock-analysis.timer"
-    target = Path("/etc/systemd/system/stock-analysis.timer")
-    if not source.is_file():
-        print(f"[Timer Refresh Warning] source timer not found: {source}")
-        return False
-
-    needs_install = True
     try:
-        if target.is_file() and source.read_bytes() == target.read_bytes():
-            needs_install = False
-    except OSError as error:
-        print(f"[Timer Refresh] installed timer comparison skipped: {error}")
-
-    try:
-        if needs_install:
+        for timer_name in STOCK_ANALYSIS_TIMERS:
+            source = PROJECT_DIR / "deploy" / "oracle-cloud" / timer_name
+            target = Path("/etc/systemd/system") / timer_name
+            if not source.is_file():
+                raise FileNotFoundError(f"timer source not found: {source}")
             run_command(
                 ["sudo", "-n", "install", "-m", "0644", str(source), str(target)]
             )
-            run_command(["sudo", "-n", "systemctl", "daemon-reload"])
+        run_command(["sudo", "-n", "systemctl", "daemon-reload"])
         run_command(
-            ["sudo", "-n", "systemctl", "enable", "--now", "stock-analysis.timer"]
+            ["sudo", "-n", "systemctl", "disable", "--now", "stock-analysis.timer"],
+            check=False,
         )
-        # An enabled timer can remain in an elapsed/stale state with no next
-        # trigger. Restart it on every watchdog pass, not only when the unit
-        # file changed, so the next OnCalendar event is recalculated.
-        run_command(["sudo", "-n", "systemctl", "restart", "stock-analysis.timer"])
         run_command(
-            [
-                "sudo",
-                "-n",
-                "systemctl",
-                "show",
-                "stock-analysis.timer",
-                "--property=ActiveState",
-                "--property=UnitFileState",
-                "--property=NextElapseUSecRealtime",
-            ]
+            ["sudo", "-n", "systemctl", "enable", "--now", *STOCK_ANALYSIS_TIMERS]
         )
-        if needs_install:
-            print("[Timer Refresh] stock-analysis.timer updated and restarted.")
-        else:
-            print("[Timer Refresh] stock-analysis.timer restarted and verified.")
-        return needs_install
+        print("[Timer Install] nine independent stock analysis timers enabled.")
+        return True
     except (OSError, subprocess.CalledProcessError) as error:
         print(
             "[Timer Refresh Warning] automatic timer update failed; "
@@ -348,7 +331,7 @@ def main():
 
     if args.task == "morning-collector":
         pull_latest()
-        refresh_stock_analysis_timer()
+        install_stock_analysis_timers()
         refresh_storage_maintenance_timer()
         run_collector("morning")
     elif args.task == "afternoon-collector":
@@ -372,7 +355,6 @@ def main():
         with file_lock(".cloud_data.lock"):
             pull_latest()
             if args.task in ("full-analysis", "manual-analysis"):
-                refresh_stock_analysis_timer()
                 refresh_storage_maintenance_timer()
             if args.task == "full-analysis":
                 restart_trigger_server()
@@ -392,9 +374,6 @@ def main():
             elif args.task == "afternoon-strength":
                 run_market_strength("afternoon")
             elif args.task == "closing-strength":
-                # This independent timer is a second daily watchdog for the
-                # next trading day even when every full-analysis run was missed.
-                refresh_stock_analysis_timer()
                 run_market_strength("closing")
                 run_bottom_model()
             elif args.task == "sector-flow":
@@ -434,9 +413,6 @@ def main():
             elif args.task == "market-betting":
                 run_market_betting()
             elif args.task == "storage-maintenance":
-                # The maintenance timer is independently scheduled and gives
-                # us one more recovery point before the next market open.
-                refresh_stock_analysis_timer()
                 allow_vacuum = datetime.now(KST).weekday() == 4
                 with file_lock(".cloud_git.lock"):
                     report = run_storage_maintenance(

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run stock analysis at 11:50 KST
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 11:50:00 Asia/Seoul
+Unit=stock-scanner@full-analysis.service
+AccuracySec=1s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
