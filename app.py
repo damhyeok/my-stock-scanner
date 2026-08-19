@@ -410,11 +410,11 @@ def trigger_oracle_analysis():
 
 
 @st.cache_resource(show_spinner=False)
-def request_one_time_recovery(recovery_date, latest_data_date):
+def request_one_time_recovery(recovery_date, has_closing_session):
     """Request a narrowly scoped recovery run once per Streamlit process."""
 
     today = datetime.now(KST).strftime("%Y%m%d")
-    if today != str(recovery_date) or str(latest_data_date) >= today:
+    if today != str(recovery_date) or has_closing_session:
         return False, ""
     started, message, _ = trigger_oracle_analysis()
     return started, message
@@ -957,9 +957,15 @@ with st.spinner("데이터를 불러오고 있습니다..."):
 # One-time recovery for the missed 2026-08-19 full-analysis schedule. This is
 # deliberately date-scoped and becomes inert automatically on the next day.
 if not df_raw.empty:
-    latest_loaded_date = str(df_raw["date"].astype(str).max())
+    recovery_date = "20260819"
+    has_recovery_closing_session = bool(
+        (
+            (df_raw["date"].astype(str) == recovery_date)
+            & (df_raw["session"].astype(str) == "정규장(16:00)")
+        ).any()
+    )
     recovery_started, recovery_message = request_one_time_recovery(
-        "20260819", latest_loaded_date
+        recovery_date, has_recovery_closing_session
     )
     if recovery_started:
         st.info(
