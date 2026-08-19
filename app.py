@@ -29,6 +29,8 @@ from market_betting_engine.streamlit_tab import (
 )
 from close_bet_staged.rule_model_ui import render_rule_model_section
 
+KST = timezone(timedelta(hours=9))
+
 # Make local desktop runs read this project's .env regardless of the launch cwd.
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"), override=False)
 
@@ -405,6 +407,17 @@ def trigger_oracle_analysis():
     if status.get("state") == "running":
         return True, status.get("message", "Oracle 서버에서 분석을 시작했습니다."), status
     return False, "현재 실행 상태를 확인할 수 없습니다.", status
+
+
+@st.cache_resource(show_spinner=False)
+def request_one_time_recovery(recovery_date, latest_data_date):
+    """Request a narrowly scoped recovery run once per Streamlit process."""
+
+    today = datetime.now(KST).strftime("%Y%m%d")
+    if today != str(recovery_date) or str(latest_data_date) >= today:
+        return False, ""
+    started, message, _ = trigger_oracle_analysis()
+    return started, message
 
 
 def update_oracle_watchlist(action, ticker, name="", market_cap=0):
@@ -940,6 +953,19 @@ with st.spinner("데이터를 불러오고 있습니다..."):
     df_close_bet_model3 = get_close_bet_model3_data()
     df_close_bet_model3_runs = get_close_bet_model3_runs()
     df_close_bet_rule_model = get_close_bet_rule_model_data()
+
+# One-time recovery for the missed 2026-08-19 full-analysis schedule. This is
+# deliberately date-scoped and becomes inert automatically on the next day.
+if not df_raw.empty:
+    latest_loaded_date = str(df_raw["date"].astype(str).max())
+    recovery_started, recovery_message = request_one_time_recovery(
+        "20260819", latest_loaded_date
+    )
+    if recovery_started:
+        st.info(
+            "오늘 자동 분석 누락을 감지해 Oracle 전체 분석을 복구 실행 중입니다. "
+            "완료 후 데이터 새로고침을 눌러주세요."
+        )
 
 if df_analyzed is None or df_raw.empty:
     st.warning("⚠️ 분석할 데이터가 없습니다. 먼저 `crawler.py`를 실행하여 데이터를 수집해주세요.")
