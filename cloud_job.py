@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import json
 import os
 import subprocess
 import sys
@@ -78,7 +79,7 @@ STOCK_ANALYSIS_TIMERS = (
 )
 
 
-def install_stock_analysis_timers():
+def install_stock_analysis_timers(*, strict=False):
     """Install nine independent full-analysis timers from the repository."""
 
     if os.name == "nt":
@@ -101,6 +102,37 @@ def install_stock_analysis_timers():
         run_command(
             ["sudo", "-n", "systemctl", "enable", "--now", *STOCK_ANALYSIS_TIMERS]
         )
+        verification = subprocess.run(
+            [
+                "sudo",
+                "-n",
+                "systemctl",
+                "show",
+                *STOCK_ANALYSIS_TIMERS,
+                "--property=Id",
+                "--property=ActiveState",
+                "--property=UnitFileState",
+                "--property=NextElapseUSecRealtime",
+            ],
+            cwd=PROJECT_DIR,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        report = {
+            "installed_at_kst": datetime.now(KST).isoformat(timespec="seconds"),
+            "timers": list(STOCK_ANALYSIS_TIMERS),
+            "return_code": verification.returncode,
+            "systemctl_show": verification.stdout,
+            "stderr": verification.stderr,
+        }
+        report_path = PROJECT_DIR / "reports" / "stock_analysis_timers_latest.json"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        if verification.returncode or verification.stdout.count("ActiveState=active") != len(STOCK_ANALYSIS_TIMERS):
+            raise RuntimeError("one or more stock analysis timers are not active")
         print("[Timer Install] nine independent stock analysis timers enabled.")
         return True
     except (OSError, subprocess.CalledProcessError) as error:
@@ -108,6 +140,8 @@ def install_stock_analysis_timers():
             "[Timer Refresh Warning] automatic timer update failed; "
             f"the current analysis continues: {error}"
         )
+        if strict:
+            raise RuntimeError("stock analysis timer installation failed") from error
         return False
 
 
@@ -331,7 +365,7 @@ def main():
 
     if args.task == "morning-collector":
         pull_latest()
-        install_stock_analysis_timers()
+        install_stock_analysis_timers(strict=True)
         refresh_storage_maintenance_timer()
         run_collector("morning")
     elif args.task == "afternoon-collector":
@@ -356,6 +390,8 @@ def main():
             pull_latest()
             if args.task in ("full-analysis", "manual-analysis"):
                 refresh_storage_maintenance_timer()
+            if args.task == "manual-analysis":
+                install_stock_analysis_timers(strict=True)
             if args.task == "full-analysis":
                 restart_trigger_server()
             restore_working_database(
