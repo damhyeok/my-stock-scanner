@@ -1,0 +1,17 @@
+{
+  "installed_at_kst": "2026-08-20T16:42:00+09:00",
+  "timers": [
+    "stock-analysis-0930.timer",
+    "stock-analysis-0950.timer",
+    "stock-analysis-1050.timer",
+    "stock-analysis-1130.timer",
+    "stock-analysis-1150.timer",
+    "stock-analysis-1250.timer",
+    "stock-analysis-1400.timer",
+    "stock-analysis-1450.timer",
+    "stock-analysis-1600.timer"
+  ],
+  "return_code": 0,
+  "systemctl_show": "NextElapseUSecRealtime=Fri 2026-08-21 09:30:00 KST\nId=stock-analysis-0930.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Fri 2026-08-21 09:50:00 KST\nId=stock-analysis-0950.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Fri 2026-08-21 10:50:00 KST\nId=stock-analysis-1050.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Fri 2026-08-21 11:30:00 KST\nId=stock-analysis-1130.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Fri 2026-08-21 11:50:00 KST\nId=stock-analysis-1150.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Fri 2026-08-21 12:50:00 KST\nId=stock-analysis-1250.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Fri 2026-08-21 14:00:00 KST\nId=stock-analysis-1400.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Fri 2026-08-21 14:50:00 KST\nId=stock-analysis-1450.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Fri 2026-08-21 16:00:00 KST\nId=stock-analysis-1600.timer\nActiveState=active\nUnitFileState=enabled\n",
+  "stderr": ""
+}
