@@ -22,6 +22,7 @@ from analyzer import StockAnalyzer
 from model_1_scanner import scan_model_tables
 from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
 from program_net_divergence import build_program_price_divergence
+from rise_rankings import build_rise_rank_tables
 from web_database import decompress_web_database
 from market_betting_engine.streamlit_tab import (
     render_market_betting_tab,
@@ -112,6 +113,37 @@ def display_formatted_df(df, use_container_width=True, hidden_columns=None):
     current_map = {k: v for k, v in COLUMN_MAP.items() if k in temp_df.columns}
     temp_df = temp_df.rename(columns=current_map)
     st.dataframe(temp_df, use_container_width=use_container_width)
+
+
+def display_rise_rank_table(df):
+    """Display the seven requested rank columns in a compact mobile-safe grid."""
+    display = df.copy()
+    display["market_cap"] = pd.to_numeric(display["market_cap"], errors="coerce").fillna(0) / 100_000_000
+    display["trading_value"] = pd.to_numeric(display["trading_value"], errors="coerce").fillna(0) / 100_000_000
+    display["fluctuation_rate"] = pd.to_numeric(display["fluctuation_rate"], errors="coerce").round(2)
+    display = display.rename(columns={
+        "name": "종목명",
+        "fluctuation_rate": "현재 상승률",
+        "rise_rank": "상승률 순위",
+        "trading_rank": "거래대금 순위",
+        "market_cap": "시가총액(억)",
+        "trading_value": "거래대금(억)",
+        "sector": "업종",
+    })
+    st.dataframe(
+        display,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "종목명": st.column_config.TextColumn(width="medium"),
+            "현재 상승률": st.column_config.NumberColumn(format="%.2f%%", width="small"),
+            "상승률 순위": st.column_config.NumberColumn(format="%d", width="small"),
+            "거래대금 순위": st.column_config.NumberColumn(format="%d", width="small"),
+            "시가총액(억)": st.column_config.NumberColumn(format="%,.0f", width="small"),
+            "거래대금(억)": st.column_config.NumberColumn(format="%,.0f", width="small"),
+            "업종": st.column_config.TextColumn(width="medium"),
+        },
+    )
 
 def display_integer_table(df, **kwargs):
     """Render scanner tables with whole numbers, except two-decimal return rates."""
@@ -1038,10 +1070,11 @@ else:
     st.divider()
 
     # 탭으로 분리
-    watchlist_tab, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13, tab14 = st.tabs([
+    watchlist_tab, tab1, tab2, rise_tab, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13, tab14 = st.tabs([
         "⭐ 내 관심종목",
         "🚀 지수대비 강한 종목",
-        "🔥 거래대금 Top", 
+        "🔥 거래대금 Top",
+        "📈 상승률 Top 30",
         "🟢 외인 순매수", 
         "🔴 기관 순매수",
         "📊 섹터별 자금",
@@ -1544,6 +1577,21 @@ else:
             df_raw, both_buy_df, selected_date, selected_session, 'both'
         )
         display_consecutive_buy_table(both_streaks, 'both')
+
+    with rise_tab:
+        st.header(f"📈 전일 대비 상승률 Top 30 ({selected_session_label})")
+        rise_top30, rise_volume_overlap = build_rise_rank_tables(df_selected)
+        if rise_top30.empty:
+            st.info("선택한 날짜와 시간에는 상승률 Top 30 데이터가 없습니다.")
+        else:
+            display_rise_rank_table(rise_top30)
+
+        st.divider()
+        st.subheader("🔥 상승률 Top 30 · 거래대금 Top 60 교집합")
+        if rise_volume_overlap.empty:
+            st.info("두 순위에 동시에 포함된 종목이 없습니다.")
+        else:
+            display_rise_rank_table(rise_volume_overlap)
 
     with tab3:
         st.header(f"🟢 외국인 순매수 Top 30 ({selected_session_label})")

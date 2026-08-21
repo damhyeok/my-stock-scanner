@@ -110,6 +110,12 @@ class StockAnalyzer:
         if df_recent.empty:
             print("DB에 분석할 데이터가 없습니다.")
             return pd.DataFrame()
+
+        # RISE_TOP_30 is a display-only ranking. Keep the existing scoring
+        # universe and its presence/flow weights exactly as they were.
+        df_recent = df_recent[df_recent['category'].isin([
+            'VOLUME_TOP_60', 'FOREIGN_TOP_30', 'INST_TOP_30'
+        ])].copy()
             
         # 개별 알고리즘 모듈 실행
         df_presence = self.calc_presence_index(df_recent)

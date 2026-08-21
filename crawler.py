@@ -302,6 +302,105 @@ class StockCrawler:
             print(f"[Error] KIS API 시장 데이터 수집 실패: {e}")
             raise
 
+    def get_rise_top_data(self):
+        """KIS 등락률 순위에서 ETF/ETN 등을 제외한 상승률 상위 30종목을 가져옵니다."""
+        print(f"[{self.target_date}] 전일 대비 상승률 TOP 30 수집 중 (한국투자증권 API)...")
+
+        token = self._get_kis_access_token()
+        url = f"{self.kis_base_url}/uapi/domestic-stock/v1/ranking/fluctuation"
+        headers = {
+            "content-type": "application/json; charset=utf-8",
+            "authorization": f"Bearer {token}",
+            "appkey": self.kis_app_key,
+            "appsecret": self.kis_app_secret,
+            "tr_id": "FHPST01700000",
+            "custtype": "P",
+        }
+        params = {
+            "FID_COND_MRKT_DIV_CODE": "J",
+            "FID_COND_SCR_DIV_CODE": "20170",
+            "FID_INPUT_ISCD": "0000",
+            "FID_RANK_SORT_CLS_CODE": "0000",
+            "FID_INPUT_CNT_1": "30",
+            "FID_PRC_CLS_CODE": "0",
+            "FID_INPUT_PRICE_1": "0",
+            "FID_INPUT_PRICE_2": "10000000",
+            "FID_VOL_CNT": "0",
+            "FID_TRGT_CLS_CODE": "111111111",
+            # 투자위험/관리/우선주/거래정지/ETF/ETN/신용불가/SPAC 중
+            # ETF·ETN·SPAC을 API 단계에서 제외한다.
+            "FID_TRGT_EXLS_CLS_CODE": "0000001101",
+            "FID_DIV_CLS_CODE": "0",
+            "FID_RSFL_RATE1": "0",
+            "FID_RSFL_RATE2": "30",
+        }
+        response = requests.get(url, headers=headers, params=params, timeout=10)
+        if response.status_code != 200 or response.json().get("rt_cd") != "0":
+            raise RuntimeError(f"KIS 등락률 순위 호출 실패: {response.text}")
+
+        raw = pd.DataFrame(response.json().get("output", []))
+        if raw.empty:
+            raise RuntimeError("KIS 등락률 순위가 비어 있습니다.")
+
+        def field(*names, default=0):
+            for name in names:
+                if name in raw.columns:
+                    return raw[name]
+            return pd.Series(default, index=raw.index)
+
+        result = pd.DataFrame(index=raw.index)
+        result["ticker"] = field("stck_shrn_iscd", "mksc_shrn_iscd", default="").astype(str).str.zfill(6)
+        result["name"] = field("hts_kor_isnm", default="").fillna("").astype(str)
+        result["close"] = pd.to_numeric(field("stck_prpr"), errors="coerce").fillna(0)
+        result["fluctuation_rate"] = pd.to_numeric(field("prdy_ctrt"), errors="coerce").fillna(0)
+        result["volume"] = pd.to_numeric(field("acml_vol"), errors="coerce").fillna(0)
+        result["trading_value"] = pd.to_numeric(field("acml_tr_pbmn"), errors="coerce").fillna(0)
+        result["market_cap"] = 0
+        result["foreign_net"] = 0
+        result["inst_net"] = 0
+        result["sector"] = ""
+        result["theme"] = ""
+        result = result[(result["ticker"].str.fullmatch(r"\d{6}")) & (result["name"] != "")]
+        result = self._exclude_exchange_traded_products(result)
+        result = (
+            result.sort_values("fluctuation_rate", ascending=False)
+            .drop_duplicates("ticker", keep="first")
+            .head(30)
+            .copy()
+        )
+
+        # 등락률 순위 응답에 없는 정확한 시가총액을 현재가 API로 보완한다.
+        price_url = f"{self.kis_base_url}/uapi/domestic-stock/v1/quotations/inquire-price"
+        price_headers = headers.copy()
+        price_headers["tr_id"] = "FHKST01010100"
+        for index, row in result.iterrows():
+            try:
+                price_response = requests.get(
+                    price_url,
+                    headers=price_headers,
+                    params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": row["ticker"]},
+                    timeout=10,
+                )
+                if price_response.status_code != 200 or price_response.json().get("rt_cd") != "0":
+                    continue
+                quote = price_response.json().get("output", {})
+                close = pd.to_numeric(quote.get("stck_prpr"), errors="coerce")
+                listed_shares = pd.to_numeric(quote.get("lstn_stcn"), errors="coerce")
+                if pd.notna(close) and close > 0:
+                    result.at[index, "close"] = close
+                if pd.notna(close) and pd.notna(listed_shares):
+                    result.at[index, "market_cap"] = int(close * listed_shares)
+                for source, target in (("acml_vol", "volume"), ("acml_tr_pbmn", "trading_value")):
+                    value = pd.to_numeric(quote.get(source), errors="coerce")
+                    if pd.notna(value):
+                        result.at[index, target] = value
+            except (requests.RequestException, ValueError):
+                continue
+            time.sleep(0.05)
+
+        print(f"[Rise Rank] 전일 대비 상승률 상위 {len(result)}종목 확정")
+        return result
+
     def _parse_nxt_number(self, value):
         text = str(value).strip()
         if text in ['', '-', 'nan', 'None']:
@@ -976,8 +1075,15 @@ class StockCrawler:
         # 1. 기본 시장 데이터 & 수급 데이터 수집
         if is_nxt_afterhours:
             df_all = self.get_nxt_aftermarket_data()
+            df_rise_top = df_all.iloc[0:0].copy()
         else:
             df_market = self.get_market_data()
+            try:
+                df_rise_top = self.get_rise_top_data()
+            except Exception as error:
+                # 상승률 탭의 추가 수집 실패가 기존 거래대금·수급 분석을 막지 않게 한다.
+                print(f"[Rise Rank Warning] 상승률 순위 수집 실패; 기존 분석은 계속합니다: {error}")
+                df_rise_top = df_market.iloc[0:0].copy()
             market_names = dict(zip(df_market['ticker'].astype(str).str.zfill(6), df_market['name'].fillna('')))
             df_investor = self.get_investor_data(df_market['ticker'], market_names)
         
@@ -1056,7 +1162,12 @@ class StockCrawler:
             df_inst_top = df_all.sort_values(by='inst_net', ascending=False).head(30).copy()
         
         # 크롤링 대상 고유 티커 추출 (중복 제거를 위해)
-        target_tickers = set(df_vol_top['ticker']).union(set(df_for_top['ticker'])).union(set(df_inst_top['ticker']))
+        target_tickers = (
+            set(df_vol_top['ticker'])
+            .union(set(df_for_top['ticker']))
+            .union(set(df_inst_top['ticker']))
+            .union(set(df_rise_top['ticker']))
+        )
         print(f"섹터 매칭을 진행할 총 고유 종목 수: {len(target_tickers)}개")
         
         # 섹터 매칭 (시간이 조금 걸릴 수 있습니다)
@@ -1086,6 +1197,7 @@ class StockCrawler:
         df_vol_top = apply_sector(df_vol_top)
         df_for_top = apply_sector(df_for_top)
         df_inst_top = apply_sector(df_inst_top)
+        df_rise_top = apply_sector(df_rise_top)
 
         # 거래대금 상위 60개 주식의 종목별 프로그램 순매수를 같은 시각 기준으로 저장합니다.
         try:
@@ -1098,6 +1210,7 @@ class StockCrawler:
         self.save_to_db(df_vol_top, 'VOLUME_TOP_60')
         self.save_to_db(df_for_top, 'FOREIGN_TOP_30')
         self.save_to_db(df_inst_top, 'INST_TOP_30')
+        self.save_to_db(df_rise_top, 'RISE_TOP_30')
         
         print("========== 크롤링 및 DB 누적 저장 완료! ==========")
         return True
