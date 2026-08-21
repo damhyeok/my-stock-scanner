@@ -273,7 +273,10 @@ def configure_model_runtime_secrets():
         if value:
             os.environ[key] = value
 
-@st.cache_resource(show_spinner=False)
+# Streamlit Cloud keeps resource caches across browser sessions.  Without a
+# TTL, a newly opened dashboard can therefore keep showing yesterday's DB even
+# though Oracle has already published today's scheduled snapshots.
+@st.cache_resource(ttl=120, show_spinner=False)
 def get_database_path():
     runtime_path = os.path.join(tempfile.gettempdir(), "web_data_runtime.db")
     base_url = get_config_value(
@@ -438,7 +441,10 @@ def display_oracle_run_status(container):
         f"· 마지막 갱신 {status.get('updated_at', '-')}"
     )
     if state == "success":
-        container.success("최신 DB가 GitHub에 반영되었습니다. 아래 데이터 새로고침을 눌러 확인하세요.")
+        container.success(
+            "최신 DB가 Oracle 서버에 준비되었습니다. 화면을 다시 열면 최대 2분 안에 "
+            "자동 반영되며, 즉시 확인하려면 아래 데이터 새로고침을 누르세요."
+        )
     elif state == "failed":
         container.error("Oracle 분석이 실패했습니다. 서버 로그를 확인해야 합니다.")
 
