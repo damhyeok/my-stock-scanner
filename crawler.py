@@ -107,6 +107,7 @@ class StockCrawler:
                 name TEXT,
                 close INTEGER,
                 fluctuation_rate REAL,
+                previous_day_rate REAL,
                 market_cap INTEGER,
                 volume INTEGER,
                 trading_value INTEGER,
@@ -123,6 +124,7 @@ class StockCrawler:
         ''')
         existing_columns = {row[1] for row in cursor.execute("PRAGMA table_info(daily_stocks)").fetchall()}
         metadata_columns = {
+            "previous_day_rate": "REAL",
             "collected_at_kst": "TEXT",
             "data_source": "TEXT",
             "scheduled_cron": "TEXT",
@@ -353,6 +355,7 @@ class StockCrawler:
         result["name"] = field("hts_kor_isnm", default="").fillna("").astype(str)
         result["close"] = pd.to_numeric(field("stck_prpr"), errors="coerce").fillna(0)
         result["fluctuation_rate"] = pd.to_numeric(field("prdy_ctrt"), errors="coerce").fillna(0)
+        result["previous_day_rate"] = pd.NA
         result["volume"] = pd.to_numeric(field("acml_vol"), errors="coerce").fillna(0)
         result["trading_value"] = pd.to_numeric(field("acml_tr_pbmn"), errors="coerce").fillna(0)
         result["market_cap"] = 0
@@ -373,6 +376,9 @@ class StockCrawler:
         price_url = f"{self.kis_base_url}/uapi/domestic-stock/v1/quotations/inquire-price"
         price_headers = headers.copy()
         price_headers["tr_id"] = "FHKST01010100"
+        daily_url = f"{self.kis_base_url}/uapi/domestic-stock/v1/quotations/inquire-daily-price"
+        daily_headers = headers.copy()
+        daily_headers["tr_id"] = "FHKST01010400"
         for index, row in result.iterrows():
             try:
                 price_response = requests.get(
@@ -395,7 +401,34 @@ class StockCrawler:
                     if pd.notna(value):
                         result.at[index, target] = value
             except (requests.RequestException, ValueError):
-                continue
+                pass
+
+            try:
+                daily_response = requests.get(
+                    daily_url,
+                    headers=daily_headers,
+                    params={
+                        "FID_COND_MRKT_DIV_CODE": "J",
+                        "FID_INPUT_ISCD": row["ticker"],
+                        "FID_PERIOD_DIV_CODE": "D",
+                        "FID_ORG_ADJ_PRC": "1",
+                    },
+                    timeout=10,
+                )
+                if daily_response.status_code == 200 and daily_response.json().get("rt_cd") == "0":
+                    history = pd.DataFrame(daily_response.json().get("output", []))
+                    if not history.empty and "stck_bsop_date" in history.columns:
+                        history["stck_bsop_date"] = history["stck_bsop_date"].astype(str)
+                        previous_rows = history[history["stck_bsop_date"] < str(self.target_date)].copy()
+                        previous_rows = previous_rows.sort_values("stck_bsop_date", ascending=False)
+                        if not previous_rows.empty:
+                            previous_rate = pd.to_numeric(
+                                previous_rows.iloc[0].get("prdy_ctrt"), errors="coerce"
+                            )
+                            if pd.notna(previous_rate):
+                                result.at[index, "previous_day_rate"] = float(previous_rate)
+            except (requests.RequestException, ValueError):
+                pass
             time.sleep(0.05)
 
         print(f"[Rise Rank] 전일 대비 상승률 상위 {len(result)}종목 확정")
@@ -1048,11 +1081,12 @@ class StockCrawler:
         for _, row in df.iterrows():
             conn.execute('''
                 INSERT OR REPLACE INTO daily_stocks 
-                (date, session, ticker, name, close, fluctuation_rate, market_cap, volume, trading_value, foreign_net, inst_net, sector, theme, collected_at_kst, data_source, scheduled_cron, category)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (date, session, ticker, name, close, fluctuation_rate, previous_day_rate, market_cap, volume, trading_value, foreign_net, inst_net, sector, theme, collected_at_kst, data_source, scheduled_cron, category)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 self.target_date, session, row['ticker'], row.get('name', ''), 
                 row.get('close', 0), row.get('fluctuation_rate', 0.0), 
+                row.get('previous_day_rate'),
                 row.get('market_cap', 0), row.get('volume', 0), 
                 row.get('trading_value', 0), row.get('foreign_net', 0), 
                 row.get('inst_net', 0), row.get('sector', ''), 

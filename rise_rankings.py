@@ -4,6 +4,7 @@ import pandas as pd
 RANK_TABLE_COLUMNS = [
     "name",
     "fluctuation_rate",
+    "previous_day_rate",
     "rise_rank",
     "trading_rank",
     "market_cap",
@@ -24,10 +25,12 @@ def build_rise_rank_tables(session_data):
         return empty.copy(), empty.copy()
 
     for frame in (rise, volume):
-        for column in ("fluctuation_rate", "market_cap", "trading_value"):
+        for column in ("fluctuation_rate", "previous_day_rate", "market_cap", "trading_value"):
             if column not in frame.columns:
-                frame[column] = 0
-            frame[column] = pd.to_numeric(frame[column], errors="coerce").fillna(0)
+                frame[column] = pd.NA if column == "previous_day_rate" else 0
+            frame[column] = pd.to_numeric(frame[column], errors="coerce")
+            if column != "previous_day_rate":
+                frame[column] = frame[column].fillna(0)
 
     rise = (
         rise.sort_values(["fluctuation_rate", "trading_value"], ascending=[False, False])

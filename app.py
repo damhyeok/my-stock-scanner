@@ -121,9 +121,11 @@ def display_rise_rank_table(df):
     display["market_cap"] = pd.to_numeric(display["market_cap"], errors="coerce").fillna(0) / 100_000_000
     display["trading_value"] = pd.to_numeric(display["trading_value"], errors="coerce").fillna(0) / 100_000_000
     display["fluctuation_rate"] = pd.to_numeric(display["fluctuation_rate"], errors="coerce").round(2)
+    display["previous_day_rate"] = pd.to_numeric(display["previous_day_rate"], errors="coerce").round(2)
     display = display.rename(columns={
         "name": "종목명",
         "fluctuation_rate": "현재 상승률",
+        "previous_day_rate": "전날 상승률",
         "rise_rank": "상승률 순위",
         "trading_rank": "거래대금 순위",
         "market_cap": "시가총액(억)",
@@ -137,6 +139,7 @@ def display_rise_rank_table(df):
         column_config={
             "종목명": st.column_config.TextColumn(width="medium"),
             "현재 상승률": st.column_config.NumberColumn(format="%.2f%%", width="small"),
+            "전날 상승률": st.column_config.NumberColumn(format="%.2f%%", width="small"),
             "상승률 순위": st.column_config.NumberColumn(format="%d", width="small"),
             "거래대금 순위": st.column_config.NumberColumn(format="%d", width="small"),
             "시가총액(억)": st.column_config.NumberColumn(format="%,.0f", width="small"),
