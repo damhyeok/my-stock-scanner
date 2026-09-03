@@ -1,5 +1,5 @@
 {
-  "installed_at_kst": "2026-09-02T09:10:10+09:00",
+  "installed_at_kst": "2026-09-03T09:10:12+09:00",
   "timers": [
     "stock-analysis-0930.timer",
     "stock-analysis-0950.timer",
@@ -12,6 +12,6 @@
     "stock-analysis-1600.timer"
   ],
   "return_code": 0,
-  "systemctl_show": "NextElapseUSecRealtime=Wed 2026-09-02 09:30:00 KST\nId=stock-analysis-0930.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Wed 2026-09-02 09:50:00 KST\nId=stock-analysis-0950.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Wed 2026-09-02 10:50:00 KST\nId=stock-analysis-1050.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Wed 2026-09-02 11:30:00 KST\nId=stock-analysis-1130.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Wed 2026-09-02 11:50:00 KST\nId=stock-analysis-1150.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Wed 2026-09-02 12:50:00 KST\nId=stock-analysis-1250.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Wed 2026-09-02 14:00:00 KST\nId=stock-analysis-1400.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Wed 2026-09-02 14:50:00 KST\nId=stock-analysis-1450.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Wed 2026-09-02 16:00:00 KST\nId=stock-analysis-1600.timer\nActiveState=active\nUnitFileState=enabled\n",
+  "systemctl_show": "NextElapseUSecRealtime=Thu 2026-09-03 09:30:00 KST\nId=stock-analysis-0930.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Thu 2026-09-03 09:50:00 KST\nId=stock-analysis-0950.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Thu 2026-09-03 10:50:00 KST\nId=stock-analysis-1050.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Thu 2026-09-03 11:30:00 KST\nId=stock-analysis-1130.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Thu 2026-09-03 11:50:00 KST\nId=stock-analysis-1150.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Thu 2026-09-03 12:50:00 KST\nId=stock-analysis-1250.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Thu 2026-09-03 14:00:00 KST\nId=stock-analysis-1400.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Thu 2026-09-03 14:50:00 KST\nId=stock-analysis-1450.timer\nActiveState=active\nUnitFileState=enabled\n\nNextElapseUSecRealtime=Thu 2026-09-03 16:00:00 KST\nId=stock-analysis-1600.timer\nActiveState=active\nUnitFileState=enabled\n",
   "stderr": ""
 }
