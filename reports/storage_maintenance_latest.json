@@ -1,6 +1,6 @@
 {
-  "started_at_kst": "2026-09-03T18:30:06+09:00",
-  "completed_at_kst": "2026-09-03T18:30:21+09:00",
+  "started_at_kst": "2026-09-04T18:30:05+09:00",
+  "completed_at_kst": "2026-09-04T18:30:22+09:00",
   "policy": {
     "stock_data": {
       "daily_stocks": [
@@ -107,18 +107,18 @@
   },
   "disk": {
     "total_bytes": 48274628608,
-    "used_bytes_before": 9101697024,
-    "used_bytes_after": 9101697024,
-    "free_bytes_after": 39156154368,
-    "used_percent": 18.85,
+    "used_bytes_before": 9109942272,
+    "used_bytes_after": 9109942272,
+    "free_bytes_after": 39147909120,
+    "used_percent": 18.87,
     "status": "OK"
   },
   "databases": {
     "stock_data": {
       "path": "/home/ubuntu/my-stock-scanner/stock_data.db",
       "exists": true,
-      "bytes_before": 321523712,
-      "bytes_after": 321523712,
+      "bytes_before": 331096064,
+      "bytes_after": 331096064,
       "deleted_rows": {
         "daily_stocks": 0,
         "stock_news": 0,
@@ -146,24 +146,24 @@
       "vacuumed": false,
       "sqlite": {
         "page_size": 4096,
-        "page_count": 78497,
-        "free_pages": 0,
-        "free_ratio": 0.0
+        "page_count": 80834,
+        "free_pages": 1,
+        "free_ratio": 1.237103199148873e-05
       },
       "integrity": "ok"
     },
     "program_snapshots": {
       "path": "/home/ubuntu/my-stock-scanner/program_snapshots.db",
       "exists": true,
-      "bytes_before": 73728,
-      "bytes_after": 73728,
+      "bytes_before": 77824,
+      "bytes_after": 77824,
       "deleted_rows": {
         "market_program_snapshots": 0
       },
       "vacuumed": false,
       "sqlite": {
         "page_size": 4096,
-        "page_count": 18,
+        "page_count": 19,
         "free_pages": 0,
         "free_ratio": 0.0
       },
@@ -177,10 +177,10 @@
   "git": {
     "before": {
       "exists": true,
-      "count_objects": "count: 1267\nsize: 5412\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
+      "count_objects": "count: 1366\nsize: 5808\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
       "return_code": 0,
-      "loose_objects": 1267,
-      "loose_bytes": 5541888,
+      "loose_objects": 1366,
+      "loose_bytes": 5947392,
       "packed_bytes": 2388114432
     },
     "gc": {
@@ -190,10 +190,10 @@
     },
     "after": {
       "exists": true,
-      "count_objects": "count: 1267\nsize: 5412\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
+      "count_objects": "count: 1366\nsize: 5808\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
       "return_code": 0,
-      "loose_objects": 1267,
-      "loose_bytes": 5541888,
+      "loose_objects": 1366,
+      "loose_bytes": 5947392,
       "packed_bytes": 2388114432
     }
   }
