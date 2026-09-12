@@ -808,7 +808,7 @@ def get_bottom_candidate_data(selected_date):
                            signal_reason AS decision_risk_summary
                            FROM model_rule_scan_signals
                            WHERE signal_date = ? AND universe_type = 'market_cap_10000eok_plus'
-                           ORDER BY model_id, trend_score DESC, target_room_pct DESC""",
+                           ORDER BY model_id, trend_score DESC, target_room_pct DESC, ticker""",
                         conn, params=(target_signal_date,),
                     )
                 else:
@@ -823,7 +823,7 @@ def get_bottom_candidate_data(selected_date):
                            SELECT MAX(signal_date) FROM model_rule_scan_signals
                            WHERE signal_date <= ? AND universe_type = 'market_cap_10000eok_plus'
                        ) AND universe_type = 'market_cap_10000eok_plus'
-                       ORDER BY model_id, trend_score DESC, target_room_pct DESC""",
+                       ORDER BY model_id, trend_score DESC, target_room_pct DESC, ticker""",
                         conn, params=(str(selected_date),),
                     )
             if df.empty and "model_bottom_signals" in tables:
@@ -847,7 +847,7 @@ def get_bottom_candidate_data(selected_date):
                        FROM model_bottom_signals b
                        WHERE {date_condition}
                        AND b.universe_type = 'market_cap_10000eok_plus'
-                       ORDER BY b.bottom_score DESC""",
+                       ORDER BY b.bottom_score DESC, b.ticker""",
                     conn, params=(target_signal_date or str(selected_date),),
                 )
         if not df.empty and "scanner_model" in df.columns:

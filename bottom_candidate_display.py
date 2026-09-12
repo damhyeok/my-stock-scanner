@@ -47,7 +47,7 @@ def build_bottom_candidate_display(conn):
                signal_reason AS decision_risk_summary
                FROM model_rule_scan_signals
                WHERE universe_type = 'market_cap_10000eok_plus'
-               ORDER BY signal_date, model_id, trend_score DESC, target_room_pct DESC""",
+               ORDER BY signal_date, model_id, trend_score DESC, target_room_pct DESC, ticker""",
             conn,
         )
         if not rules.empty:
@@ -68,7 +68,7 @@ def build_bottom_candidate_display(conn):
                b.sector_market_score, b.risk_penalty, b.reasons, b.risk_reasons
                FROM model_bottom_signals b
                WHERE b.universe_type = 'market_cap_10000eok_plus'
-               ORDER BY b.signal_date, b.bottom_score DESC""",
+               ORDER BY b.signal_date, b.bottom_score DESC, b.ticker""",
             conn,
         )
         if not legacy.empty:

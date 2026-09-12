@@ -58,6 +58,25 @@ class BottomCandidateDisplayTests(unittest.TestCase):
         self.assertEqual(result.iloc[0]["market_cap"], 15000)
         self.assertNotIn("scanner_model", result.columns)
 
+    def test_equal_scores_use_stable_ticker_order(self):
+        self.conn.executemany(
+            "INSERT INTO model_bottom_signals VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            [
+                ("20260911", "9", "나", 90, 50, "관찰", 3, 2, 1, 0, "[]", "[]", "market_cap_10000eok_plus"),
+                ("20260911", "1", "가", 90, 50, "관찰", 3, 2, 1, 0, "[]", "[]", "market_cap_10000eok_plus"),
+            ],
+        )
+        self.conn.executemany(
+            "INSERT INTO model_ohlcv_daily VALUES (?,?,?,?,?)",
+            [
+                ("20260911", "9", 1, 15000, "market_cap_10000eok_plus"),
+                ("20260911", "1", 1, 15000, "market_cap_10000eok_plus"),
+            ],
+        )
+        build_bottom_candidate_display(self.conn)
+        result = read_bottom_candidate_display(self.conn, "20260911")
+        self.assertEqual(result["ticker"].tolist(), ["1", "9"])
+
 
 if __name__ == "__main__":
     unittest.main()
