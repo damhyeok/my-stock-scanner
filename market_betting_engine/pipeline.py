@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
+from .sector_hourly import HourlyPath, derive_hourly_path
 from typing import Dict, Mapping, Optional, Sequence, Tuple
 
 from .contracts import AxisSignal, Observation
@@ -19,7 +21,7 @@ from .features import (
 from .signals import (
     SectorFeatureSummary,
     SignalThresholds,
-    aggregate_sector_features,
+    aggregate_hourly_sector_features,
     build_market_axis_signals,
     build_sector_axis_signals,
     build_stock_axis_signals,
@@ -32,6 +34,7 @@ class InstrumentEvidence:
     relative: Optional[RelativeFeatureSnapshot]
     signals: Tuple[AxisSignal, ...]
     closing: ClosingWindowFeatures
+    hourly_path: Optional[HourlyPath] = None
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,8 @@ def derive_evidence_bundle(
     futures_prefix: str = "futures.ACTIVE",
     feature_config: FeatureConfig = FeatureConfig(),
     signal_thresholds: SignalThresholds = SignalThresholds(),
+    sector_as_of: Optional[datetime] = None,
+    sector_observations: Optional[Sequence[Observation]] = None,
 ) -> DerivedEvidenceBundle:
     """Create features and evidence, but never silently fill a missing instrument."""
 
@@ -87,11 +92,15 @@ def derive_evidence_bundle(
             missing.append(symbol)
             continue
         relative = derive_relative_features(features, market_features)
+        sector_bars = extract_bar_series(sector_observations, prefix) if sector_observations is not None else bars
         stocks[symbol] = InstrumentEvidence(
             features=features,
             relative=relative,
             signals=build_stock_axis_signals(relative, signal_thresholds),
             closing=derive_closing_window_features(bars, prefix, feature_config),
+            hourly_path=derive_hourly_path(
+                sector_bars, index_bars, as_of=sector_as_of or market_features.as_of
+            ),
         )
 
     sectors: Dict[str, SectorEvidence] = {}
@@ -99,12 +108,9 @@ def derive_evidence_bundle(
         requested_tuple = tuple(requested)
         observed_tuple = tuple(symbol for symbol in requested_tuple if symbol in stocks)
         missing_tuple = tuple(symbol for symbol in requested_tuple if symbol not in stocks)
-        relative_members = tuple(
-            stocks[symbol].relative
-            for symbol in observed_tuple
-            if stocks[symbol].relative is not None
+        summary = aggregate_hourly_sector_features(
+            stocks[symbol].hourly_path for symbol in observed_tuple
         )
-        summary = aggregate_sector_features(relative_members)
         sectors[sector_name] = SectorEvidence(
             summary=summary,
             signals=build_sector_axis_signals(summary, signal_thresholds),

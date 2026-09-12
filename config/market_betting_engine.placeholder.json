@@ -1,5 +1,5 @@
 {
-  "config_version": "expert-placeholder-v3-sector-breadth-tiers",
+  "config_version": "expert-placeholder-v4-sector-hourly-path",
   "placeholder": true,
   "feature": {
     "short_return_bars": 5,

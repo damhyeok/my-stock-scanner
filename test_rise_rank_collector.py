@@ -136,6 +136,7 @@ class RiseRankCollectorTest(unittest.TestCase):
             rise["name"] = "SK하이닉스"
             rise["previous_day_rate"] = pd.NA
             with patch.object(crawler, "get_market_data", return_value=market), \
+                 patch.object(crawler, "_get_session_name", return_value="정규장(16:00)"), \
                  patch.object(crawler, "get_investor_data", return_value=investor), \
                  patch.object(crawler, "get_sector_info", return_value="반도체"), \
                  patch.object(crawler, "get_rise_top_data", return_value=rise) as get_rise:

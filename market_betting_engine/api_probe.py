@@ -538,6 +538,50 @@ def _kis_request(spec: ProbeSpec, ticker: str, current: datetime) -> tuple[dict[
     return client.get(spec.path, spec.operation_code, params)
 
 
+def _kis_sector_stock_window_request(spec, ticker, current, *, initial_consumer, minutes=120):
+    """Bounded same-day paging for sector paths, preserving the first response.
+
+    At most five requests; stop on no progress or a failed older page. Never
+    reinterpret an incomplete response as a complete hourly history.
+    """
+    first, status = _kis_request(spec, ticker, current)
+    initial_consumer(first)
+    if status != 200 or first.get("rt_cd") != "0":
+        return first, status
+    closed_minute = current.replace(second=0, microsecond=0) - timedelta(minutes=1)
+    cutoff = min(closed_minute.strftime("%H%M%S"), "151900")
+    end = datetime.strptime(current.strftime("%Y%m%d") + cutoff, "%Y%m%d%H%M%S").replace(tzinfo=KST)
+    start = max(end.replace(hour=9, minute=0, second=0), end - timedelta(minutes=minutes - 1))
+    date_key = current.strftime("%Y%m%d")
+    rows = {}
+    payload = first
+    previous_oldest = None
+    for page in range(5):
+        for row in payload.get("output2", []):
+            if str(row.get("stck_bsop_date")) == date_key:
+                stamp = str(row.get("stck_cntg_hour", ""))
+                if len(stamp) == 6 and stamp.isdigit() and "090000" <= stamp <= "153000":
+                    rows.setdefault(stamp, row)
+        if not rows:
+            break
+        oldest = min(rows)
+        if oldest <= start.strftime("%H%M%S") or oldest == previous_oldest or page == 4:
+            break
+        previous_oldest = oldest
+        cursor = datetime.strptime(date_key + oldest, "%Y%m%d%H%M%S").replace(tzinfo=KST) - timedelta(minutes=1)
+        try:
+            time.sleep(.10)
+            payload, code = _kis_request(spec, ticker, cursor)
+            if code != 200 or payload.get("rt_cd") != "0":
+                break
+        except (requests.RequestException, RuntimeError, ValueError):
+            break
+    combined = dict(first)
+    combined["output2"] = [rows[t] for t in sorted(rows, reverse=True)
+                           if t >= start.strftime("%H%M%S")]
+    return combined, status
+
+
 def _to_number(value: Any) -> float:
     try:
         return float(str(value or "0").replace(",", ""))

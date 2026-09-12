@@ -6,7 +6,7 @@ import json
 import os
 import sqlite3
 from dataclasses import asdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
@@ -286,6 +286,7 @@ def run_market_betting_analysis(
             context=provisional,
             instrument=instrument,
             ticker=ticker,
+            sector_window_minutes=120 if probe_id == "kis_stock_minute" else None,
             field_verification_statuses={
                 field_name: status.value
                 for field_name, status in verification_registry.statuses_for_probe(probe_id).items()
@@ -323,6 +324,11 @@ def run_market_betting_analysis(
             sector_members=members,
             feature_config=config.feature,
             signal_thresholds=config.signals,
+            sector_observations=tuple(
+                observation for item in collections
+                for observation in (item.sector_adapted or item.adapted).observations
+            ),
+            sector_as_of=now.replace(second=0, microsecond=0) - timedelta(minutes=1),
         )
         market_signals = bundle.market_signals
     except ValueError:
@@ -337,7 +343,6 @@ def run_market_betting_analysis(
             str(row["ticker"]).zfill(6): float(row.get("trading_value") or 0)
             for row in universe
         }
-        previous_sectors = _previous_sector_decisions(db_path)
         for name, evidence in bundle.sectors.items():
             requested_turnover = sum(turnover.get(symbol, 0) for symbol in evidence.requested_members)
             observed_values = [turnover.get(symbol, 0) for symbol in evidence.observed_members]
@@ -356,7 +361,7 @@ def run_market_betting_analysis(
                         # that limitation remains disclosed in derived metadata.
                         universe_complete=not evidence.missing_members,
                     ),
-                    persistence_confirmed=previous_sectors.get(name) in {"LEADING", "EMERGING"},
+                    persistence_confirmed=evidence.summary.window_status == "COMPLETE",
                 )
             )
         previous = _previous_states(db_path, candidate_symbols)

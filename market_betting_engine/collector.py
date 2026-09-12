@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any, Callable, Mapping, Optional
 
 from .adapters import AdapterResult, adapt_probe_payload
-from .api_probe import ProbeResult, ProbeSpec, execute_probe
+from .api_probe import ProbeResult, ProbeSpec, execute_probe, _kis_sector_stock_window_request
 from .contracts import QualityIssue, QualitySeverity
 from .session import SessionContext
 
@@ -16,6 +16,7 @@ from .session import SessionContext
 class ProbeCollectionResult:
     probe: ProbeResult
     adapted: AdapterResult
+    sector_adapted: Optional[AdapterResult] = None
 
 
 def collect_probe_observations(
@@ -30,6 +31,7 @@ def collect_probe_observations(
         Callable[[ProbeSpec, str, datetime], tuple[dict[str, Any], int]]
     ] = None,
     field_verification_statuses: Optional[Mapping[str, str]] = None,
+    sector_window_minutes: Optional[int] = None,
 ) -> ProbeCollectionResult:
     """Execute one safe probe and adapt its raw payload without persisting it.
 
@@ -42,6 +44,14 @@ def collect_probe_observations(
 
     def capture(payload: Mapping[str, Any]) -> None:
         captured["payload"] = payload
+
+    if probe_id == "kis_stock_minute" and sector_window_minutes and request_override is None:
+        def window_request(spec, ticker, current):
+            return _kis_sector_stock_window_request(
+                spec, ticker, current, minutes=sector_window_minutes,
+                initial_consumer=lambda payload: captured.update(initial=payload),
+            )
+        request_override = window_request
 
     probe = execute_probe(
         probe_id,
@@ -75,4 +85,14 @@ def collect_probe_observations(
             field_verification_statuses=field_verification_statuses,
             stale_after_seconds=stale_after_seconds,
         )
-    return ProbeCollectionResult(probe, adapted)
+    sector_adapted = None
+    if "initial" in captured:
+        sector_adapted = adapted
+        adapted = adapt_probe_payload(
+            probe_id, captured["initial"], context=context, instrument=instrument,
+            observed_at=datetime.fromisoformat(probe.completed_at_kst),
+            verification_status=probe.verification_status,
+            field_verification_statuses=field_verification_statuses,
+            stale_after_seconds=stale_after_seconds,
+        )
+    return ProbeCollectionResult(probe, adapted, sector_adapted)

@@ -33,6 +33,12 @@ class SectorFeatureSummary:
     outperforming_ratio: Optional[float]
     equal_weight_relative_return: Optional[float]
     activity_confirming_ratio: Optional[float]
+    structure_confirming_ratio: Optional[float] = None
+    analysis_mode: str = "LEGACY_SHORT_WINDOW"
+    window_status: str = "LEGACY"
+    evaluable_members: int = 0
+    window_start: str = ""
+    window_end: str = ""
 
 
 def _signal(axis: str, status: AxisStatus, code: str, message: str) -> AxisSignal:
@@ -239,6 +245,10 @@ def build_sector_axis_signals(
     summary: SectorFeatureSummary,
     thresholds: SignalThresholds = SignalThresholds(),
 ) -> Tuple[AxisSignal, ...]:
+    if summary.analysis_mode == "ROLLING_60M_PATH_V1" and summary.window_status != "COMPLETE":
+        return (_signal("sector_history", AxisStatus.UNAVAILABLE,
+                        "SECTOR_HOURLY_WINDOW_INCOMPLETE",
+                        f"60-minute path status={summary.window_status}; evaluable members={summary.evaluable_members}/{summary.member_count}"),)
     def ratio_signal(value: Optional[float], axis: str, code: str) -> AxisSignal:
         if value is None or summary.member_count < thresholds.sector_minimum_observed_members:
             return _signal(axis, AxisStatus.UNAVAILABLE, f"{code}_UNAVAILABLE", f"{axis} is unavailable")
@@ -260,4 +270,29 @@ def build_sector_axis_signals(
     participation = ratio_signal(summary.above_vwap_ratio, "sector_participation", "SECTOR_ABOVE_VWAP_RATIO")
     breadth = ratio_signal(summary.outperforming_ratio, "sector_relative_strength", "SECTOR_OUTPERFORMING_RATIO")
     activity = ratio_signal(summary.activity_confirming_ratio, "sector_activity", "SECTOR_ACTIVITY_CONFIRMING_RATIO")
+    if summary.analysis_mode == "ROLLING_60M_PATH_V1":
+        # VWAP support and low structure share price evidence; do not count
+        # them as two independent failures in the hard-veto gate.
+        structure = ratio_signal(summary.structure_confirming_ratio, "sector_participation", "SECTOR_HOURLY_STRUCTURE")
+        return participation, breadth, activity, structure
     return participation, breadth, activity
+
+
+def aggregate_hourly_sector_features(paths) -> SectorFeatureSummary:
+    paths = tuple(paths)
+    usable = [p for p in paths if p.status in {"COMPLETE", "PROVISIONAL"}]
+    count = len(paths)
+    complete = [p for p in usable if p.status == "COMPLETE"]
+    status = "INSUFFICIENT"
+    if count and len(usable) / count >= .80:
+        status = "COMPLETE" if len(complete) / count >= .80 else "PROVISIONAL"
+    def ratio(name):
+        return sum(getattr(p, name) is True for p in usable) / count if usable else None
+    relatives = [p.relative_return for p in usable if p.relative_return is not None]
+    return SectorFeatureSummary(
+        count, ratio("above_vwap"), ratio("outperforming"),
+        sum(relatives) / len(relatives) if relatives else None,
+        ratio("activity_confirming"), ratio("structure_confirming"),
+        "ROLLING_60M_PATH_V1", status, len(usable),
+        paths[0].window_start if paths else "", paths[0].window_end if paths else "",
+    )

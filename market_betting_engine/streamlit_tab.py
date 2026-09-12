@@ -63,6 +63,8 @@ _CODE_KO = {
     "SECTOR_OUTPERFORMING_RATIO_UNAVAILABLE": "시장보다 강한 섹터 종목 비율",
     "SECTOR_ACTIVITY_CONFIRMING_RATIO": "거래 활동 증가와 가격 상승이 함께 나온 종목 비율",
     "SECTOR_ACTIVITY_CONFIRMING_RATIO_UNAVAILABLE": "거래 활동 증가가 확인된 섹터 종목 비율",
+    "SECTOR_HOURLY_STRUCTURE": "최근 60분의 저점 상승·상승 경사·고점 유지가 확인된 종목 비율",
+    "SECTOR_HOURLY_WINDOW_INCOMPLETE": "60분 분봉 부족 또는 개장 초기 잠정 분석",
     "SECTOR_SINGLE_NAME_CONCENTRATION": "섹터 거래대금이 한 종목에 과도하게 집중됨",
     "SECTOR_MEMBER_COVERAGE_LOW": "분석에 포함된 섹터 종목 수가 부족함",
     "SECTOR_TURNOVER_COVERAGE_LOW": "포착한 섹터 거래대금 비율이 부족함",
@@ -519,6 +521,7 @@ _SECTOR_SCORE = {
 }
 
 _SECTOR_STRENGTH_KO = {
+    "PROVISIONAL": "잠정·60분 미충족",
     "GENUINE": "진짜 강세",
     "EXPANDING": "강세 확산",
     "CANDIDATE": "강세 후보",
@@ -546,7 +549,7 @@ def _sector_summary(detail: Mapping[str, Any], sector: str) -> Mapping[str, Any]
 def _sector_member_groups(detail: Mapping[str, Any], sector: str) -> dict[str, list[str]]:
     """Return stock names satisfying each sector-strength condition."""
 
-    result = {"above_vwap": [], "outperforming": [], "activity_confirming": []}
+    result = {"above_vwap": [], "outperforming": [], "activity_confirming": [], "structure_confirming": []}
     run = detail.get("run", {})
     derived = run.get("derived_evidence") if isinstance(run, Mapping) else None
     bundle = derived.get("bundle") if isinstance(derived, Mapping) else None
@@ -581,6 +584,12 @@ def _sector_member_groups(detail: Mapping[str, Any], sector: str) -> dict[str, l
         if not isinstance(stock, Mapping):
             continue
         display_name = names.get(symbol) or symbol
+        hourly = stock.get("hourly_path")
+        if isinstance(hourly, Mapping) and hourly.get("mode") == "ROLLING_60M_PATH_V1":
+            for condition in result:
+                if hourly.get(condition) is True and hourly.get("status") in {"COMPLETE", "PROVISIONAL"}:
+                    result[condition].append(display_name)
+            continue
         vwap_distance = value(stock, "features", "vwap_distance_ratio", "value")
         relative_return = value(stock, "relative", "relative_short_return", "value")
         activity = value(stock, "features", "activity_acceleration", "value")
@@ -599,21 +608,29 @@ def _sector_breadth_tier(
 ) -> str:
     """Turn the three breadth ratios into an early/expanding/genuine tier."""
 
+    hourly = summary.get("analysis_mode") == "ROLLING_60M_PATH_V1"
+    if hourly and summary.get("window_status") != "COMPLETE":
+        return "PROVISIONAL" if summary.get("window_status") == "PROVISIONAL" else "NOT_EVALUABLE"
+    # A display-only tier must not override missing data, concentration or
+    # other engine blockers in new hourly runs.
+    if hourly and (judgment.get("decision") in {"FADING", "AVOID", "NOT_EVALUABLE"}
+                   or judgment.get("blockers")
+                   or any(w.get("code") == "SECTOR_SINGLE_NAME_CONCENTRATION" for w in judgment.get("warnings", []))):
+        return str(judgment.get("decision", "NOT_EVALUABLE"))
+    ratio_fields = ["above_vwap_ratio", "outperforming_ratio", "activity_confirming_ratio"]
+    if hourly:
+        ratio_fields.append("structure_confirming_ratio")
     try:
         member_count = int(summary.get("member_count") or 0)
         ratios = [
             float(summary[name])
-            for name in (
-                "above_vwap_ratio",
-                "outperforming_ratio",
-                "activity_confirming_ratio",
-            )
+            for name in ratio_fields
             if summary.get(name) is not None
         ]
     except (TypeError, ValueError):
         ratios = []
         member_count = 0
-    if member_count >= 4 and len(ratios) == 3:
+    if member_count >= 4 and len(ratios) == len(ratio_fields):
         supporting_counts = [round(value * member_count) for value in ratios]
         if min(supporting_counts) >= 3:
             minimum_ratio = min(ratios)
@@ -635,12 +652,25 @@ def _sector_reason_text(
 
     explanations = []
     summary = summary or {}
+    hourly = summary.get("analysis_mode") == "ROLLING_60M_PATH_V1"
+    if hourly:
+        start, end = str(summary.get("window_start", ""))[11:16], str(summary.get("window_end", ""))[11:16]
+        explanations.append(f"{start}~{end}의 1분봉 경로 · {summary.get('evaluable_members', 0)}종목 자료 충족")
+        if summary.get("window_status") != "COMPLETE":
+            explanations.append("잠정: 60분 미충족" if summary.get("window_status") == "PROVISIONAL" else "자료 부족: 누락·시각 불일치 확인 필요")
     member_count = int(summary.get("member_count") or 0)
     summary_metrics = (
         ("above_vwap_ratio", "각 종목의 VWAP 위"),
         ("outperforming_ratio", "같은 시간 코스피보다 강함"),
         ("activity_confirming_ratio", "거래 증가와 가격 상승이 함께 나타남"),
     )
+    if hourly:
+        summary_metrics = (
+            ("above_vwap_ratio", "60분 VWAP 지지를 지속"),
+            ("outperforming_ratio", "60분 동안 지수 대비 강세를 지속"),
+            ("activity_confirming_ratio", "상승 구간 거래가 우세"),
+            ("structure_confirming_ratio", "저점 상승과 가격 흐름을 유지"),
+        )
     for name, label in summary_metrics:
         value = summary.get(name)
         if value is not None and member_count:
@@ -684,7 +714,10 @@ def _sector_reason_text(
         explanations.append("앞선 분석에서도 강세여서 흐름이 이어지는 중")
     elif decision == "EMERGING":
         explanations.append("이번 분석 시각에 강세 조건을 새로 통과")
-    return " · ".join(explanations) or "저장된 세부 근거가 없어 강약 상태만 표시"
+    text = " · ".join(explanations) or "저장된 세부 근거가 없어 강약 상태만 표시"
+    if hourly:
+        text = text.replace("세 조건", "네 조건").replace("앞선 분석에서도 강세여서 흐름이 이어지는 중", "최근 60분의 분봉 경로에서 강세 유지 확인")
+    return text
 
 
 def build_sector_strength_history(
@@ -742,6 +775,8 @@ def build_sector_strength_history(
                     "vwap_members": ", ".join(member_groups["above_vwap"]),
                     "outperforming_members": ", ".join(member_groups["outperforming"]),
                     "activity_members": ", ".join(member_groups["activity_confirming"]),
+                    "structure_members": ", ".join(member_groups["structure_confirming"]),
+                    "analysis_basis": "60분 경로" if summary.get("analysis_mode") == "ROLLING_60M_PATH_V1" else "기존 단기 기준",
                 }
             )
     return history, selected_run
@@ -786,6 +821,7 @@ def build_daily_sector_strength_history(
                     "date": trade_date,
                     "date_label": trade_date[5:].replace("-", "/"),
                     "data_time_label": data_time.strftime("%H:%M") if data_time else "-",
+                    "analysis_basis": "60분 경로" if summary.get("analysis_mode") == "ROLLING_60M_PATH_V1" else "기존 단기 기준",
                     "sector": sector,
                     "decision": decision,
                     "status": _SECTOR_STRENGTH_KO.get(decision, decision),
@@ -797,6 +833,49 @@ def build_daily_sector_strength_history(
                 }
             )
     return history, dates
+
+
+def hourly_member_rows(detail):
+    """Same stored path metrics in both sector views; no UI-side recalculation."""
+    run = detail.get("run", {})
+    derived = run.get("derived_evidence") or {}
+    bundle = derived.get("bundle") or {}
+    stocks = bundle.get("stocks") or {}
+    names = {str(row.get("ticker", "")).zfill(6): row.get("name", "")
+             for row in (derived.get("adaptive_universe") or {}).get("stocks", [])}
+    rows = []
+    def pct(value):
+        return f"{value * 100:.1f}%" if value is not None else "—"
+    for sector, data in (bundle.get("sectors") or {}).items():
+        for ticker in data.get("observed_members", []):
+            path = (stocks.get(ticker) or {}).get("hourly_path")
+            if not path:
+                continue
+            rows.append({
+                "섹터": sector, "종목명": names.get(ticker) or ticker,
+                "관찰 구간": f"{path.get('window_start', '')[11:16]}~{path.get('window_end', '')[11:16]}",
+                "데이터": {"COMPLETE": "60분 기준 충족", "PROVISIONAL": "잠정", "INSUFFICIENT": "자료 부족"}.get(path.get("status"), "자료 부족"),
+                "일치 분봉": f"{path.get('aligned_minutes', 0)}/{path.get('expected_minutes', 60)}",
+                "구간 수익률": pct(path.get("return_ratio")),
+                "상대강도 유지율": pct(path.get("relative_retention")),
+                "VWAP 지지율": pct(path.get("vwap_retention")),
+                "저점 상승 비율": pct(path.get("higher_low_ratio")),
+                "상승 구간 거래 비중": pct(path.get("up_turnover_share")),
+                "직전 60분 대비 거래활동": pct(path.get("activity_change")),
+            })
+    return rows
+
+
+def render_hourly_details(st, detail):
+    rows = hourly_member_rows(detail)
+    if not rows:
+        st.caption("이 기록은 변경 전 단기 기준입니다. 새 60분 기준으로 소급해 표시하지 않습니다.")
+        return
+    st.caption("최근 60분의 1분봉 전체를 평가합니다. 15:20 이후 동시호가는 분리하고 15:19까지의 연속매매 흐름을 사용합니다. 새 결과부터 적용됩니다.")
+    with st.expander("60분 흐름 · 종목별 근거와 데이터 충족도", expanded=False):
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+        st.caption("‘—’는 비교 자료 부족입니다. 이전 60분이 없으면 거래활동 증감은 계산하지 않으며, 상승·하락 구간 거래 비중만 사용합니다. 누락된 분봉은 채워 넣지 않습니다.")
+        st.caption("자료 조건: 종목·지수 동일 시각 분봉 90% 이상, 구간 처음·마지막 봉 존재, 3분 초과 간격 없음. 섹터는 추적 종목의 80% 이상이 자료 조건을 충족해야 정식 판정합니다.")
 
 
 def render_sector_strength_flow_tab(
@@ -822,18 +901,23 @@ def render_sector_strength_flow_tab(
 한 종목만 잠깐 오르는 것이 아니라 **그 섹터의 여러 종목이 함께, 시장보다 강하게, 거래를 동반해 오르는지** 확인합니다.
 
 **1. 섹터 종목들이 자기 평균 매수가격보다 위에 있어야 합니다.**
-각 종목의 현재가가 **선택 시각까지 거래량을 반영한 평균 거래가격(VWAP)** 위에 있는지 봅니다. VWAP은 코스피나 섹터 평균가격이 아니라 종목마다 따로 계산됩니다. 현재가가 그 위라면 오늘 거래가 많이 이뤄진 중심 가격보다 잘 버티는 상태라는 뜻입니다.
+최근 60분 안에서 매 분의 종가를 그 시점까지의 구간 누적 VWAP과 비교합니다. **관측 분봉의 60% 이상에서 지지하고 마지막 가격도 구간 VWAP 위**에 있어야 합니다. 미래 봉을 이용해 과거의 지지를 판정하지 않습니다.
 
 **2. 코스피가 올라서 덩달아 오른 것보다 더 강해야 합니다.**
-예를 들어 코스피가 1% 오를 때 섹터 종목도 1% 정도만 올랐다면 그 섹터만 특별히 강한 것은 아닙니다. 여러 종목이 같은 시간의 코스피보다 더 강해야 섹터 고유의 힘이 있다고 봅니다.
+구간 시작 가격 대비 수익률을 종목과 코스피의 **동일한 분마다** 비교합니다. 60% 이상의 관측 분에서 코스피보다 강하고 구간 마지막 초과수익률도 양수여야 합니다.
 
 **3. 가격 상승에 실제 거래 증가가 따라와야 합니다.**
-최근 거래 활동이 늘면서 가격도 함께 오르는 종목이 몇 개인지 봅니다. 거래 없이 가격만 살짝 움직인 경우보다 실제 참여가 커지는 움직임을 찾기 위한 조건입니다.
+최근 60분의 상승·하락 구간 거래대금 근사치(종가×거래량)를 모두 합산합니다. 상승 구간 비중이 55% 이상이고 구간 수익률도 양수여야 합니다. 이전 60분도 확보되면 분당 거래활동이 줄지 않았는지 함께 봅니다. 실제 매수·매도 체결량이나 프로그램 순매수와는 다릅니다.
+
+**4. 중간 가격 흐름도 올라가야 합니다.**
+모든 분봉 종가의 추세 기울기, 10분 구간별 최저가 상승 비율(60% 이상), 구간 최고가에서 상승폭의 절반 이상 반납하지 않았는지를 함께 확인합니다. 마지막 몇 분만 급등한 경우를 구별하기 위한 조건입니다.
 
 **강세는 한 번에 잘라 판단하지 않고 세 단계로 넓게 알려드립니다.**
-- **강세 후보:** 세 조건이 각각 40% 이상이고, 조건마다 최소 3종목이 참여한 초기 움직임
-- **강세 확산:** 세 조건이 각각 50% 이상으로 여러 종목에 힘이 퍼지는 상태
-- **진짜 강세:** 세 조건이 각각 60% 이상으로 섹터 전반의 동반 강세가 확인된 상태
+- **강세 후보:** 네 조건이 각각 40% 이상이고, 조건마다 최소 3종목이 참여한 초기 움직임
+- **강세 확산:** 네 조건이 각각 50% 이상으로 여러 종목에 힘이 퍼지는 상태
+- **진짜 강세:** 네 조건이 각각 60% 이상으로 섹터 전반의 동반 강세가 확인된 상태
+
+60분 미만은 잠정이며, 20분 미만·분봉 누락 과다·지수와 시각 불일치는 자료 부족으로 표시합니다. 위 수치는 시작용 규칙이며 수익성을 검증한 임계값이 아닙니다. 과거 단기 기준 기록은 그대로 구분해 표시합니다.
 
 최소 4종목 이상이 관측되어야 판정하며, 한 종목의 급등만으로는 강세가 되지 않습니다. **강세 후보는 일찍 알려주는 관심 신호이고, 실제 진입 검토는 강세 확산부터** 가능합니다. 추적 종목은 해당 섹터의 모든 상장 종목이 아니라 현재 분석 대상으로 선정된 주요 종목입니다.
             """
@@ -845,7 +929,10 @@ def render_sector_strength_flow_tab(
         st.info("선택한 날짜·시간까지 저장된 섹터 강약 분석이 없습니다.")
         return
 
-    frame = pd.DataFrame(history).dropna(subset=["score"])
+    selected_detail = load_decision_run(db_path, str(selected_run["run_id"]))
+    if selected_detail:
+        render_hourly_details(st, selected_detail)
+    frame = pd.DataFrame(history)
     if frame.empty:
         st.info("섹터 상태를 그래프로 표시할 수 있는 분석 기록이 없습니다.")
         return
@@ -872,15 +959,15 @@ def render_sector_strength_flow_tab(
 
     color_domain = [
         "진짜 강세", "강세 확산", "강세 후보", "강세 지속", "강세 시작",
-        "중립", "강세 약화", "약세·회피", "자료 부족", "미추적",
+        "중립", "강세 약화", "약세·회피", "자료 부족", "미추적", "잠정·60분 미충족",
     ]
     color_range = [
         "#07523b", "#19945f", "#8bcf9b", "#0b6e4f", "#55a868",
-        "#b8b8b8", "#e07a5f", "#b23a48", "#d9d9d9", "#f2f2f2",
+        "#b8b8b8", "#e07a5f", "#b23a48", "#d9d9d9", "#f2f2f2", "#e6d6af",
     ]
     st.subheader(f"{current_time:%H:%M} 현재 섹터 강약")
     current_chart = (
-        alt.Chart(current)
+        alt.Chart(current.dropna(subset=["score"]))
         .mark_bar(cornerRadiusEnd=5)
         .encode(
             x=alt.X(
@@ -899,6 +986,7 @@ def render_sector_strength_flow_tab(
                 alt.Tooltip("sector:N", title="섹터"),
                 alt.Tooltip("status:N", title="현재 상태"),
                 alt.Tooltip("reason:N", title="판단 이유"),
+                alt.Tooltip("analysis_basis:N", title="분석 기준"),
                 alt.Tooltip("time_label:N", title="데이터 시각"),
             ],
         )
@@ -921,10 +1009,11 @@ def render_sector_strength_flow_tab(
         st.markdown(
             f"**각 종목의 VWAP 위**  \n{member_line(selected_row['vwap_members'])}\n\n"
             f"**같은 시간 코스피보다 강함**  \n{member_line(selected_row['outperforming_members'])}\n\n"
-            f"**거래 증가와 가격 상승이 함께 나타남**  \n{member_line(selected_row['activity_members'])}"
+            f"**상승 구간 거래 우세 / 이전 기록은 거래 증가**  \n{member_line(selected_row['activity_members'])}\n\n"
+            f"**60분 저점 상승·가격 구조 유지**  \n{member_line(selected_row.get('structure_members', ''))}"
         )
         st.caption(
-            "세 목록의 종목은 서로 다를 수 있습니다. 강세 단계는 각 조건의 참여 비율을 "
+            "각 목록의 종목은 서로 다를 수 있습니다. 새 60분 기준은 네 조건의 참여 비율을 "
             "모두 확인해 결정하므로, 한 조건의 종목이 많다고 바로 강세가 되는 것은 아닙니다."
         )
 
@@ -952,6 +1041,7 @@ def render_sector_strength_flow_tab(
                 alt.Tooltip("sector:N", title="섹터"),
                 alt.Tooltip("status:N", title="상태"),
                 alt.Tooltip("reason:N", title="판단 이유"),
+                alt.Tooltip("analysis_basis:N", title="분석 기준"),
             ],
         )
         .properties(height=max(260, len(sector_order) * 48))
@@ -1042,6 +1132,7 @@ def render_sector_strength_flow_tab(
                         alt.Tooltip("sector:N", title="섹터"),
                         alt.Tooltip("status:N", title="상태"),
                         alt.Tooltip("reason:N", title="판단 이유"),
+                        alt.Tooltip("analysis_basis:N", title="분석 기준"),
                     ],
                 )
                 .properties(height=max(260, len(selected_sectors) * 48))
@@ -1323,6 +1414,7 @@ def render_market_betting_tab(
             _render_evidence_group(st, "지금 들어가면 안 되는 이유", judgment.get("blockers", []), "error")
 
     with sector_tab:
+        render_hourly_details(st, {"run": run})
         st.caption(
             "강세 섹터와 약세 섹터, 장중 대응, 현재 시점 기준 종가베팅 후보를 한 번에 보여줍니다. "
             "섹터 전체 종목이 아니라 거래가 활발한 추적 종목 표본을 기준으로 합니다."
