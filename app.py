@@ -24,7 +24,11 @@ from market_strength import MarketStrengthAnalyzer, calculate_daily_market_stren
 from program_net_divergence import build_program_price_divergence
 from rise_rankings import build_rise_rank_tables
 from watchlist import read_watchlist_performance
-from sector_trend_window import recent_sector_window
+from sector_trend_window import (
+    build_sector_trend_summary,
+    recent_sector_summary_window,
+    recent_sector_window,
+)
 from web_database import decompress_web_database
 from market_betting_engine.streamlit_tab import (
     render_market_betting_tab,
@@ -560,6 +564,19 @@ def get_raw_data():
         conn.close()
         return df
     except:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=60)
+def get_sector_trend_summary():
+    try:
+        db_path, _ = get_database_path()
+        with sqlite3.connect(db_path) as conn:
+            return pd.read_sql_query(
+                "SELECT * FROM web_sector_trend_daily ORDER BY date DESC, trend_kind, trading_rank, sector",
+                conn,
+            )
+    except Exception:
+        # Bundled snapshots created before this migration remain usable.
         return pd.DataFrame()
 
 @st.cache_data(ttl=60)
@@ -1640,15 +1657,26 @@ else:
     # 탭 6: 트렌드
     with tab6:
         st.header(f"📈 최근 섹터 거래대금 순위 흐름 (상위 {trend_count}개)")
-        df_trend, trend_dates = recent_sector_window(df_raw, selected_date)
+        sector_summary = get_sector_trend_summary()
+        if sector_summary.empty:
+            df_trend, _legacy_dates = recent_sector_window(df_raw, selected_date)
+            sector_summary = build_sector_trend_summary(df_trend)
+        trend_summary, trend_dates = recent_sector_summary_window(
+            sector_summary, selected_date
+        )
         week_start = trend_dates[0] if trend_dates else str(selected_date)
         st.caption(f"선택일 기준 최근 {len(trend_dates)}거래일 · 최대 10거래일의 저장된 정규장 결과를 표시합니다. 월요일에도 초기화하지 않습니다.")
-        if df_trend.empty:
+        if trend_summary.empty:
             st.info("최근 10거래일 정규장 섹터 흐름 데이터가 없습니다.")
         else:
-            df_trend['trading_value'] = pd.to_numeric(df_trend['trading_value'], errors='coerce').fillna(0)
+            daily_sector_rank = trend_summary[
+                trend_summary['trend_kind'] == 'ALL'
+            ].copy()
+            daily_sector_rank['trading_value'] = pd.to_numeric(
+                daily_sector_rank['trading_value'], errors='coerce'
+            ).fillna(0)
             weekly_sector_rank = (
-                df_trend[df_trend['sector'] != '기타']
+                daily_sector_rank
                 .groupby('sector')['trading_value']
                 .sum()
                 .sort_values(ascending=False)
@@ -1659,21 +1687,6 @@ else:
             if not weekly_sector_rank:
                 st.info("최근 10거래일 정규장 기준으로 표시할 섹터가 없습니다.")
             else:
-                daily_sector_rank = (
-                    df_trend[df_trend['sector'] != '기타']
-                    .groupby(['date', 'sector'])
-                    .agg(
-                        trading_value=('trading_value', 'sum'),
-                        stock_count=('ticker', 'nunique'),
-                        included_stocks=('name', lambda names: ', '.join(dict.fromkeys(names.astype(str)))),
-                    )
-                    .reset_index()
-                )
-                daily_sector_rank['trading_rank'] = (
-                    daily_sector_rank.groupby('date')['trading_value']
-                    .rank(method='min', ascending=False)
-                    .astype(int)
-                )
                 daily_sector_rank['trading_value_eok'] = daily_sector_rank['trading_value'].apply(format_won_to_eok)
                 daily_sector_rank['date_label'] = pd.to_datetime(
                     daily_sector_rank['date'], format='%Y%m%d'
@@ -1718,34 +1731,15 @@ else:
 
                 st.write("---")
                 st.subheader(f"상승 종목 주도 업종 거래대금 순위 흐름 (상위 {trend_count}개)")
-                rising_trend = df_trend[
-                    pd.to_numeric(df_trend['fluctuation_rate'], errors='coerce').fillna(0) > 0
+                daily_rising_rank = trend_summary[
+                    trend_summary['trend_kind'] == 'RISING'
                 ].copy()
-                if rising_trend.empty:
+                if daily_rising_rank.empty:
                     st.info("최근 10거래일 정규장 TOP60에 상승 종목이 없습니다.")
                 else:
-                    rising_trend['fluctuation_rate'] = pd.to_numeric(
-                        rising_trend['fluctuation_rate'], errors='coerce'
+                    daily_rising_rank['trading_value'] = pd.to_numeric(
+                        daily_rising_rank['trading_value'], errors='coerce'
                     ).fillna(0)
-                    rising_trend['stock_label'] = (
-                        rising_trend['name'].astype(str)
-                        + rising_trend['fluctuation_rate'].map(lambda rate: f" ({rate:+.2f}%)")
-                    )
-                    daily_rising_rank = (
-                        rising_trend[rising_trend['sector'] != '기타']
-                        .groupby(['date', 'sector'])
-                        .agg(
-                            trading_value=('trading_value', 'sum'),
-                            stock_count=('ticker', 'nunique'),
-                            included_stocks=('stock_label', lambda labels: ', '.join(dict.fromkeys(labels.astype(str)))),
-                        )
-                        .reset_index()
-                    )
-                    daily_rising_rank['trading_rank'] = (
-                        daily_rising_rank.groupby('date')['trading_value']
-                        .rank(method='min', ascending=False)
-                        .astype(int)
-                    )
                     daily_rising_rank['trading_value_eok'] = daily_rising_rank['trading_value'].apply(format_won_to_eok)
                     daily_rising_rank['date_label'] = pd.to_datetime(
                         daily_rising_rank['date'], format='%Y%m%d'

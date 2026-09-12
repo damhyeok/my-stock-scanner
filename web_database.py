@@ -7,6 +7,10 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
+import pandas as pd
+
+from sector_trend_window import build_sector_trend_summary
+
 
 RETENTION = {
     "daily_stocks": ("date", 30),
@@ -88,6 +92,20 @@ def build_web_database(source="stock_data.db", target="web_data.db"):
                 conn.execute(f'DROP TABLE IF EXISTS "{table}"')
             for table, (date_column, keep_dates) in RETENTION.items():
                 _trim_to_latest_dates(conn, table, date_column, keep_dates)
+            if _table_exists(conn, "daily_stocks"):
+                sector_rows = pd.read_sql_query(
+                    "SELECT * FROM daily_stocks "
+                    "WHERE session='정규장(16:00)' AND category='VOLUME_TOP_60' "
+                    "ORDER BY date DESC, rowid ASC",
+                    conn,
+                )
+                build_sector_trend_summary(sector_rows).to_sql(
+                    "web_sector_trend_daily", conn, if_exists="replace", index=False
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_web_sector_trend_date_kind "
+                    "ON web_sector_trend_daily(date, trend_kind, trading_rank)"
+                )
             conn.commit()
             integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
             if integrity != "ok":

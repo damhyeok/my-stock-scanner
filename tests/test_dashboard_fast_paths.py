@@ -8,7 +8,11 @@ from unittest.mock import patch
 
 import pandas as pd
 from watchlist import WatchlistManager, KST, read_watchlist_performance
-from sector_trend_window import recent_sector_window
+from sector_trend_window import (
+    build_sector_trend_summary,
+    recent_sector_summary_window,
+    recent_sector_window,
+)
 
 
 class DashboardFastPathsTests(unittest.TestCase):
@@ -52,3 +56,28 @@ class DashboardFastPathsTests(unittest.TestCase):
         frame = pd.DataFrame([dict(date="20260911", session="정규장(16:00)", category="VOLUME_TOP_60", ticker="005930")])
         self.assertEqual(recent_sector_window(frame, "20260911")[1], ["20260911"])
         self.assertEqual(recent_sector_window(frame, "20260910")[1], [])
+
+    def test_precomputed_sector_summary_matches_existing_chart_calculation(self):
+        rows = []
+        for date in ("20260910", "20260911", "20260914"):
+            rows.extend([
+                dict(date=date, session="정규장(16:00)", category="VOLUME_TOP_60", ticker="1", name="알파", sector="반도체", trading_value=300, fluctuation_rate=2.345),
+                dict(date=date, session="정규장(16:00)", category="VOLUME_TOP_60", ticker="2", name="베타", sector="반도체", trading_value=100, fluctuation_rate=-1),
+                dict(date=date, session="정규장(16:00)", category="VOLUME_TOP_60", ticker="3", name="감마", sector="바이오", trading_value=400, fluctuation_rate=1),
+            ])
+        raw = pd.DataFrame(rows)
+        window, old_dates = recent_sector_window(raw, "20260914")
+        old_all = (
+            window[window["sector"] != "기타"]
+            .groupby(["date", "sector"])
+            .agg(trading_value=("trading_value", "sum"), stock_count=("ticker", "nunique"), included_stocks=("name", lambda values: ", ".join(dict.fromkeys(values.astype(str)))))
+            .reset_index()
+        )
+        old_all["trading_rank"] = old_all.groupby("date")["trading_value"].rank(method="min", ascending=False).astype(int)
+        summary, new_dates = recent_sector_summary_window(build_sector_trend_summary(raw), "20260914")
+        actual = summary[summary["trend_kind"] == "ALL"].drop(columns="trend_kind").sort_values(["date", "sector"]).reset_index(drop=True)
+        expected = old_all.sort_values(["date", "sector"]).reset_index(drop=True)[actual.columns]
+        pd.testing.assert_frame_equal(actual, expected, check_dtype=False)
+        self.assertEqual(new_dates, old_dates)
+        rising = summary[summary["trend_kind"] == "RISING"].set_index(["date", "sector"])
+        self.assertEqual(rising.loc[("20260914", "반도체"), "included_stocks"], "알파 (+2.35%)")
