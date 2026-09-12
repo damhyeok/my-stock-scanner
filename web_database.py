@@ -1,5 +1,6 @@
 """Build the bounded SQLite snapshot deployed with the Streamlit app."""
 import argparse
+from contextlib import closing
 import gzip
 import os
 import shutil
@@ -9,6 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from analyzer import StockAnalyzer
 from sector_trend_window import build_sector_trend_summary
 
 
@@ -43,11 +45,26 @@ DROP_TABLES = {
     "market_betting_observations",
 }
 
+SCORE_SOURCE_COLUMNS = {
+    "date", "session", "category", "ticker", "name", "foreign_net",
+    "inst_net", "trading_value", "volume", "fluctuation_rate",
+}
+SCORE_COLUMNS = [
+    "display_order", "ticker", "name", "presence_index",
+    "retention_ratio", "is_pullback", "total_score",
+]
+
 
 def _table_exists(conn, table):
     return conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
     ).fetchone() is not None
+
+
+def _table_columns(conn, table):
+    if not _table_exists(conn, table):
+        return set()
+    return {row[1] for row in conn.execute(f'PRAGMA table_info("{table}")')}
 
 
 def _trim_to_latest_dates(conn, table, date_column, keep_dates):
@@ -100,6 +117,14 @@ def build_web_database(source="stock_data.db", target="web_data.db"):
         finally:
             target_conn.close()
             source_conn.close()
+        analysis_scores = pd.DataFrame(columns=SCORE_COLUMNS)
+        with closing(sqlite3.connect(source_path)) as score_source:
+            can_score = SCORE_SOURCE_COLUMNS.issubset(
+                _table_columns(score_source, "daily_stocks")
+            )
+        if can_score:
+            analysis_scores = StockAnalyzer(source_path).run_analysis().reset_index(drop=True)
+            analysis_scores.insert(0, "display_order", range(len(analysis_scores)))
         conn = sqlite3.connect(temp_path)
         try:
             conn.execute("PRAGMA foreign_keys=ON")
@@ -115,6 +140,13 @@ def build_web_database(source="stock_data.db", target="web_data.db"):
                     "CREATE INDEX IF NOT EXISTS idx_web_sector_trend_date_kind "
                     "ON web_sector_trend_daily(date, trend_kind, trading_rank)"
                 )
+            analysis_scores[SCORE_COLUMNS].to_sql(
+                "web_stock_analysis_scores", conn, if_exists="replace", index=False
+            )
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_web_stock_analysis_order "
+                "ON web_stock_analysis_scores(display_order)"
+            )
             conn.commit()
             integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
             if integrity != "ok":

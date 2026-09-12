@@ -3,6 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pandas as pd
+
+from analyzer import StockAnalyzer
 from web_database import (
     build_web_database,
     compress_web_database,
@@ -70,6 +73,34 @@ class WebDatabaseCompressionTest(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(raw_dates, 30)
         self.assertEqual(summary_dates, 39)
+
+    def test_precomputed_scores_equal_existing_analyzer_output_and_order(self):
+        source = self.root / "scores-source.db"
+        target = self.root / "scores-web.db"
+        with sqlite3.connect(source) as conn:
+            conn.execute(
+                "CREATE TABLE daily_stocks (date TEXT, session TEXT, category TEXT, "
+                "ticker TEXT, name TEXT, foreign_net REAL, inst_net REAL, "
+                "trading_value REAL, volume REAL, fluctuation_rate REAL)"
+            )
+            for date, first_volume, first_rate in (
+                ("20260910", 200, 1), ("20260911", 100, -1)
+            ):
+                conn.executemany(
+                    "INSERT INTO daily_stocks VALUES (?, '정규장(16:00)', ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        (date, "VOLUME_TOP_60", "1", "알파", 10, 5, 1000, first_volume, first_rate),
+                        (date, "FOREIGN_TOP_30", "2", "베타", 30, 0, 500, 100, 2),
+                    ],
+                )
+        expected = StockAnalyzer(source).run_analysis().reset_index(drop=True)
+        build_web_database(source, target)
+        with sqlite3.connect(target) as conn:
+            actual = pd.read_sql_query(
+                "SELECT * FROM web_stock_analysis_scores ORDER BY display_order", conn
+            ).drop(columns="display_order")
+        actual["is_pullback"] = actual["is_pullback"].astype(bool)
+        pd.testing.assert_frame_equal(actual, expected, check_dtype=False)
 
     def test_restore_working_database_uses_bootstrap_snapshot(self):
         bootstrap = self.root / "web_data.bootstrap.db.gz"

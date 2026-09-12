@@ -552,8 +552,19 @@ st.markdown("매일 장 마감 후 자동으로 수집된 데이터를 바탕으
 @st.cache_data(ttl=60)
 def get_analyzed_data():
     db_path, _ = get_database_path()
-    analyzer = StockAnalyzer(db_path=db_path)
-    return analyzer.run_analysis()
+    try:
+        with sqlite3.connect(db_path) as conn:
+            result = pd.read_sql_query(
+                "SELECT * FROM web_stock_analysis_scores ORDER BY display_order",
+                conn,
+            )
+        result = result.drop(columns=["display_order"], errors="ignore")
+        if "is_pullback" in result.columns:
+            result["is_pullback"] = result["is_pullback"].astype(bool)
+        return result
+    except Exception:
+        # Bundled snapshots created before this migration remain usable.
+        return StockAnalyzer(db_path=db_path).run_analysis()
 
 @st.cache_data(ttl=60)
 def get_raw_data():
