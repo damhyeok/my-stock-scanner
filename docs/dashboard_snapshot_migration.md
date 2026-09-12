@@ -24,9 +24,17 @@ publication. No tables, rows, retention periods, tabs or calculations are remove
 in these two stages. A sleeping Streamlit host still needs to start; this change
 does not eliminate hosting cold starts or the first full snapshot transfer.
 
-## Stage 3: pending, do not delete dependencies yet
+## Stage 3: incremental display-result migration
 
-The display-only schema migration is NOT completed by stages 1 and 2.
+Completed without deleting source dependencies:
+
+- `web_sector_trend_daily` stores all/rising daily sector ranks and members.
+  It retains 39 dates so each of the 30 selectable dates has ten-day context.
+- `web_stock_analysis_scores` stores the ordered result of the unchanged
+  five-trading-day StockAnalyzer calculation. The dashboard reads this compact
+  table and falls back to the legacy calculation only for older snapshots.
+
+The rest of the display-only schema migration is not yet complete.
 
 Required contracts before reducing any web snapshot data:
 
@@ -34,13 +42,6 @@ Required contracts before reducing any web snapshot data:
 - Selected-run tables: rankings, intersections, program flow and its historical
   comparison path, relative strength, closing scanners, technical-stage flags,
   market strength, news and detailed evidence used by expanders and downloads.
-- Ten-trading-day sector display: observed trading-date calendar, daily sector
-  turnover/rank/member count/names; a separate rising-only summary retaining
-  member change rates. Preserve all-sector ranks, ties, latest-day top-sector
-  selection, and missing sessions. Retain enough earlier dates for every
-  selectable historical date, not merely ten dates relative to today.
-- Scoring: precompute the exact existing five-trading-day StockAnalyzer result;
-  retain its universe exclusions and ordering.
 - Bottom candidates: legacy fallback still directly reads `model_ohlcv_daily`
   for change rate and market cap. Materialize these display values before
   removing that table from web snapshots.
