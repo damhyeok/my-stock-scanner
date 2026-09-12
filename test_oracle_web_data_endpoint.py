@@ -1,6 +1,7 @@
 import gzip
 import hashlib
 import hmac
+import json
 import os
 import sys
 import tempfile
@@ -50,13 +51,15 @@ class OracleWebDataEndpointTest(unittest.TestCase):
         self.project_patch.stop()
         self.temp_dir.cleanup()
 
-    def _request(self, authorized=True):
+    def _request(self, authorized=True, path="/web-data", payload=None):
+        method = "POST" if payload is not None else "GET"
+        body = json.dumps(payload).encode() if payload is not None else b""
         timestamp = str(int(time.time()))
         nonce = uuid.uuid4().hex
-        body_hash = hashlib.sha256(b"").hexdigest()
+        body_hash = hashlib.sha256(body).hexdigest()
         signature = hmac.new(
             b"test-secret",
-            f"GET\n/web-data\n{timestamp}\n{nonce}\n{body_hash}".encode(),
+            f"{method}\n{path}\n{timestamp}\n{nonce}\n{body_hash}".encode(),
             hashlib.sha256,
         ).hexdigest()
         headers = {}
@@ -68,7 +71,8 @@ class OracleWebDataEndpointTest(unittest.TestCase):
             }
         return urllib.request.urlopen(
             urllib.request.Request(
-                f"http://127.0.0.1:{self.server.server_port}/web-data",
+                f"http://127.0.0.1:{self.server.server_port}{path}",
+                data=body if payload is not None else None,
                 headers=headers,
             ),
             timeout=3,
@@ -83,6 +87,24 @@ class OracleWebDataEndpointTest(unittest.TestCase):
     def test_rejects_unauthenticated_download(self):
         with self.assertRaises(urllib.error.HTTPError) as context:
             self._request(authorized=False)
+        self.assertEqual(context.exception.code, 401)
+
+    def test_watchlist_edits_do_not_start_analysis_or_export_jobs(self):
+        with patch.object(oracle_trigger_server, "start_job") as start_job:
+            with self._request(path="/watchlist", payload={"action": "add", "ticker": "005930", "name": "삼성전자"}) as response:
+                self.assertEqual(response.status, 200)
+                self.assertEqual(json.load(response)["state"], "saved")
+            with self._request(path="/watchlist") as response:
+                self.assertEqual(json.load(response)["items"][0]["ticker"], "005930")
+            with self._request(path="/watchlist", payload={"action": "remove", "ticker": "005930"}) as response:
+                self.assertEqual(response.status, 200)
+            with self._request(path="/watchlist") as response:
+                self.assertEqual(json.load(response)["items"], [])
+            start_job.assert_not_called()
+
+    def test_watchlist_requires_authentication(self):
+        with self.assertRaises(urllib.error.HTTPError) as context:
+            self._request(authorized=False, path="/watchlist", payload={"action": "remove", "ticker": "005930"})
         self.assertEqual(context.exception.code, 401)
 
 

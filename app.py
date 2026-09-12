@@ -23,6 +23,8 @@ from model_1_scanner import scan_model_tables
 from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
 from program_net_divergence import build_program_price_divergence
 from rise_rankings import build_rise_rank_tables
+from watchlist import read_watchlist_performance
+from sector_trend_window import recent_sector_window
 from web_database import decompress_web_database
 from market_betting_engine.streamlit_tab import (
     render_market_betting_tab,
@@ -452,6 +454,9 @@ def update_oracle_watchlist(action, ticker, name="", market_cap=0):
     status, error = oracle_request("POST", "/watchlist", json_body=payload)
     if error:
         return False, error
+    if status.get("state") == "saved":
+        get_watchlist_performance.clear()
+        return True, status.get("message", "저장했습니다.")
     if status.get("state") == "running":
         return True, status.get("message", "관심종목 변경을 처리 중입니다.")
     return False, "현재 다른 작업이 실행 중입니다. 완료 후 다시 시도해주세요."
@@ -927,41 +932,12 @@ def get_stock_catalog():
 @st.cache_data(ttl=60)
 def get_watchlist_performance():
     try:
+        payload, error = oracle_request("GET", "/watchlist")
+        if not error and isinstance(payload.get("items"), list):
+            return pd.DataFrame(payload["items"])
         db_path, _ = get_database_path()
-        with sqlite3.connect(db_path) as conn:
-            exists = conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='watchlist_items'"
-            ).fetchone()
-            if not exists:
-                return pd.DataFrame()
-            frame = pd.read_sql_query(
-                """
-                WITH daily AS (
-                    SELECT ticker, date, MAX(close) AS close,
-                           MAX(change_rate) AS change_rate
-                    FROM model_ohlcv_daily
-                    GROUP BY ticker, date
-                ), latest AS (
-                    SELECT ticker, date, close, change_rate,
-                           ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) AS row_num
-                    FROM daily
-                )
-                SELECT w.ticker, w.name, w.added_date, w.entry_date, w.entry_price,
-                       l.date AS current_date, l.close AS current_price,
-                       l.change_rate AS daily_return
-                FROM watchlist_items w
-                LEFT JOIN latest l ON l.ticker = w.ticker AND l.row_num = 1
-                ORDER BY w.added_at_kst
-                """,
-                conn,
-            )
-        frame["entry_price"] = pd.to_numeric(frame["entry_price"], errors="coerce")
-        frame["current_price"] = pd.to_numeric(frame["current_price"], errors="coerce")
-        frame["daily_return"] = pd.to_numeric(frame["daily_return"], errors="coerce")
-        frame["total_return"] = (
-            (frame["current_price"] / frame["entry_price"] - 1) * 100
-        )
-        return frame
+        st.caption("관심종목 서버에 연결되지 않아 마지막 저장본을 표시합니다.")
+        return pd.DataFrame(read_watchlist_performance(db_path))
     except Exception:
         return pd.DataFrame()
 
@@ -1097,7 +1073,17 @@ else:
     else:
         df_selected = df_raw[df_raw['date'] == selected_date].copy()
 
-    with watchlist_tab:
+    @st.fragment
+    def render_watchlist():
+        def change_watchlist(action, stock):
+            if not stock:
+                return
+            if action == "add":
+                ok, message = update_oracle_watchlist(action, *stock)
+            else:
+                ok, message = update_oracle_watchlist(action, stock[0])
+            st.session_state["watchlist_notice"] = (ok, message)
+
         st.header("⭐ 내 관심종목 수익률")
         st.caption(
             "종목을 추가한 날의 정규장 종가를 기준가격으로 저장합니다. "
@@ -1106,6 +1092,12 @@ else:
         )
         stock_catalog = get_stock_catalog()
         watchlist_df = get_watchlist_performance()
+        for column in ("entry_price", "current_price", "daily_return", "total_return"):
+            if column in watchlist_df:
+                watchlist_df[column] = pd.to_numeric(watchlist_df[column], errors="coerce")
+        if "watchlist_notice" in st.session_state:
+            ok, message = st.session_state.pop("watchlist_notice")
+            (st.success if ok else st.error)(message)
         add_col, button_col = st.columns([5, 1])
         catalog_options = [
             (row.ticker, row.name, int(row.market_cap or 0))
@@ -1122,19 +1114,13 @@ else:
         with button_col:
             st.write("")
             st.write("")
-            add_watchlist_clicked = st.button(
+            st.button(
                 "추가",
                 use_container_width=True,
                 disabled=selected_watch_stock is None,
+                on_click=change_watchlist,
+                args=("add", selected_watch_stock),
             )
-        if add_watchlist_clicked and selected_watch_stock:
-            ticker, name, market_cap = selected_watch_stock
-            with st.spinner(f"{name} 관심종목 추가 요청 중..."):
-                ok, message = update_oracle_watchlist("add", ticker, name, market_cap)
-            if ok:
-                st.success(f"{message} 완료 후 페이지가 자동 갱신되며, 필요하면 데이터 새로고침을 눌러주세요.")
-            else:
-                st.error(message)
 
         if watchlist_df.empty:
             st.info("아직 추가한 관심종목이 없습니다.")
@@ -1174,13 +1160,11 @@ else:
                 index=None,
                 placeholder="삭제할 종목을 선택하세요",
             )
-            if st.button("선택 종목 삭제", disabled=remove_stock is None):
-                with st.spinner("관심종목 삭제 요청 중..."):
-                    ok, message = update_oracle_watchlist("remove", remove_stock[0])
-                if ok:
-                    st.success(f"{message} 완료 후 목록에서 사라집니다.")
-                else:
-                    st.error(message)
+            st.button("선택 종목 삭제", disabled=remove_stock is None,
+                      on_click=change_watchlist, args=("remove", remove_stock))
+
+    with watchlist_tab:
+        render_watchlist()
 
     with tab12:
         st.header("🧱 바닥 후보 종목")
@@ -1699,15 +1683,11 @@ else:
     # 탭 6: 트렌드
     with tab6:
         st.header(f"📈 최근 섹터 거래대금 순위 흐름 (상위 {trend_count}개)")
-        week_start = week_start_yyyymmdd(selected_date)
-        df_trend = df_raw[
-            (df_raw['date'] >= week_start) &
-            (df_raw['date'] <= selected_date) &
-            (df_raw['session'] == '정규장(16:00)') &
-            (df_raw['category'] == 'VOLUME_TOP_60')
-        ].drop_duplicates(subset=['date', 'session', 'ticker']).copy()
+        df_trend, trend_dates = recent_sector_window(df_raw, selected_date)
+        week_start = trend_dates[0] if trend_dates else str(selected_date)
+        st.caption(f"선택일 기준 최근 {len(trend_dates)}거래일 · 최대 10거래일의 저장된 정규장 결과를 표시합니다. 월요일에도 초기화하지 않습니다.")
         if df_trend.empty:
-            st.info("이번주 정규장 섹터 흐름 데이터가 없습니다.")
+            st.info("최근 10거래일 정규장 섹터 흐름 데이터가 없습니다.")
         else:
             df_trend['trading_value'] = pd.to_numeric(df_trend['trading_value'], errors='coerce').fillna(0)
             weekly_sector_rank = (
@@ -1720,7 +1700,7 @@ else:
                 .tolist()
             )
             if not weekly_sector_rank:
-                st.info("이번주 정규장 기준으로 표시할 섹터가 없습니다.")
+                st.info("최근 10거래일 정규장 기준으로 표시할 섹터가 없습니다.")
             else:
                 daily_sector_rank = (
                     df_trend[df_trend['sector'] != '기타']
@@ -1752,7 +1732,7 @@ else:
 
                 st.caption(f"최신 정규장({latest_sector_date}) 거래대금 1~{len(latest_flow)}위 업종을 기준으로 {week_start}부터의 실제 순위 흐름을 표시합니다.")
                 trend_line = alt.Chart(trend_grouped).mark_line(point=True).encode(
-                    x=alt.X('date_label:N', title='날짜'),
+                    x=alt.X('date_label:N', title='날짜', sort=[datetime.strptime(d, '%Y%m%d').strftime('%m/%d') for d in trend_dates]),
                     y=alt.Y(
                         'trading_rank:Q',
                         title='거래대금 순위',
@@ -1785,7 +1765,7 @@ else:
                     pd.to_numeric(df_trend['fluctuation_rate'], errors='coerce').fillna(0) > 0
                 ].copy()
                 if rising_trend.empty:
-                    st.info("이번주 정규장 TOP60에 상승 종목이 없습니다.")
+                    st.info("최근 10거래일 정규장 TOP60에 상승 종목이 없습니다.")
                 else:
                     rising_trend['fluctuation_rate'] = pd.to_numeric(
                         rising_trend['fluctuation_rate'], errors='coerce'
@@ -1827,7 +1807,7 @@ else:
                         f"최신 정규장({latest_rising_date}) 상승 거래대금 상위 {trend_count}개 업종의 과거 순위를 표시합니다."
                     )
                     rising_line = alt.Chart(rising_grouped).mark_line(point=True).encode(
-                        x=alt.X('date_label:N', title='날짜'),
+                        x=alt.X('date_label:N', title='날짜', sort=[datetime.strptime(d, '%Y%m%d').strftime('%m/%d') for d in trend_dates]),
                         y=alt.Y(
                             'trading_rank:Q',
                             title='상승 종목 거래대금 순위',

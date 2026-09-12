@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 import pandas as pd
 from datetime import datetime, timedelta, timezone
 import requests
@@ -322,7 +323,7 @@ class StockCrawler:
             "FID_COND_MRKT_DIV_CODE": "J",
             "FID_COND_SCR_DIV_CODE": "20170",
             "FID_INPUT_ISCD": "0000",
-            "FID_RANK_SORT_CLS_CODE": "0000",
+            "FID_RANK_SORT_CLS_CODE": "0",
             "FID_INPUT_CNT_1": "30",
             "FID_PRC_CLS_CODE": "0",
             "FID_INPUT_PRICE_1": "0",
@@ -355,7 +356,7 @@ class StockCrawler:
         result["name"] = field("hts_kor_isnm", default="").fillna("").astype(str)
         result["close"] = pd.to_numeric(field("stck_prpr"), errors="coerce").fillna(0)
         result["fluctuation_rate"] = pd.to_numeric(field("prdy_ctrt"), errors="coerce").fillna(0)
-        result["previous_day_rate"] = pd.NA
+        result["previous_day_rate"] = float("nan")
         result["volume"] = pd.to_numeric(field("acml_vol"), errors="coerce").fillna(0)
         result["trading_value"] = pd.to_numeric(field("acml_tr_pbmn"), errors="coerce").fillna(0)
         result["market_cap"] = 0
@@ -1038,7 +1039,10 @@ class StockCrawler:
 
     def save_to_db(self, df, category):
         """분석된 데이터프레임을 SQLite에 저장"""
-        conn = sqlite3.connect(self.db_path)
+        with closing(sqlite3.connect(self.db_path)) as conn, conn:
+            self._save_rows(conn, df, category)
+
+    def _save_rows(self, conn, df, category):
         
         session = self._get_session_name()
         data_source = "NXT" if session == "시간외(20:30)" else "KIS"
@@ -1086,7 +1090,7 @@ class StockCrawler:
             ''', (
                 self.target_date, session, row['ticker'], row.get('name', ''), 
                 row.get('close', 0), row.get('fluctuation_rate', 0.0), 
-                row.get('previous_day_rate'),
+                None if pd.isna(row.get('previous_day_rate')) else float(row['previous_day_rate']),
                 row.get('market_cap', 0), row.get('volume', 0), 
                 row.get('trading_value', 0), row.get('foreign_net', 0), 
                 row.get('inst_net', 0), row.get('sector', ''), 
@@ -1094,9 +1098,6 @@ class StockCrawler:
                 self.scheduled_cron or 'manual', category
             ))
             
-        conn.commit()
-        conn.close()
-
     def run(self):
         print(f"========== {self.target_date} 데이터 크롤링 시작 ==========")
         session = self._get_session_name()
@@ -1112,12 +1113,6 @@ class StockCrawler:
             df_rise_top = df_all.iloc[0:0].copy()
         else:
             df_market = self.get_market_data()
-            try:
-                df_rise_top = self.get_rise_top_data()
-            except Exception as error:
-                # 상승률 탭의 추가 수집 실패가 기존 거래대금·수급 분석을 막지 않게 한다.
-                print(f"[Rise Rank Warning] 상승률 순위 수집 실패; 기존 분석은 계속합니다: {error}")
-                df_rise_top = df_market.iloc[0:0].copy()
             market_names = dict(zip(df_market['ticker'].astype(str).str.zfill(6), df_market['name'].fillna('')))
             df_investor = self.get_investor_data(df_market['ticker'], market_names)
         
@@ -1200,7 +1195,6 @@ class StockCrawler:
             set(df_vol_top['ticker'])
             .union(set(df_for_top['ticker']))
             .union(set(df_inst_top['ticker']))
-            .union(set(df_rise_top['ticker']))
         )
         print(f"섹터 매칭을 진행할 총 고유 종목 수: {len(target_tickers)}개")
         
@@ -1220,6 +1214,8 @@ class StockCrawler:
             
         # 데이터프레임에 섹터 적용 함수
         def apply_sector(df):
+            if df.empty:
+                return df.copy()
             df['sector'] = df['ticker'].map(sector_dict)
             df['sector'] = df.apply(
                 lambda row: self._normalize_sector(row.get('ticker', ''), row.get('name', ''), row.get('sector', '')),
@@ -1231,7 +1227,6 @@ class StockCrawler:
         df_vol_top = apply_sector(df_vol_top)
         df_for_top = apply_sector(df_for_top)
         df_inst_top = apply_sector(df_inst_top)
-        df_rise_top = apply_sector(df_rise_top)
 
         # 거래대금 상위 60개 주식의 종목별 프로그램 순매수를 같은 시각 기준으로 저장합니다.
         try:
@@ -1244,7 +1239,18 @@ class StockCrawler:
         self.save_to_db(df_vol_top, 'VOLUME_TOP_60')
         self.save_to_db(df_for_top, 'FOREIGN_TOP_30')
         self.save_to_db(df_inst_top, 'INST_TOP_30')
-        self.save_to_db(df_rise_top, 'RISE_TOP_30')
+        # Isolate this optional ranking from the original snapshots and collectors.
+        # New rise-only tickers need their own lookup, not df_all.iloc[0].
+        if not is_nxt_afterhours:
+            try:
+                df_rise_top = self.get_rise_top_data()
+                for ticker in df_rise_top['ticker']:
+                    if ticker not in sector_dict:
+                        sector_dict[ticker] = self.get_sector_info(ticker)
+                        time.sleep(0.2)
+                self.save_to_db(apply_sector(df_rise_top), 'RISE_TOP_30')
+            except Exception as error:
+                print(f"[Rise Rank Warning] 상승률 순위 수집/저장 실패; 기존 분석은 보존합니다: {error}")
         
         print("========== 크롤링 및 DB 누적 저장 완료! ==========")
         return True

@@ -15,6 +15,7 @@ from dataclasses import asdict
 from dotenv import load_dotenv
 
 from market_betting_engine.positions import list_positions
+from watchlist import WatchlistManager, read_watchlist_performance
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -232,21 +233,26 @@ class TriggerHandler(BaseHTTPRequestHandler):
                 if not name:
                     self.send_json(400, {"error": "invalid_name"})
                     return
-                arguments = ["--ticker", ticker, "--name", name]
-                market_cap = payload.get("market_cap")
-                if market_cap is not None:
-                    arguments.extend(["--market-cap", str(int(market_cap))])
-                started, status = start_job(
-                    "watchlist-add",
-                    arguments,
-                    f"{name}을(를) 관심종목에 추가하고 기준 종가를 확인 중입니다.",
-                )
+                try:
+                    WatchlistManager(PROJECT_DIR / "stock_data.db").add(
+                        ticker, name, int(payload.get("market_cap") or 0), refresh=False
+                    )
+                except (ValueError, TypeError):
+                    self.send_json(400, {"error": "invalid_market_cap"})
+                    return
+                except Exception:
+                    self.send_json(503, {"error": "watchlist_write_failed"})
+                    return
+                self.send_json(200, {"state": "saved", "message": "관심종목에 추가했습니다. 종가는 정기 분석에서 갱신됩니다."})
+                return
             elif self.path == "/watchlist" and action == "remove":
-                started, status = start_job(
-                    "watchlist-remove",
-                    ["--ticker", ticker],
-                    f"{ticker} 관심종목을 삭제 중입니다.",
-                )
+                try:
+                    WatchlistManager(PROJECT_DIR / "stock_data.db").remove(ticker)
+                except Exception:
+                    self.send_json(503, {"error": "watchlist_write_failed"})
+                    return
+                self.send_json(200, {"state": "saved", "message": "관심종목에서 삭제했습니다."})
+                return
             else:
                 self.send_json(400, {"error": "invalid_action"})
                 return
@@ -255,14 +261,19 @@ class TriggerHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         body = b""
         if self.path not in (
-            "/status", "/positions", "/verification-readiness", "/web-data"
+            "/status", "/positions", "/verification-readiness", "/web-data", "/watchlist"
         ):
             self.send_json(404, {"error": "not_found"})
             return
         if not is_authorized(self, body):
             self.send_json(401, {"error": "unauthorized"})
             return
-        if self.path == "/web-data":
+        if self.path == "/watchlist":
+            try:
+                self.send_json(200, {"items": read_watchlist_performance(PROJECT_DIR / "stock_data.db")})
+            except Exception:
+                self.send_json(503, {"error": "watchlist_read_failed"})
+        elif self.path == "/web-data":
             compressed_db = PROJECT_DIR / "web_data.db.gz"
             if not compressed_db.is_file():
                 self.send_json(503, {"error": "web_data_not_ready"})

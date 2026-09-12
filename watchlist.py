@@ -1,8 +1,15 @@
 import sqlite3
+from contextlib import contextmanager, closing
 from datetime import datetime, time as datetime_time, timedelta, timezone
 
 KST = timezone(timedelta(hours=9))
 WATCHLIST_UNIVERSE = "watchlist"
+
+
+@contextmanager
+def watchlist_connection(db_path):
+    with closing(sqlite3.connect(str(db_path), timeout=3)) as conn, conn:
+        yield conn
 
 
 def get_model_data_collector(db_path):
@@ -12,7 +19,7 @@ def get_model_data_collector(db_path):
 
 
 def init_watchlist_table(db_path="stock_data.db"):
-    with sqlite3.connect(db_path) as conn:
+    with watchlist_connection(db_path) as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS watchlist_items (
@@ -37,14 +44,14 @@ class WatchlistManager:
             self.now = self.now.replace(tzinfo=KST)
         init_watchlist_table(self.db_path)
 
-    def add(self, ticker, name, market_cap=None):
+    def add(self, ticker, name, market_cap=None, refresh=True):
         ticker = str(ticker or "").strip().zfill(6)
         name = str(name or "").strip()
         if len(ticker) != 6 or not ticker.isdigit() or not name:
             raise ValueError("올바른 종목코드와 종목명이 필요합니다.")
         timestamp = self.now.strftime("%Y-%m-%d %H:%M:%S")
         added_date = self.now.strftime("%Y%m%d")
-        with sqlite3.connect(self.db_path) as conn:
+        with watchlist_connection(self.db_path) as conn:
             existing = conn.execute(
                 "SELECT ticker FROM watchlist_items WHERE ticker = ?", (ticker,)
             ).fetchone()
@@ -59,12 +66,27 @@ class WatchlistManager:
                 """,
                 (ticker, name, market_cap, added_date, timestamp, timestamp),
             )
-        self.refresh(tickers=[ticker])
+        if refresh:
+            self.refresh(tickers=[ticker])
+        else:
+            # A UI edit must not wait for network collection or a full DB export.
+            with watchlist_connection(self.db_path) as conn:
+                exists = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE name='model_ohlcv_daily'"
+                ).fetchone()
+                rows = conn.execute(
+                    "SELECT date, MAX(close) FROM model_ohlcv_daily "
+                    "WHERE ticker=? GROUP BY date ORDER BY date DESC LIMIT 45", (ticker,)
+                ).fetchall() if exists else []
+            self._finalize_entry_price(
+                ticker, added_date, None,
+                [{"date": date, "close": close} for date, close in rows],
+            )
         return {"ticker": ticker, "name": name, "already_exists": False}
 
     def remove(self, ticker):
         ticker = str(ticker or "").strip().zfill(6)
-        with sqlite3.connect(self.db_path) as conn:
+        with watchlist_connection(self.db_path) as conn:
             cursor = conn.execute("DELETE FROM watchlist_items WHERE ticker = ?", (ticker,))
         return cursor.rowcount > 0
 
@@ -75,7 +97,7 @@ class WatchlistManager:
             normalized = [str(value).zfill(6) for value in tickers]
             where = f" WHERE ticker IN ({','.join('?' for _ in normalized)})"
             params.extend(normalized)
-        with sqlite3.connect(self.db_path) as conn:
+        with watchlist_connection(self.db_path) as conn:
             items = conn.execute(
                 "SELECT ticker, name, market_cap, added_date, entry_price "
                 f"FROM watchlist_items{where} ORDER BY added_at_kst",
@@ -106,7 +128,7 @@ class WatchlistManager:
     def _finalize_entry_price(self, ticker, added_date, entry_price, frame):
         timestamp = self.now.strftime("%Y-%m-%d %H:%M:%S")
         if entry_price is not None:
-            with sqlite3.connect(self.db_path) as conn:
+            with watchlist_connection(self.db_path) as conn:
                 conn.execute(
                     "UPDATE watchlist_items SET updated_at_kst = ? WHERE ticker = ?",
                     (timestamp, ticker),
@@ -130,7 +152,7 @@ class WatchlistManager:
             if not eligible:
                 return
             entry = max(eligible, key=lambda row: str(row["date"]))
-        with sqlite3.connect(self.db_path) as conn:
+        with watchlist_connection(self.db_path) as conn:
             conn.execute(
                 """
                 UPDATE watchlist_items
@@ -143,3 +165,25 @@ class WatchlistManager:
 
 def refresh_watchlist(db_path="stock_data.db"):
     return WatchlistManager(db_path=db_path).refresh()
+
+
+def read_watchlist_performance(db_path="stock_data.db"):
+    """Read only the watched tickers; never scan the entire daily history."""
+    with watchlist_connection(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='watchlist_items'").fetchone():
+            return []
+        items = [dict(row) for row in conn.execute(
+            "SELECT ticker,name,added_date,entry_date,entry_price FROM watchlist_items ORDER BY added_at_kst"
+        )]
+        has_daily = conn.execute("SELECT 1 FROM sqlite_master WHERE name='model_ohlcv_daily'").fetchone()
+        for item in items:
+            row = conn.execute(
+                "SELECT date,MAX(close),MAX(change_rate) FROM model_ohlcv_daily "
+                "WHERE ticker=? GROUP BY date ORDER BY date DESC LIMIT 1", (item['ticker'],)
+            ).fetchone() if has_daily else None
+            date, close, change = row if row else (None, None, None)
+            item.update(current_date=date, current_price=close, daily_return=change,
+                        total_return=(close / item['entry_price'] - 1) * 100
+                        if close is not None and item['entry_price'] else None)
+        return items
