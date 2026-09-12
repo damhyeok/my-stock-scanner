@@ -3,6 +3,8 @@
 Windows are clock-time windows, not the last N rows. Thresholds are starting
 rules, not calibrated forecasts. Closing-auction prints are kept separate.
 """
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from math import isfinite
