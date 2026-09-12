@@ -19,6 +19,7 @@ import altair as alt
 import plotly.express as px
 import plotly.graph_objects as go
 from analyzer import StockAnalyzer
+from bottom_candidate_display import read_bottom_candidate_display
 from model_1_scanner import scan_model_tables
 from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
 from program_net_divergence import build_program_price_divergence
@@ -788,6 +789,15 @@ def get_bottom_candidate_data(selected_date):
                     (str(selected_date),),
                 ).fetchone()
                 target_signal_date = run_row[0] if run_row else None
+            if "web_bottom_candidates" in tables:
+                df = read_bottom_candidate_display(
+                    conn, selected_date, target_signal_date
+                )
+                if not df.empty and "scanner_model" in df.columns:
+                    df["scanner_model"] = df["scanner_model"].map({
+                        "model_1": "1번 모델", "macd_obv": "MACD + OBV 모델"
+                    }).fillna(df["scanner_model"])
+                return df
             if "model_rule_scan_signals" in tables:
                 if target_signal_date:
                     df = pd.read_sql_query(

@@ -11,6 +11,7 @@ from pathlib import Path
 import pandas as pd
 
 from analyzer import StockAnalyzer
+from bottom_candidate_display import build_bottom_candidate_display
 from sector_trend_window import build_sector_trend_summary
 
 
@@ -147,6 +148,7 @@ def build_web_database(source="stock_data.db", target="web_data.db"):
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_web_stock_analysis_order "
                 "ON web_stock_analysis_scores(display_order)"
             )
+            build_bottom_candidate_display(conn)
             conn.commit()
             integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
             if integrity != "ok":
