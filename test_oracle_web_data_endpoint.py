@@ -51,7 +51,7 @@ class OracleWebDataEndpointTest(unittest.TestCase):
         self.project_patch.stop()
         self.temp_dir.cleanup()
 
-    def _request(self, authorized=True, path="/web-data", payload=None):
+    def _request(self, authorized=True, path="/web-data", payload=None, extra_headers=None):
         method = "POST" if payload is not None else "GET"
         body = json.dumps(payload).encode() if payload is not None else b""
         timestamp = str(int(time.time()))
@@ -69,6 +69,7 @@ class OracleWebDataEndpointTest(unittest.TestCase):
                 "X-Trigger-Nonce": nonce,
                 "X-Trigger-Signature": signature,
             }
+        headers.update(extra_headers or {})
         return urllib.request.urlopen(
             urllib.request.Request(
                 f"http://127.0.0.1:{self.server.server_port}{path}",
@@ -88,6 +89,21 @@ class OracleWebDataEndpointTest(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as context:
             self._request(authorized=False)
         self.assertEqual(context.exception.code, 401)
+
+    def test_unchanged_version_returns_no_body(self):
+        with self._request() as response:
+            etag = response.headers["ETag"]
+            response.read()
+        with self.assertRaises(urllib.error.HTTPError) as context:
+            self._request(extra_headers={"If-None-Match": etag})
+        self.assertEqual(context.exception.code, 304)
+        self.assertEqual(context.exception.read(), b"")
+        with gzip.open(self.root / "replacement.gz", "wb") as output:
+            output.write(b"new snapshot")
+        os.replace(self.root / "replacement.gz", self.root / "web_data.db.gz")
+        with self._request(extra_headers={"If-None-Match": etag}) as response:
+            self.assertEqual(response.status, 200)
+            self.assertNotEqual(response.headers["ETag"], etag)
 
     def test_watchlist_edits_do_not_start_analysis_or_export_jobs(self):
         with patch.object(oracle_trigger_server, "start_job") as start_job:

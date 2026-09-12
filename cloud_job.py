@@ -8,6 +8,14 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+# This must precede all third-party and analysis imports. The updated entrypoint
+# is re-read in the same PID, preserving systemd's process supervision.
+_BOOTSTRAPPED = False
+if __name__ == "__main__":
+    from cloud_bootstrap import prepare_job
+
+    _BOOTSTRAPPED = prepare_job(Path(__file__).resolve().parent)
+
 from dotenv import load_dotenv
 
 from analysis_schedule import closest_full_analysis_cron
@@ -62,6 +70,8 @@ def run_command(command, env=None, check=True):
 
 
 def pull_latest():
+    if _BOOTSTRAPPED:
+        return
     with file_lock(".cloud_git.lock"):
         run_command(["git", "pull", "--rebase", "--autostash", "origin", "main"])
 

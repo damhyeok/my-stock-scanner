@@ -278,13 +278,23 @@ class TriggerHandler(BaseHTTPRequestHandler):
             if not compressed_db.is_file():
                 self.send_json(503, {"error": "web_data_not_ready"})
                 return
-            self.send_response(200)
-            self.send_header("Content-Type", "application/gzip")
-            self.send_header("Content-Length", str(compressed_db.stat().st_size))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
             try:
                 with compressed_db.open("rb") as db_file:
+                    # Stat the opened version: publication may replace the path
+                    # concurrently, but headers and bytes must describe one file.
+                    info = os.fstat(db_file.fileno())
+                    etag = f'W/"{info.st_ino:x}-{info.st_mtime_ns:x}-{info.st_size:x}"'
+                    if self.headers.get("If-None-Match") == etag:
+                        self.send_response(304)
+                        self.send_header("ETag", etag)
+                        self.end_headers()
+                        return
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/gzip")
+                    self.send_header("Content-Length", str(info.st_size))
+                    self.send_header("Cache-Control", "private, no-cache")
+                    self.send_header("ETag", etag)
+                    self.end_headers()
                     while chunk := db_file.read(1024 * 1024):
                         self.wfile.write(chunk)
             except (BrokenPipeError, ConnectionResetError):

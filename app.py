@@ -315,58 +315,15 @@ def configure_model_runtime_secrets():
 # though Oracle has already published today's scheduled snapshots.
 @st.cache_resource(ttl=120, show_spinner=False)
 def get_database_path():
+    from web_snapshot_client import refresh_snapshot
+
     runtime_path = os.path.join(tempfile.gettempdir(), "web_data_runtime.db")
     base_url = get_config_value(
         "ORACLE_TRIGGER_URL", "http://161.33.27.132:8765"
     ).rstrip("/")
     secret = get_config_value("ORACLE_TRIGGER_SECRET")
 
-    if secret:
-        timestamp = str(int(time.time()))
-        nonce = uuid.uuid4().hex
-        body_hash = hashlib.sha256(b"").hexdigest()
-        payload = f"GET\n/web-data\n{timestamp}\n{nonce}\n{body_hash}".encode("utf-8")
-        signature = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
-        download_fd, download_name = tempfile.mkstemp(
-            prefix="web_data_download_", suffix=".db.gz"
-        )
-        os.close(download_fd)
-        try:
-            response = requests.get(
-                f"{base_url}/web-data",
-                headers={
-                    "X-Trigger-Timestamp": timestamp,
-                    "X-Trigger-Nonce": nonce,
-                    "X-Trigger-Signature": signature,
-                },
-                stream=True,
-                # Keep the dashboard usable while the 1-core Oracle VM is
-                # performing low-priority storage maintenance. A slow data
-                # refresh falls back to the bundled snapshot instead of
-                # leaving the whole Streamlit page blank for two minutes.
-                timeout=(5, 30),
-            )
-            response.raise_for_status()
-            with open(download_name, "wb") as compressed_file:
-                for chunk in response.iter_content(chunk_size=1024 * 1024):
-                    if chunk:
-                        compressed_file.write(chunk)
-            decompress_web_database(download_name, runtime_path)
-            return runtime_path, "Oracle 최신 DB"
-        except Exception:
-            pass
-        finally:
-            try:
-                os.remove(download_name)
-            except OSError:
-                pass
-
-    bootstrap_path = "web_data.bootstrap.db.gz"
-    try:
-        decompress_web_database(bootstrap_path, runtime_path)
-        return runtime_path, "내장 압축 DB"
-    except Exception:
-        return "web_data.db", "로컬 DB"
+    return refresh_snapshot(base_url, secret, runtime_path, "web_data.bootstrap.db.gz")
 
 def trigger_github_workflow(run_mode="full", market_strength_mode="manual", requested_at_kst=None):
     token = get_config_value("GITHUB_ACTIONS_TOKEN")

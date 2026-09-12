@@ -70,7 +70,7 @@ def build_web_database(source="stock_data.db", target="web_data.db"):
         raise FileNotFoundError(f"Source database not found: {source_path}")
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temp_name = tempfile.mkstemp(prefix=f"{target_path.stem}_", suffix=".db")
+    fd, temp_name = tempfile.mkstemp(prefix=f"{target_path.stem}_", suffix=".db", dir=target_path.parent)
     os.close(fd)
     temp_path = Path(temp_name)
     try:
@@ -95,7 +95,7 @@ def build_web_database(source="stock_data.db", target="web_data.db"):
             conn.execute("VACUUM").close()
         finally:
             conn.close()
-        shutil.copyfile(temp_path, target_path)
+        os.replace(temp_path, target_path)
     finally:
         if temp_path.exists():
             temp_path.unlink()
@@ -141,7 +141,7 @@ def compress_web_database(source="web_data.db", target="web_data.db.gz"):
 
 
 def decompress_web_database(source="web_data.db.gz", target="web_data.db"):
-    """Restore a gzip snapshot atomically and verify its SQLite header."""
+    """Restore a gzip snapshot atomically after checking SQLite integrity."""
 
     source_path = Path(source)
     target_path = Path(target)
@@ -160,6 +160,12 @@ def decompress_web_database(source="web_data.db.gz", target="web_data.db"):
         with temp_path.open("rb") as db_file:
             if db_file.read(16) != b"SQLite format 3\000":
                 raise ValueError("Decompressed file is not a SQLite database.")
+        connection = sqlite3.connect(temp_path)
+        try:
+            if connection.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+                raise ValueError("Decompressed SQLite database failed quick_check.")
+        finally:
+            connection.close()
         os.replace(temp_path, target_path)
     finally:
         if temp_path.exists():
