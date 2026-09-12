@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from web_database import (
+    build_web_database,
     compress_web_database,
     decompress_web_database,
     restore_working_database,
@@ -44,6 +45,31 @@ class WebDatabaseCompressionTest(unittest.TestCase):
         self.assertTrue(restored)
         with sqlite3.connect(working) as conn:
             self.assertEqual(conn.execute("SELECT value FROM sample").fetchone()[0], "ok")
+
+    def test_sector_summary_keeps_history_before_oldest_selectable_date(self):
+        source = self.root / "stock.db"
+        target = self.root / "bounded.db"
+        with sqlite3.connect(source) as conn:
+            conn.execute(
+                "CREATE TABLE daily_stocks (date TEXT, session TEXT, category TEXT, "
+                "ticker TEXT, name TEXT, sector TEXT, trading_value INTEGER, fluctuation_rate REAL)"
+            )
+            for number in range(45):
+                conn.execute(
+                    "INSERT INTO daily_stocks VALUES (?, '정규장(16:00)', 'VOLUME_TOP_60', "
+                    "'1', '알파', '반도체', 100, 1)",
+                    (f"2026{number:04d}",),
+                )
+        build_web_database(source, target)
+        with sqlite3.connect(target) as conn:
+            raw_dates = conn.execute(
+                "SELECT COUNT(DISTINCT date) FROM daily_stocks"
+            ).fetchone()[0]
+            summary_dates = conn.execute(
+                "SELECT COUNT(DISTINCT date) FROM web_sector_trend_daily"
+            ).fetchone()[0]
+        self.assertEqual(raw_dates, 30)
+        self.assertEqual(summary_dates, 39)
 
     def test_restore_working_database_uses_bootstrap_snapshot(self):
         bootstrap = self.root / "web_data.bootstrap.db.gz"

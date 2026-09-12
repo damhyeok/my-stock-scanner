@@ -81,6 +81,21 @@ def build_web_database(source="stock_data.db", target="web_data.db"):
         source_conn = sqlite3.connect(source_path)
         target_conn = sqlite3.connect(temp_path)
         try:
+            sector_rows = pd.DataFrame()
+            if _table_exists(source_conn, "daily_stocks"):
+                # The UI exposes 30 dates, and an historical selection still
+                # needs its preceding nine dates for a complete 10-day chart.
+                sector_rows = pd.read_sql_query(
+                    "SELECT * FROM daily_stocks "
+                    "WHERE session='정규장(16:00)' AND category='VOLUME_TOP_60' "
+                    "AND date IN ("
+                    "SELECT DISTINCT date FROM daily_stocks "
+                    "WHERE session='정규장(16:00)' AND category='VOLUME_TOP_60' "
+                    "ORDER BY date DESC LIMIT ?"
+                    ") ORDER BY date DESC, rowid ASC",
+                    source_conn,
+                    params=(RETENTION["daily_stocks"][1] + 9,),
+                )
             source_conn.backup(target_conn)
         finally:
             target_conn.close()
@@ -92,13 +107,7 @@ def build_web_database(source="stock_data.db", target="web_data.db"):
                 conn.execute(f'DROP TABLE IF EXISTS "{table}"')
             for table, (date_column, keep_dates) in RETENTION.items():
                 _trim_to_latest_dates(conn, table, date_column, keep_dates)
-            if _table_exists(conn, "daily_stocks"):
-                sector_rows = pd.read_sql_query(
-                    "SELECT * FROM daily_stocks "
-                    "WHERE session='정규장(16:00)' AND category='VOLUME_TOP_60' "
-                    "ORDER BY date DESC, rowid ASC",
-                    conn,
-                )
+            if not sector_rows.empty:
                 build_sector_trend_summary(sector_rows).to_sql(
                     "web_sector_trend_daily", conn, if_exists="replace", index=False
                 )
