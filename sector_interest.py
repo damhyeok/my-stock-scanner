@@ -75,17 +75,34 @@ def render_interest(st, summary, count):
     })
     st.dataframe(display, hide_index=True, use_container_width=True)
     st.markdown('**어느 섹터의 거래 비중이 커지고 있나요?**')
+    mode = st.radio('그래프 기준', ['비중 변화폭', '실제 비중'], horizontal=True,
+                    key='interest_chart_mode')
+    first_date = path['date'].min()
+    baseline = path[path['date'].eq(first_date)].set_index('sector')['share']
+    path['share_change'] = path['share'] - path['sector'].map(baseline)
+    change_mode = mode == '비중 변화폭'
+    field = 'share_change' if change_mode else 'share'
+    axis_title = '첫날 대비 거래 비중 변화(%p)' if change_mode else '분석 표본 내 거래대금 비중(%)'
+    if change_mode:
+        st.caption(f'비교 시작일 {first_date}의 비중을 0으로 맞췄습니다. +4%p는 예를 들어 5%에서 9%로 늘었다는 뜻입니다. 위 요약표의 최근 평균 비교와는 기준이 다릅니다.')
+        missing = baseline[baseline.isna()].index.tolist()
+        if missing:
+            st.info('시작일 자료가 없어 변화폭을 표시하지 않는 섹터: ' + ', '.join(missing) + '. 실제 비중에서 확인할 수 있습니다.')
     # Break lines at absent dates instead of connecting across missing samples.
     path['segment'] = path.groupby('sector')['share'].transform(lambda x: x.isna().cumsum())
     chart = alt.Chart(path).mark_line(point=True).encode(
         x=alt.X('date:O', title='거래일'),
-        y=alt.Y('share:Q', title='분석 표본 내 거래대금 비중(%)'),
+        y=alt.Y(f'{field}:Q', title=axis_title),
         color=alt.Color('sector:N', title='섹터', sort=rows['sector'].tolist()),
         detail='segment:N',
         tooltip=[alt.Tooltip('date:O', title='날짜'), alt.Tooltip('sector:N', title='섹터'),
                  alt.Tooltip('share:Q', title='거래 비중(%)', format='.1f'),
+                 alt.Tooltip('share_change:Q', title='첫날 대비 변화(%p)', format='+.1f'),
                  alt.Tooltip('stock_count:Q', title='표본 종목 수', format='.0f')],
     ).properties(height=380)
+    if change_mode:
+        zero = alt.Chart(pd.DataFrame({'zero': [0]})).mark_rule(color='#888888', strokeDash=[4, 4]).encode(y='zero:Q')
+        chart = chart + zero
     st.altair_chart(chart, use_container_width=True)
     st.caption('선이 올라갈수록 표본 내 거래 관심이 커집니다. 전체 거래가 줄어도 비중은 오를 수 있습니다. 선이 끊긴 날은 TOP60 표본에서 관측되지 않은 날이며, 업종 거래가 0이라는 뜻은 아닙니다.')
     with st.expander('섹터별 자세히 보기 · 계산 기준'):
