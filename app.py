@@ -21,6 +21,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from analyzer import StockAnalyzer
 from bottom_candidate_display import read_bottom_candidate_display
+from dashboard_session_display import read_dashboard_sessions
+from news_display import read_stock_news_display
 from stock_catalog_display import read_stock_catalog_display
 from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
 from program_net_divergence import build_program_price_divergence
@@ -610,15 +612,22 @@ def get_intraday_relative_strength_data():
         return pd.DataFrame()
 
 @st.cache_data(ttl=60)
-def get_news_data():
+def get_news_data(selected_date, selected_session):
     try:
         db_path, _ = get_database_path()
-        conn = sqlite3.connect(db_path)
-        df = pd.read_sql("SELECT * FROM stock_news ORDER BY date DESC, published_at DESC", conn)
-        conn.close()
-        return df
-    except:
-        return pd.DataFrame()
+        with sqlite3.connect(db_path) as conn:
+            return read_stock_news_display(conn, selected_date, selected_session)
+    except Exception:
+        return pd.DataFrame(), pd.DataFrame()
+
+@st.cache_data(ttl=60)
+def get_dashboard_sessions():
+    try:
+        db_path, _ = get_database_path()
+        with sqlite3.connect(db_path) as conn:
+            return read_dashboard_sessions(conn)
+    except Exception:
+        return pd.DataFrame(columns=["date", "session", "session_order"])
 
 @st.cache_data(ttl=60)
 def get_market_strength_data():
@@ -949,7 +958,7 @@ with st.spinner("데이터를 불러오고 있습니다..."):
     df_analyzed = get_analyzed_data()
     df_raw = get_raw_data()
     df_intraday_relative_strength = get_intraday_relative_strength_data()
-    df_news = get_news_data()
+    df_dashboard_sessions = get_dashboard_sessions()
     df_market_strength = get_market_strength_data()
     df_program_net_buy = get_program_net_buy_data()
     df_program_net_buy_runs = get_program_net_buy_runs()
@@ -966,10 +975,20 @@ else:
     # ----------------- 사이드바 (날짜 및 시간 선택) -----------------
     st.sidebar.title("🔍 조회 및 분석 옵션")
     
-    available_dates = sorted(df_raw['date'].unique().tolist(), reverse=True)
+    available_dates = (
+        df_dashboard_sessions['date'].dropna().astype(str).drop_duplicates().tolist()
+        if not df_dashboard_sessions.empty
+        else sorted(df_raw['date'].astype(str).unique().tolist(), reverse=True)
+    )
     selected_date = st.sidebar.selectbox("📅 조회할 날짜 선택:", available_dates)
     
-    if 'session' in df_raw.columns:
+    if not df_dashboard_sessions.empty:
+        day_sessions = df_dashboard_sessions[
+            df_dashboard_sessions['date'].astype(str) == str(selected_date)
+        ].sort_values(
+            ['session_order', 'session'], ascending=[False, False]
+        )['session'].drop_duplicates().tolist()
+    elif 'session' in df_raw.columns:
         day_sessions = sorted(
             df_raw[df_raw['date'] == selected_date]['session'].unique().tolist(),
             key=session_sort_key,
@@ -979,6 +998,7 @@ else:
         day_sessions = ["데이터 없음 (DB 초기화 필요)"]
         
     selected_session = st.sidebar.selectbox("⏰ 시간 선택:", day_sessions)
+    df_news_summary, df_news = get_news_data(selected_date, selected_session)
     df_bottom_candidates = get_bottom_candidate_data(selected_date)
     bottom_candidate_run = get_bottom_candidate_run(selected_date)
 
@@ -2001,7 +2021,7 @@ else:
 
     with tab8:
         st.header(f"📰 뉴스 이슈 종목 ({selected_session_label})")
-        if df_news.empty:
+        if df_news.empty and df_news_summary.empty:
             st.info("수집된 뉴스 이슈 데이터가 없습니다. 다음 자동 실행 이후 표시됩니다.")
         else:
             news_selected = df_news[
@@ -2012,24 +2032,26 @@ else:
             if news_selected.empty:
                 st.info("선택한 날짜/시간에 수집된 뉴스 이슈 데이터가 없습니다.")
             else:
-                summary = news_selected.groupby(['ticker', 'name', 'sector']).agg(
-                    news_score=('sentiment_score', 'sum'),
-                    news_count=('title', 'count'),
-                    positive_count=('sentiment', lambda x: int((x == '긍정').sum())),
-                    negative_count=('sentiment', lambda x: int((x == '부정').sum())),
-                    neutral_count=('sentiment', lambda x: int((x == '중립').sum())),
-                    keywords=('keywords', lambda x: ', '.join(dict.fromkeys(
-                        keyword.strip()
-                        for value in x.dropna().astype(str)
-                        for keyword in value.split(',')
-                        if keyword.strip()
-                    )))
-                ).reset_index()
-
-                summary = summary.sort_values(
-                    by=['news_score', 'positive_count', 'negative_count'],
-                    ascending=[False, False, True]
-                )
+                if not df_news_summary.empty:
+                    summary = df_news_summary.copy()
+                else:
+                    summary = news_selected.groupby(['ticker', 'name', 'sector']).agg(
+                        news_score=('sentiment_score', 'sum'),
+                        news_count=('title', 'count'),
+                        positive_count=('sentiment', lambda x: int((x == '긍정').sum())),
+                        negative_count=('sentiment', lambda x: int((x == '부정').sum())),
+                        neutral_count=('sentiment', lambda x: int((x == '중립').sum())),
+                        keywords=('keywords', lambda x: ', '.join(dict.fromkeys(
+                            keyword.strip()
+                            for value in x.dropna().astype(str)
+                            for keyword in value.split(',')
+                            if keyword.strip()
+                        )))
+                    ).reset_index()
+                    summary = summary.sort_values(
+                        by=['news_score', 'positive_count', 'negative_count'],
+                        ascending=[False, False, True]
+                    )
                 summary_disp = summary.rename(columns={
                     'ticker': '종목코드',
                     'name': '종목명',

@@ -66,6 +66,24 @@ detail rows, setup/entry/invalidation/reference text and sector member groups
 were equal before and after compaction. The evidence JSON decreased from about
 88.4 MB to 16.5 MB in that production dataset.
 
+## Stage 5: news and dashboard session catalog
+
+`web_stock_news_summary` stores the exact per-stock score, sentiment counts and
+keyword summary for each saved date/session. `web_stock_news_articles` stores
+the same articles the expander can display, without the raw table's large
+unique link index and collection-only columns. The app queries only the selected
+date/session instead of reading all retained news into memory. Older bundled
+snapshots fall back to the legacy raw calculation.
+
+`web_dashboard_sessions` stores the distinct non-after-hours date/session list
+and the existing HH:MM sort value. The sidebar reads this small catalog while
+`daily_stocks` remains available unchanged for every dashboard calculation and
+all three CSV downloads, including the full retained-data download.
+
+Production comparison covered all 133 retained news date/session groups and
+20,725 articles, including summary values, keyword order, per-stock article
+order and all 251 sidebar date/session entries.
+
 Required contracts before reducing any web snapshot data:
 
 - Date/session catalog: every selectable saved run and its completion status.

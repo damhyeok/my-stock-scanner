@@ -12,7 +12,9 @@ import pandas as pd
 
 from analyzer import StockAnalyzer
 from bottom_candidate_display import build_bottom_candidate_display
+from dashboard_session_display import build_dashboard_sessions
 from market_betting_display import compact_market_betting_runs
+from news_display import build_stock_news_display
 from sector_trend_window import build_sector_trend_summary
 from stock_catalog_display import build_stock_catalog_display
 
@@ -61,6 +63,7 @@ WEB_ONLY_SOURCE_TABLES = {
     "model_market_regimes",
     "model_bottom_signals",
     "model_rule_scan_signals",
+    "stock_news",
 }
 
 SCORE_SOURCE_COLUMNS = {
@@ -168,6 +171,8 @@ def build_web_database(source="stock_data.db", target="web_data.db"):
             build_bottom_candidate_display(conn)
             build_stock_catalog_display(conn)
             compact_market_betting_runs(conn)
+            build_stock_news_display(conn)
+            build_dashboard_sessions(conn)
             for table in WEB_ONLY_SOURCE_TABLES:
                 conn.execute(f'DROP TABLE IF EXISTS "{table}"')
             conn.commit()
