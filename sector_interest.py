@@ -75,11 +75,19 @@ def render_interest(st, summary, count):
     })
     st.dataframe(display, hide_index=True, use_container_width=True)
     st.markdown('**어느 섹터의 거래 비중이 커지고 있나요?**')
-    mode = st.radio('그래프 기준', ['비중 변화폭', '실제 비중'], horizontal=True,
-                    key='interest_chart_mode')
+    mode = st.radio('그래프 기준', ['실제 비중', '비중 변화폭'], horizontal=True,
+                    key='interest_chart_mode_v2')
+    hide_memory = st.checkbox('반도체·메모리 숨기기', value=True,
+                              key='interest_hide_memory')
     first_date = path['date'].min()
     baseline = path[path['date'].eq(first_date)].set_index('sector')['share']
     path['share_change'] = path['share'] - path['sector'].map(baseline)
+    # Filter only the plotted rows, after shares and baselines are calculated.
+    # The denominator, candidate selection and summary table remain intact.
+    if hide_memory:
+        path = path[~path['sector'].eq('반도체 메모리')].copy()
+        baseline = baseline.drop('반도체 메모리', errors='ignore')
+    st.caption('숨기기는 그래프의 선에만 적용됩니다. 반도체 메모리 거래대금은 비중 계산에 계속 포함되며, 요약표에도 남습니다.')
     change_mode = mode == '비중 변화폭'
     field = 'share_change' if change_mode else 'share'
     axis_title = '첫날 대비 거래 비중 변화(%p)' if change_mode else '분석 표본 내 거래대금 비중(%)'
