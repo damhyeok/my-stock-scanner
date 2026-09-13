@@ -11,6 +11,7 @@ import requests
 import hashlib
 import hmac
 import inspect
+import importlib
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -25,11 +26,15 @@ from market_strength import MarketStrengthAnalyzer, calculate_daily_market_stren
 from program_net_divergence import build_program_price_divergence
 from rise_rankings import build_rise_rank_tables
 from watchlist import read_watchlist_performance
-from sector_trend_window import (
-    build_sector_trend_summary,
-    recent_sector_summary_window,
-    recent_sector_window,
-)
+import sector_trend_window as _sector_trend_window
+
+# Streamlit reruns app.py in the existing interpreter.  Reload this small,
+# pure helper so a deployment that adds exports cannot leave the app bound to
+# the previous in-memory module and fail during ``from ... import``.
+_sector_trend_window = importlib.reload(_sector_trend_window)
+build_sector_trend_summary = _sector_trend_window.build_sector_trend_summary
+recent_sector_summary_window = _sector_trend_window.recent_sector_summary_window
+recent_sector_window = _sector_trend_window.recent_sector_window
 from web_database import decompress_web_database
 from market_betting_engine.streamlit_tab import (
     render_market_betting_tab,
