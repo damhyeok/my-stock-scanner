@@ -1030,7 +1030,8 @@ else:
     
     st.sidebar.divider()
     st.sidebar.subheader("📈 트렌드 분석 설정")
-    trend_count = st.sidebar.slider("추적할 섹터 수 (상위 N개):", min_value=3, max_value=15, value=5)
+    trend_count = 8
+    st.sidebar.caption("추적할 섹터 수: 상위 8개 (고정)")
     
     st.sidebar.divider()
     st.sidebar.subheader("🚀 수동 분석 실행")
