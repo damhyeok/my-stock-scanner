@@ -1717,7 +1717,7 @@ else:
         trend_summary, trend_dates = recent_sector_summary_window(
             sector_summary, selected_date
         )
-        render_interest(st, trend_summary, trend_count)
+        render_interest(st, trend_summary, trend_count, db_path=dashboard_db_path)
         st.divider()
         week_start = trend_dates[0] if trend_dates else str(selected_date)
         st.caption(f"선택일 기준 최근 {len(trend_dates)}거래일 · 최대 10거래일의 저장된 정규장 결과를 표시합니다. 월요일에도 초기화하지 않습니다.")

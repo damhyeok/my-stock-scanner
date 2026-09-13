@@ -1,6 +1,9 @@
 """Display-only sector interest comparisons from saved daily summaries."""
 
 import pandas as pd
+import sqlite3
+import html
+from contextlib import closing
 
 
 def build_interest(summary, count=8):
@@ -58,7 +61,33 @@ def build_interest(summary, count=8):
     return result, path
 
 
-def render_interest(st, summary, count):
+def sector_member_table(db_path, date, sectors):
+    with closing(sqlite3.connect(f'file:{db_path}?mode=ro', uri=True)) as connection:
+        members = pd.read_sql_query(
+            "SELECT ticker, name, sector, fluctuation_rate FROM daily_stocks "
+            "WHERE date=? AND session='정규장(16:00)' AND category='VOLUME_TOP_60'",
+            connection, params=(str(date),))
+    members = members.drop_duplicates('ticker').copy()
+    members['rate'] = pd.to_numeric(members['fluctuation_rate'], errors='coerce')
+    rows = []
+    for sector in sectors:
+        selected = members[members['sector'].eq(sector)].sort_values('rate', ascending=False)
+        rising, other = [], []
+        for _, member in selected.iterrows():
+            rate = member['rate']
+            label = html.escape(str(member['name']))
+            if pd.isna(rate):
+                other.append(f'{label} (등락률 자료 없음)')
+            else:
+                color = '#c62828' if rate > 0 else '#1565c0' if rate < 0 else '#666666'
+                text = f'{label} <span style="color:{color}">{rate:+.2f}%</span>'
+                (rising if rate > 0 else other).append(text)
+        heading = html.escape(str(sector)) + f'<br><small>포함 {len(selected)} · 상승 {len(rising)}</small>'
+        rows.append('<tr>' + ''.join(f'<td>{cell}</td>' for cell in [heading, '<br>'.join(rising) or '—', '<br>'.join(other) or '—']) + '</tr>')
+    return '<div class="sector-members"><style>.sector-members table{width:100%;table-layout:fixed;border-collapse:collapse}.sector-members td,.sector-members th{padding:8px;border-bottom:1px solid #ddd;text-align:left;vertical-align:top;overflow-wrap:anywhere}.sector-members th:first-child{width:24%}</style><table><thead><tr><th>섹터</th><th>상승 종목</th><th>보합·하락·자료 없음</th></tr></thead><tbody>' + ''.join(rows) + '</tbody></table></div>'
+
+
+def render_interest(st, summary, count, db_path=None):
     import altair as alt
 
     st.subheader('최근 관심이 커지는 섹터')
@@ -70,10 +99,18 @@ def render_interest(st, summary, count):
     st.caption('관심 증가·동반 상승 후보부터 표시합니다. 아래 기존 거래대금 순위 그래프와 선정 섹터가 다를 수 있습니다.')
     display = pd.DataFrame({
         '섹터': rows['sector'], '현재 상태': rows['status'], '한 줄 이유': rows['reason'],
-        '최근 거래 비중 변화': rows['change'].map(lambda x: '자료 부족' if pd.isna(x) else f'{x:+.1f}%p'),
+        '최근 3일 − 이전 평균(%p)': rows['change'].map(lambda x: '자료 부족' if pd.isna(x) else f'{x:+.1f}%p'),
         '상승 종목 / 표본': [f'{int(a)} / {int(b)}' for a, b in zip(rows['rising_count'], rows['stock_count'])],
     })
     st.dataframe(display, hide_index=True, use_container_width=True)
+    dates = sorted(path['date'].unique())
+    recent_dates, prior_dates = dates[-3:], dates[:-3][-5:]
+    if prior_dates:
+        st.caption(f'표의 평균 차이: 최근 {len(recent_dates)}일({recent_dates[0]}~{recent_dates[-1]}) 평균 비중 − 이전 {len(prior_dates)}일({prior_dates[0]}~{prior_dates[-1]}) 평균 비중. 그래프의 당일 실제 비중·첫날 대비 변화와는 비교 기준이 다릅니다. 예: 최근 평균 8%, 이전 평균 5% → +3%p.')
+    if db_path:
+        st.markdown('**섹터별 포함 종목과 당일 등락률**')
+        st.caption(f'{dates[-1]} 정규장 TOP60 표본 기준 · 전일 종가 대비 등락률 · 실시간값이 아닙니다. 반도체 메모리 숨기기는 아래 그래프에만 적용됩니다.')
+        st.markdown(sector_member_table(db_path, dates[-1], rows['sector'].tolist()), unsafe_allow_html=True)
     st.markdown('**어느 섹터의 거래 비중이 커지고 있나요?**')
     mode = st.radio('그래프 기준', ['실제 비중', '비중 변화폭'], horizontal=True,
                     key='interest_chart_mode_v2')
