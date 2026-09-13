@@ -44,6 +44,28 @@ Completed without deleting source dependencies:
 
 The rest of the display-only schema migration is not yet complete.
 
+## Stage 4: intraday and overnight display evidence
+
+The full `market_betting_runs.derived_evidence_json` remains in Oracle's
+analysis database and full recovery snapshot. During web snapshot publication,
+the copied JSON is reduced to the fields consumed by the dashboard: the saved
+market-data timestamp, rolling 60-minute one-minute-bar path summaries, sector
+breadth summaries and observed members, stock identity/current return, setup
+prices, and position assessments. Judgments, quality issues and stock state
+tables are retained unchanged.
+
+This does not replace the rolling hour with a single hourly candle or five
+recent bars. Collection and decisions still use the complete available
+one-minute path in the rolling 60-minute clock window. Only unused intermediate
+feature dictionaries are omitted from the web copy after the decision is
+persisted.
+
+Production comparison covered all 563 retained runs: session selection, market,
+overnight and sector judgments, stock states, sector action/member rows, hourly
+detail rows, setup/entry/invalidation/reference text and sector member groups
+were equal before and after compaction. The evidence JSON decreased from about
+88.4 MB to 16.5 MB in that production dataset.
+
 Required contracts before reducing any web snapshot data:
 
 - Date/session catalog: every selectable saved run and its completion status.

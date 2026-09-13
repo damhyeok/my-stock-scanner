@@ -12,6 +12,7 @@ import pandas as pd
 
 from analyzer import StockAnalyzer
 from bottom_candidate_display import build_bottom_candidate_display
+from market_betting_display import compact_market_betting_runs
 from sector_trend_window import build_sector_trend_summary
 from stock_catalog_display import build_stock_catalog_display
 
@@ -166,6 +167,7 @@ def build_web_database(source="stock_data.db", target="web_data.db"):
             )
             build_bottom_candidate_display(conn)
             build_stock_catalog_display(conn)
+            compact_market_betting_runs(conn)
             for table in WEB_ONLY_SOURCE_TABLES:
                 conn.execute(f'DROP TABLE IF EXISTS "{table}"')
             conn.commit()
