@@ -29,6 +29,7 @@ from market_betting_engine.positions import Position, remove_position, upsert_po
 from web_database import (
     build_web_database,
     compress_web_database,
+    create_recovery_database,
     restore_working_database,
 )
 from storage_maintenance import run_storage_maintenance
@@ -225,13 +226,22 @@ def push_reports(task_name):
         run_command(["git", "push", "origin", "main"])
 
 
-def push_outputs(task_name):
+def push_outputs(task_name, scheduled_cron=None):
     watchlist_summary = refresh_watchlist(PROJECT_DIR / "stock_data.db")
     print(
         "[Watchlist] "
         f"updated={watchlist_summary['updated']}, "
         f"failures={len(watchlist_summary['failures'])}"
     )
+    if scheduled_cron == "0 7 * * 1-5":
+        recovery = create_recovery_database(
+            PROJECT_DIR / "stock_data.db",
+            PROJECT_DIR / "stock_data.recovery.db.gz",
+        )
+        print(
+            "[Recovery Snapshot] "
+            f"source={recovery['source_bytes']}, compressed={recovery['compressed_bytes']}"
+        )
     build_web_database(PROJECT_DIR / "stock_data.db", PROJECT_DIR / "web_data.db")
     compress_web_database(
         PROJECT_DIR / "web_data.db", PROJECT_DIR / "web_data.db.gz"
@@ -372,6 +382,7 @@ def main():
     parser.add_argument("--trade-date")
     parser.add_argument("--session", default="정규장(16:00)")
     args = parser.parse_args()
+    scheduled_cron = None
 
     if args.task == "morning-collector":
         pull_latest()
@@ -471,7 +482,7 @@ def main():
                 )
                 push_reports(args.task)
                 return
-            push_outputs(args.task)
+            push_outputs(args.task, scheduled_cron)
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ import pandas as pd
 from analyzer import StockAnalyzer
 from bottom_candidate_display import build_bottom_candidate_display
 from sector_trend_window import build_sector_trend_summary
+from stock_catalog_display import build_stock_catalog_display
 
 
 RETENTION = {
@@ -44,6 +45,14 @@ DROP_TABLES = {
     "model_bottom_weight_runs",
     # The dashboard reads compact judgments/derived evidence, not raw minute observations.
     "market_betting_observations",
+}
+
+# These remain in Oracle's full analysis DB. They are removed only from the
+# bounded web copy after all display values that depend on them are materialized.
+WEB_ONLY_SOURCE_TABLES = {
+    "model_feature_daily",
+    "model_ohlcv_daily",
+    "model_universe_snapshots",
 }
 
 SCORE_SOURCE_COLUMNS = {
@@ -149,6 +158,9 @@ def build_web_database(source="stock_data.db", target="web_data.db"):
                 "ON web_stock_analysis_scores(display_order)"
             )
             build_bottom_candidate_display(conn)
+            build_stock_catalog_display(conn)
+            for table in WEB_ONLY_SOURCE_TABLES:
+                conn.execute(f'DROP TABLE IF EXISTS "{table}"')
             conn.commit()
             integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
             if integrity != "ok":
@@ -201,6 +213,40 @@ def compress_web_database(source="web_data.db", target="web_data.db.gz"):
     }
 
 
+def create_recovery_database(source="stock_data.db", target="stock_data.recovery.db.gz"):
+    """Create a consistent, compressed full-analysis recovery snapshot."""
+    source_path = Path(source)
+    target_path = Path(target)
+    if not source_path.is_file():
+        raise FileNotFoundError(f"Source database not found: {source_path}")
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        prefix="stock_data_recovery_", suffix=".db", dir=target_path.parent
+    )
+    os.close(fd)
+    temp_path = Path(temp_name)
+    try:
+        source_conn = sqlite3.connect(source_path)
+        recovery_conn = sqlite3.connect(temp_path)
+        try:
+            source_conn.backup(recovery_conn)
+        finally:
+            recovery_conn.close()
+            source_conn.close()
+        with closing(sqlite3.connect(temp_path)) as conn:
+            integrity = conn.execute("PRAGMA quick_check").fetchone()[0]
+        if integrity != "ok":
+            raise RuntimeError(f"Recovery database integrity check failed: {integrity}")
+        summary = compress_web_database(temp_path, target_path)
+        return {
+            "source_bytes": source_path.stat().st_size,
+            "compressed_bytes": summary["compressed_bytes"],
+        }
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+
 def decompress_web_database(source="web_data.db.gz", target="web_data.db"):
     """Restore a gzip snapshot atomically after checking SQLite integrity."""
 
@@ -239,11 +285,21 @@ def restore_working_database(
     working_db="stock_data.db",
     compressed_web_db="web_data.db.gz",
     bootstrap_web_db="web_data.bootstrap.db.gz",
+    recovery_db="stock_data.recovery.db.gz",
 ):
     web_path = Path(web_db)
     working_path = Path(working_db)
     if working_path.is_file():
         return False
+    recovery_path = Path(recovery_db)
+    if recovery_path.is_file():
+        try:
+            decompress_web_database(recovery_path, working_path)
+            return True
+        except Exception:
+            # Keep the older bounded bootstrap path available if a recovery
+            # upload or disk write was interrupted.
+            pass
     if not web_path.is_file() and Path(compressed_web_db).is_file():
         decompress_web_database(compressed_web_db, web_path)
     if not web_path.is_file() and Path(bootstrap_web_db).is_file():

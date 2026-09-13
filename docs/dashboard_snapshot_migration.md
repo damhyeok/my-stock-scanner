@@ -33,6 +33,14 @@ Completed without deleting source dependencies:
 - `web_stock_analysis_scores` stores the ordered result of the unchanged
   five-trading-day StockAnalyzer calculation. The dashboard reads this compact
   table and falls back to the legacy calculation only for older snapshots.
+- `web_bottom_candidates` stores rule-model rows and legacy bottom rows with
+  their display change rate and market cap already joined.
+- `web_stock_catalog` stores the deduplicated, ordered watchlist search catalog.
+  The web copy can therefore omit model features, model OHLCV and universe
+  snapshots while the full Oracle analysis database retains them.
+- `stock_data.recovery.db.gz` is a full Oracle-only recovery snapshot refreshed
+  after the scheduled 16:00 analysis. Recovery prefers this file; it is never
+  served by `/web-data` or committed to Git.
 
 The rest of the display-only schema migration is not yet complete.
 
@@ -42,9 +50,6 @@ Required contracts before reducing any web snapshot data:
 - Selected-run tables: rankings, intersections, program flow and its historical
   comparison path, relative strength, closing scanners, technical-stage flags,
   market strength, news and detailed evidence used by expanders and downloads.
-- Bottom candidates: legacy fallback still directly reads `model_ohlcv_daily`
-  for change rate and market cap. Materialize these display values before
-  removing that table from web snapshots.
 - Watchlist: retain the independent Oracle read/write path and symbol catalog.
 - Overnight analysis: retain compact stored judgments, hourly evidence and
   sector member details; no change to one-minute collection or hourly rules.

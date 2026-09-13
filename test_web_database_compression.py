@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,7 @@ from analyzer import StockAnalyzer
 from web_database import (
     build_web_database,
     compress_web_database,
+    create_recovery_database,
     decompress_web_database,
     restore_working_database,
 )
@@ -102,6 +104,33 @@ class WebDatabaseCompressionTest(unittest.TestCase):
         actual["is_pullback"] = actual["is_pullback"].astype(bool)
         pd.testing.assert_frame_equal(actual, expected, check_dtype=False)
 
+    def test_model_sources_are_removed_only_after_display_rows_are_built(self):
+        source = self.root / "model-source.db"
+        target = self.root / "model-web.db"
+        with sqlite3.connect(source) as conn:
+            conn.execute("CREATE TABLE model_feature_daily(value TEXT)")
+            conn.execute("CREATE TABLE model_ohlcv_daily(value TEXT)")
+            conn.execute(
+                "CREATE TABLE model_universe_snapshots "
+                "(ticker TEXT, name TEXT, market_cap REAL)"
+            )
+            conn.execute(
+                "INSERT INTO model_universe_snapshots VALUES ('1','알파',100)"
+            )
+        build_web_database(source, target)
+        with sqlite3.connect(target) as conn:
+            tables = {row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )}
+            catalog = conn.execute(
+                "SELECT ticker,name,market_cap FROM web_stock_catalog"
+            ).fetchone()
+        self.assertFalse({
+            "model_feature_daily", "model_ohlcv_daily",
+            "model_universe_snapshots",
+        } & tables)
+        self.assertEqual(catalog, ("000001", "알파", 100.0))
+
     def test_restore_working_database_uses_bootstrap_snapshot(self):
         bootstrap = self.root / "web_data.bootstrap.db.gz"
         working = self.root / "stock_data.db"
@@ -115,6 +144,23 @@ class WebDatabaseCompressionTest(unittest.TestCase):
             bootstrap,
         )
 
+        self.assertTrue(restored)
+        with sqlite3.connect(working) as conn:
+            self.assertEqual(conn.execute("SELECT value FROM sample").fetchone()[0], "ok")
+
+    def test_full_recovery_snapshot_is_preferred_to_bounded_web_copy(self):
+        recovery = self.root / "stock_data.recovery.db.gz"
+        working = self.root / "stock_data.db"
+        create_recovery_database(self.web_db, recovery)
+        with closing(sqlite3.connect(self.web_db)) as conn, conn:
+            conn.execute("UPDATE sample SET value='bounded'")
+        compressed = self.root / "web_data.db.gz"
+        compress_web_database(self.web_db, compressed)
+        self.web_db.unlink()
+        restored = restore_working_database(
+            self.web_db, working, compressed,
+            self.root / "missing-bootstrap.gz", recovery,
+        )
         self.assertTrue(restored)
         with sqlite3.connect(working) as conn:
             self.assertEqual(conn.execute("SELECT value FROM sample").fetchone()[0], "ok")

@@ -20,7 +20,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from analyzer import StockAnalyzer
 from bottom_candidate_display import read_bottom_candidate_display
-from model_1_scanner import scan_model_tables
+from stock_catalog_display import read_stock_catalog_display
 from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
 from program_net_divergence import build_program_price_divergence
 from rise_rankings import build_rise_rank_tables
@@ -898,6 +898,8 @@ def get_stock_catalog():
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 ).fetchall()
             }
+            if "web_stock_catalog" in tables:
+                return read_stock_catalog_display(conn)
             queries = []
             if "model_universe_snapshots" in tables:
                 queries.append(

@@ -99,6 +99,11 @@ Streamlit `/run` request also executes this cycle after the existing full
 analysis. Results are persisted in `stock_data.db`, copied into `web_data.db`,
 and displayed by the existing Streamlit tab.
 
+The scheduled 16:00 full analysis also refreshes the Oracle-only
+`stock_data.recovery.db.gz`. If the working DB is missing, this complete snapshot
+is preferred over the bounded web/bootstrap DB. The recovery file is ignored by
+Git and is not exposed by the trigger API.
+
 The runtime is read-only with respect to brokerage APIs. Until the live-session
 field verification checklist is completed, PARTIAL fields remain blocking and
 the UI reports `NOT_EVALUABLE` instead of an entry permission.
