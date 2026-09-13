@@ -27,6 +27,7 @@ from stock_catalog_display import read_stock_catalog_display
 from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
 from program_net_divergence import build_program_price_divergence
 from rise_rankings import build_rise_rank_tables
+from sector_interest import render_interest
 from watchlist import read_watchlist_performance
 import sector_trend_window as _sector_trend_window
 
@@ -1712,6 +1713,8 @@ else:
         trend_summary, trend_dates = recent_sector_summary_window(
             sector_summary, selected_date
         )
+        render_interest(st, trend_summary, trend_count)
+        st.divider()
         week_start = trend_dates[0] if trend_dates else str(selected_date)
         st.caption(f"선택일 기준 최근 {len(trend_dates)}거래일 · 최대 10거래일의 저장된 정규장 결과를 표시합니다. 월요일에도 초기화하지 않습니다.")
         if trend_summary.empty:
