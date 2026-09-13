@@ -50,9 +50,16 @@ DROP_TABLES = {
 # These remain in Oracle's full analysis DB. They are removed only from the
 # bounded web copy after all display values that depend on them are materialized.
 WEB_ONLY_SOURCE_TABLES = {
+    "intraday_stock_bars",
+    "intraday_index_bars",
+    "intraday_relative_strength_runs",
+    "market_program_snapshots",
     "model_feature_daily",
     "model_ohlcv_daily",
     "model_universe_snapshots",
+    "model_market_regimes",
+    "model_bottom_signals",
+    "model_rule_scan_signals",
 }
 
 SCORE_SOURCE_COLUMNS = {

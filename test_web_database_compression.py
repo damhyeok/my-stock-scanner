@@ -131,6 +131,26 @@ class WebDatabaseCompressionTest(unittest.TestCase):
         } & tables)
         self.assertEqual(catalog, ("000001", "알파", 100.0))
 
+    def test_backend_only_intraday_tables_are_not_copied_to_web(self):
+        source = self.root / "intraday-source.db"
+        target = self.root / "intraday-web.db"
+        backend_tables = {
+            "intraday_stock_bars": "trade_date",
+            "intraday_index_bars": "trade_date",
+            "intraday_relative_strength_runs": "trade_date",
+            "market_program_snapshots": "trade_date",
+            "model_market_regimes": "date",
+        }
+        with sqlite3.connect(source) as conn:
+            for table, date_column in backend_tables.items():
+                conn.execute(f'CREATE TABLE "{table}" ("{date_column}" TEXT)')
+        build_web_database(source, target)
+        with sqlite3.connect(target) as conn:
+            web_tables = {row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )}
+        self.assertFalse(set(backend_tables) & web_tables)
+
     def test_restore_working_database_uses_bootstrap_snapshot(self):
         bootstrap = self.root / "web_data.bootstrap.db.gz"
         working = self.root / "stock_data.db"
