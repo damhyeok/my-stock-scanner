@@ -27,7 +27,11 @@ from stock_catalog_display import read_stock_catalog_display
 from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
 from program_net_divergence import build_program_price_divergence
 from rise_rankings import build_rise_rank_tables
-from sector_interest import render_interest
+import sector_interest as _sector_interest
+
+# Refresh this display helper on reruns after a Streamlit Cloud deployment.
+_sector_interest = importlib.reload(_sector_interest)
+render_interest = _sector_interest.render_interest
 from watchlist import read_watchlist_performance
 import sector_trend_window as _sector_trend_window
 
