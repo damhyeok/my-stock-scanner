@@ -2,17 +2,17 @@
   "status": "success",
   "universe_type": "market_cap_10000eok_plus",
   "lookback_days": 180,
-  "started_at_kst": "2026-09-11T15:40:10+09:00",
+  "started_at_kst": "2026-09-14T15:40:40+09:00",
   "collection": {
-    "universe_count": 296,
-    "ohlcv_rows": 1776,
-    "full_refresh_count": 0,
-    "incremental_count": 296,
+    "universe_count": 298,
+    "ohlcv_rows": 1905,
+    "full_refresh_count": 1,
+    "incremental_count": 297,
     "failure_count": 0
   },
-  "signal_count": 39,
+  "signal_count": 5,
   "rule_signal_count": 0,
-  "signal_date": "20260911",
-  "market_regime": "sideways",
-  "finished_at_kst": "2026-09-11T15:43:56+09:00"
+  "signal_date": "20260914",
+  "market_regime": "downtrend",
+  "finished_at_kst": "2026-09-14T15:45:38+09:00"
 }
