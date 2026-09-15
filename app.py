@@ -23,6 +23,8 @@ from analyzer import StockAnalyzer
 from bottom_candidate_display import read_bottom_candidate_display
 from dashboard_session_display import read_dashboard_sessions
 from news_display import read_stock_news_display
+import news_issues as _news_issues
+_news_issues = importlib.reload(_news_issues)
 from stock_catalog_display import read_stock_catalog_display
 from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
 from program_net_divergence import build_program_price_divergence
@@ -2028,7 +2030,9 @@ else:
 
     with tab8:
         st.header(f"📰 뉴스 이슈 종목 ({selected_session_label})")
-        if df_news.empty and df_news_summary.empty:
+        if _news_issues.render_issue_tab(st, dashboard_db_path, str(selected_date), str(selected_session)):
+            pass
+        elif df_news.empty and df_news_summary.empty:
             st.info("수집된 뉴스 이슈 데이터가 없습니다. 다음 자동 실행 이후 표시됩니다.")
         else:
             news_selected = df_news[

@@ -9,6 +9,8 @@ import xml.etree.ElementTree as ET
 
 import pandas as pd
 import requests
+from news_issues import record_issues, prune_issues, init_issues
+from news_price_response import save_price_context
 
 
 class NewsCollector:
@@ -176,7 +178,7 @@ class NewsCollector:
         return unique_items
 
     def _fetch_google_news(self, name, max_items=5):
-        query = quote_plus(f'"{name}" 주가 OR 실적 OR 수주 OR 투자 when:1d')
+        query = quote_plus(f'"{name}" (주가 OR 실적 OR 수주 OR 투자 OR 공시) when:5d')
         url = f"https://news.google.com/rss/search?q={query}&hl=ko&gl=KR&ceid=KR:ko"
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers, timeout=10)
@@ -206,25 +208,42 @@ class NewsCollector:
             return 0
 
         conn = sqlite3.connect(self.db_path)
-        conn.execute(
-            "DELETE FROM stock_news WHERE date = ? AND session = ?",
-            (target_date, target_session)
-        )
+        init_issues(conn)
+        # Retain today's tracked issuers even after they leave TOP60.
+        tracked = pd.read_sql_query(
+            'SELECT DISTINCT ticker,name,sector FROM news_issue_versions WHERE observed_date=?',
+            conn, params=(target_date,))
+        stocks = pd.concat([stocks, tracked], ignore_index=True).drop_duplicates('ticker').head(120)
+        saved_rows = []
 
         saved_count = 0
+        issue_articles = []
+        failures = 0
+        started = time.monotonic()
         target_news_date = datetime.strptime(target_date, "%Y%m%d").strftime("%Y-%m-%d")
+        previous_date = conn.execute(
+            "SELECT MAX(date) FROM daily_stocks WHERE date < ? AND category='VOLUME_TOP_60'",
+            (target_date,)).fetchone()[0]
+        issue_start = (datetime.strptime(previous_date, '%Y%m%d').strftime('%Y-%m-%d') + ' 15:30') if previous_date else target_news_date + ' 00:00'
         for _, stock in stocks.iterrows():
+            if time.monotonic() - started > 100:
+                failures += len(stocks) - list(stocks.index).index(stock.name)
+                break
             name = str(stock.get("name", "")).strip()
             if not name:
                 continue
             try:
                 news_items = self._fetch_google_news(
                     name,
-                    max_items=max(per_stock_limit * 3, 10),
+                    max_items=max(per_stock_limit * 3, 20),
                 )
             except Exception as e:
+                failures += 1
                 print(f"[News Warning] {name} 뉴스 수집 실패: {e}")
                 continue
+
+            issue_articles.extend((stock.to_dict(), news) for news in news_items
+                                  if issue_start <= news.get('published_at', '') <= self.collected_at_kst)
 
             today_candidates = [
                 news for news in news_items
@@ -232,13 +251,7 @@ class NewsCollector:
             ]
             today_items = self._deduplicate_news(today_candidates, per_stock_limit)
             for news in today_items:
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO stock_news
-                    (date, session, ticker, name, sector, title, link, source, published_at,
-                     sentiment, sentiment_score, keywords, collected_at_kst)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
+                saved_rows.append(
                     (
                         target_date,
                         target_session,
@@ -258,6 +271,17 @@ class NewsCollector:
                 saved_count += 1
             time.sleep(0.2)
 
+        with conn:
+            # Network fetches finish before obtaining the database write lock.
+            # Preserve prior rows on a partial retry instead of deleting them.
+            conn.executemany('''INSERT OR REPLACE INTO stock_news
+                (date,session,ticker,name,sector,title,link,source,published_at,
+                 sentiment,sentiment_score,keywords,collected_at_kst)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)''', saved_rows)
+        record_issues(conn, stocks, issue_articles, target_date, target_session,
+                      self.collected_at_kst, failures, issue_start)
+        save_price_context(conn, target_date, target_session, self.collected_at_kst)
+        prune_issues(conn)
         conn.commit()
         conn.close()
         print(f"[News] {target_date} {target_session} 뉴스 {saved_count}건 저장 완료")

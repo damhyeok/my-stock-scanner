@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 import os
 import re
 import shutil
@@ -13,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from market_betting_engine.storage import prune_decision_history
+from news_issues import prune_issues
 
 
 KST = timezone(timedelta(hours=9))
@@ -231,6 +233,10 @@ def run_storage_maintenance(project_dir, *, allow_vacuum=False) -> dict:
     started = datetime.now(KST)
     disk_before = shutil.disk_usage(root)
     git_before = _git_storage(root)
+    if (root / 'stock_data.db').is_file():
+        with closing(sqlite3.connect(root / 'stock_data.db')) as conn:
+            prune_issues(conn)
+            conn.commit()
 
     stock_result = prune_database(
         root / "stock_data.db", STOCK_DATA_RETENTION, allow_vacuum=allow_vacuum

@@ -15,6 +15,7 @@ from bottom_candidate_display import build_bottom_candidate_display
 from dashboard_session_display import build_dashboard_sessions
 from market_betting_display import compact_market_betting_runs
 from news_display import build_stock_news_display
+from news_issues import build_issue_display
 from sector_trend_window import build_sector_trend_summary
 from stock_catalog_display import build_stock_catalog_display
 
@@ -53,6 +54,8 @@ DROP_TABLES = {
 # These remain in Oracle's full analysis DB. They are removed only from the
 # bounded web copy after all display values that depend on them are materialized.
 WEB_ONLY_SOURCE_TABLES = {
+    "news_issue_price_context",
+    "news_issue_articles", "news_issue_versions", "news_issue_snapshots", "news_issue_runs",
     "intraday_stock_bars",
     "intraday_index_bars",
     "intraday_relative_strength_runs",
@@ -172,6 +175,7 @@ def build_web_database(source="stock_data.db", target="web_data.db"):
             build_stock_catalog_display(conn)
             compact_market_betting_runs(conn)
             build_stock_news_display(conn)
+            build_issue_display(conn)
             build_dashboard_sessions(conn)
             for table in WEB_ONLY_SOURCE_TABLES:
                 conn.execute(f'DROP TABLE IF EXISTS "{table}"')
