@@ -1082,7 +1082,7 @@ else:
         "⭐ 내 관심종목",
         "🚀 지수대비 강한 종목",
         "🔥 거래대금 Top",
-        "📈 상승률 Top 30",
+        "📈 상승률 Top 60",
         "🟢 외인 순매수", 
         "🔴 기관 순매수",
         "📊 섹터별 자금",
@@ -1595,12 +1595,16 @@ else:
         display_consecutive_buy_table(both_streaks, 'both')
 
     with rise_tab:
-        st.header(f"📈 전일 대비 상승률 Top 30 ({selected_session_label})")
-        rise_top30, rise_volume_overlap = build_rise_rank_tables(df_selected)
-        if rise_top30.empty:
-            st.info("선택한 날짜와 시간에는 상승률 Top 30 데이터가 없습니다.")
+        st.header(f"📈 전일 대비 상승률 Top 60 ({selected_session_label})")
+        rise_top60, rise_volume_overlap = build_rise_rank_tables(df_selected)
+        if rise_top60.empty:
+            st.info("선택한 날짜와 시간에는 상승률 Top 60 데이터가 없습니다.")
         else:
-            display_rise_rank_table(rise_top30)
+            if not (df_selected['category'] == 'RISE_TOP_60').any():
+                st.caption('이전 분석 회차에는 Top 30만 저장되어 있어 기존 30위까지만 표시합니다.')
+            elif len(rise_top60) < 60:
+                st.caption(f'해당 회차에서 확보된 대상 종목은 {len(rise_top60)}개입니다. 미수집 순위는 채우지 않습니다.')
+            display_rise_rank_table(rise_top60)
 
         st.divider()
         st.subheader("🔥 상승률 Top 30 · 거래대금 Top 60 교집합")

@@ -6,6 +6,18 @@ from rise_rankings import build_rise_rank_tables
 
 
 class RiseRankingsTest(unittest.TestCase):
+    def test_top60_preserves_original_top30_overlap(self):
+        rows = [dict(ticker=str(i), name=str(i), category='RISE_TOP_60',
+                     fluctuation_rate=100-i, trading_value=i) for i in range(65)]
+        rows += [dict(ticker=str(i), category='VOLUME_TOP_60', trading_value=100-i)
+                 for i in (0, 29, 30, 59)]
+        # A historical-category row must not contaminate the new snapshot.
+        rows.append(dict(ticker='old', category='RISE_TOP_30', fluctuation_rate=999))
+        top, overlap = build_rise_rank_tables(pd.DataFrame(rows))
+        self.assertEqual(len(top), 60)
+        self.assertEqual(top['rise_rank'].tolist(), list(range(1, 61)))
+        self.assertEqual(overlap['rise_rank'].tolist(), [1, 30])
+
     def test_builds_top30_and_volume_intersection_with_independent_ranks(self):
         rows = []
         for index in range(35):

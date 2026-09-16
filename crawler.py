@@ -306,8 +306,8 @@ class StockCrawler:
             raise
 
     def get_rise_top_data(self):
-        """KIS 등락률 순위에서 ETF/ETN 등을 제외한 상승률 상위 30종목을 가져옵니다."""
-        print(f"[{self.target_date}] 전일 대비 상승률 TOP 30 수집 중 (한국투자증권 API)...")
+        """KIS 등락률 순위에서 ETF/ETN 등을 제외한 상승률 상위 60종목을 가져옵니다."""
+        print(f"[{self.target_date}] 전일 대비 상승률 TOP 60 수집 중 (한국투자증권 API)...")
 
         token = self._get_kis_access_token()
         url = f"{self.kis_base_url}/uapi/domestic-stock/v1/ranking/fluctuation"
@@ -324,8 +324,9 @@ class StockCrawler:
             "FID_COND_SCR_DIV_CODE": "20170",
             "FID_INPUT_ISCD": "0000",
             "FID_RANK_SORT_CLS_CODE": "0",
-            "FID_INPUT_CNT_1": "30",
-            "FID_PRC_CLS_CODE": "0",
+            "FID_INPUT_CNT_1": "0",
+            # Current-day return from previous close, not a multi-day low.
+            "FID_PRC_CLS_CODE": "1",
             "FID_INPUT_PRICE_1": "0",
             "FID_INPUT_PRICE_2": "10000000",
             "FID_VOL_CNT": "0",
@@ -337,11 +338,26 @@ class StockCrawler:
             "FID_RSFL_RATE1": "0",
             "FID_RSFL_RATE2": "30",
         }
-        response = requests.get(url, headers=headers, params=params, timeout=10)
-        if response.status_code != 200 or response.json().get("rt_cd") != "0":
-            raise RuntimeError(f"KIS 등락률 순위 호출 실패: {response.text}")
+        from rise_rank_source import collect_rise_rows
 
-        raw = pd.DataFrame(response.json().get("output", []))
+        def fetch_band(low, high, price_low, price_high):
+            query = dict(params, FID_RSFL_RATE1=f'{low:.2f}', FID_RSFL_RATE2=f'{high:.2f}',
+                         FID_INPUT_PRICE_1=str(price_low), FID_INPUT_PRICE_2=str(price_high))
+            response = requests.get(url, headers=headers, params=query, timeout=10)
+            if response.status_code != 200 or response.json().get('rt_cd') != '0':
+                raise RuntimeError(f'KIS 등락률 순위 호출 실패: {response.text}')
+            time.sleep(0.2)
+            return response.json().get('output', [])
+
+        def eligible(rows):
+            if not rows:
+                return []
+            frame = pd.DataFrame(rows)
+            frame['name'] = frame.get('hts_kor_isnm', '')
+            frame['ticker'] = frame.get('stck_shrn_iscd', frame.get('mksc_shrn_iscd', '')).astype(str)
+            return self._exclude_exchange_traded_products(frame)
+
+        raw = pd.DataFrame(collect_rise_rows(fetch_band, eligible))
         if raw.empty:
             raise RuntimeError("KIS 등락률 순위가 비어 있습니다.")
 
@@ -369,7 +385,7 @@ class StockCrawler:
         result = (
             result.sort_values("fluctuation_rate", ascending=False)
             .drop_duplicates("ticker", keep="first")
-            .head(30)
+            .head(60)
             .copy()
         )
 
@@ -1248,7 +1264,7 @@ class StockCrawler:
                     if ticker not in sector_dict:
                         sector_dict[ticker] = self.get_sector_info(ticker)
                         time.sleep(0.2)
-                self.save_to_db(apply_sector(df_rise_top), 'RISE_TOP_30')
+                self.save_to_db(apply_sector(df_rise_top), 'RISE_TOP_60')
             except Exception as error:
                 print(f"[Rise Rank Warning] 상승률 순위 수집/저장 실패; 기존 분석은 보존합니다: {error}")
         

@@ -108,6 +108,8 @@ class RiseRankCollectorTest(unittest.TestCase):
         rank_params = mock_get.call_args_list[0].kwargs["params"]
         self.assertEqual(rank_params["FID_COND_SCR_DIV_CODE"], "20170")
         self.assertEqual(rank_params["FID_RANK_SORT_CLS_CODE"], "0")
+        self.assertEqual(rank_params["FID_INPUT_CNT_1"], "0")
+        self.assertEqual(rank_params["FID_PRC_CLS_CODE"], "1")
         self.assertEqual(rank_params["FID_TRGT_EXLS_CLS_CODE"], "0000001101")
 
     def test_missing_previous_rate_is_saved_as_null(self):
@@ -142,11 +144,11 @@ class RiseRankCollectorTest(unittest.TestCase):
                  patch.object(crawler, "get_rise_top_data", return_value=rise) as get_rise:
                 self.assertTrue(crawler.run())
                 with closing(sqlite3.connect(crawler.db_path)) as conn:
-                    self.assertEqual(conn.execute("SELECT ticker FROM daily_stocks WHERE category='RISE_TOP_30'").fetchall(), [("000660",)])
+                    self.assertEqual(conn.execute("SELECT ticker FROM daily_stocks WHERE category='RISE_TOP_60'").fetchall(), [("000660",)])
                 get_rise.side_effect = RuntimeError("provider unavailable")
                 self.assertTrue(crawler.run())
                 with closing(sqlite3.connect(crawler.db_path)) as conn:
-                    self.assertEqual(conn.execute("SELECT COUNT(*) FROM daily_stocks WHERE category!='RISE_TOP_30'").fetchone()[0], 3)
+                    self.assertEqual(conn.execute("SELECT COUNT(*) FROM daily_stocks WHERE category!='RISE_TOP_60'").fetchone()[0], 3)
 
 
 if __name__ == "__main__":
