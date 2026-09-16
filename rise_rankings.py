@@ -14,7 +14,7 @@ RANK_TABLE_COLUMNS = [
 
 
 def build_rise_rank_tables(session_data):
-    """Return rise TOP60, retaining the original TOP30/volume TOP60 overlap."""
+    """Return rise TOP60 and its intersection with trading-value TOP60."""
     empty = pd.DataFrame(columns=RANK_TABLE_COLUMNS)
     if session_data is None or session_data.empty or "category" not in session_data.columns:
         return empty.copy(), empty.copy()
@@ -56,5 +56,5 @@ def build_rise_rank_tables(session_data):
         rise[column] = rise[column].fillna(default)
 
     top60 = rise[RANK_TABLE_COLUMNS].copy()
-    overlap = top60[(top60["rise_rank"] <= 30) & top60["trading_rank"].notna()].copy().reset_index(drop=True)
+    overlap = top60[top60["trading_rank"].notna()].copy().reset_index(drop=True)
     return top60, overlap

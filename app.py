@@ -1607,7 +1607,7 @@ else:
             display_rise_rank_table(rise_top60)
 
         st.divider()
-        st.subheader("🔥 상승률 Top 30 · 거래대금 Top 60 교집합")
+        st.subheader("🔥 상승률 Top 60 · 거래대금 Top 60 교집합")
         if rise_volume_overlap.empty:
             st.info("두 순위에 동시에 포함된 종목이 없습니다.")
         else:
