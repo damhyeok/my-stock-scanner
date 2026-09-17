@@ -16,6 +16,7 @@ KST = timezone(timedelta(hours=9))
 REGULAR_OPEN = "09:00"
 REGULAR_CLOSE = "15:30"
 INDEX_CODES = {"KOSPI": "0001", "KOSDAQ": "1001"}
+COLLECTION_INDEX_CODES = {**INDEX_CODES, "KOSPI200": "2001"}
 MIN_MATCHED_BAR_RATIO = 0.95
 
 
@@ -389,7 +390,7 @@ class IntradayRelativeStrengthScanner:
                 {
                     "FID_COND_MRKT_DIV_CODE": "U",
                     "FID_ETC_CLS_CODE": "0",
-                    "FID_INPUT_ISCD": INDEX_CODES[index_name],
+                    "FID_INPUT_ISCD": COLLECTION_INDEX_CODES[index_name],
                     # KIS 지수 API에서 이 값은 조회 종료시각이 아니라 분봉 간격(초)이다.
                     # API가 최근 약 98개만 반환하므로 장중 수집 타이머로 창을 겹쳐 저장한다.
                     "FID_INPUT_HOUR_1": "60",
@@ -436,7 +437,7 @@ class IntradayRelativeStrengthScanner:
             )
             values.append(
                 (
-                    trade_date, index_name, INDEX_CODES[index_name], bar_time,
+                    trade_date, index_name, COLLECTION_INDEX_CODES[index_name], bar_time,
                     self._index_price(row, "bstp_nmix_oprc", "stck_oprc"),
                     self._index_price(row, "bstp_nmix_hgpr", "stck_hgpr"),
                     self._index_price(row, "bstp_nmix_lwpr", "stck_lwpr"),
@@ -455,12 +456,12 @@ class IntradayRelativeStrengthScanner:
         return len(values)
 
     def collect_index_bars(self, trade_date=None, cutoff_time=None):
-        """Persist the latest overlapping KOSPI/KOSDAQ minute-bar windows."""
+        """Persist overlapping KOSPI/KOSDAQ/KOSPI200 one-minute windows."""
         trade_date = trade_date or self.crawler.target_date
         cutoff_time = cutoff_time or datetime.now(KST).strftime("%H:%M")
         cutoff_time = min(max(cutoff_time, REGULAR_OPEN), REGULAR_CLOSE)
         collected = {}
-        for index_name in INDEX_CODES:
+        for index_name in COLLECTION_INDEX_CODES:
             last_time = self._last_index_time(trade_date, index_name)
             start_time = REGULAR_OPEN if not last_time else self._next_minute(last_time)
             if start_time > cutoff_time:

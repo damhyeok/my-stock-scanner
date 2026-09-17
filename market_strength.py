@@ -511,13 +511,27 @@ class MarketStrengthAnalyzer:
 
     def _fetch_index_snapshots(self):
         # 베이시스는 반드시 KOSPI200(2001)과 KOSPI200 선물의 동일 시각 값으로 계산합니다.
+        snapshots = {}
+        with sqlite3.connect(self.db_path) as conn:
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='intraday_index_bars'").fetchone():
+                cached = conn.execute(
+                    "SELECT bar_time, close FROM intraday_index_bars WHERE trade_date=? AND index_code='2001' AND index_name='KOSPI200' "
+                    "AND collected_at_kst >= datetime(substr(trade_date,1,4)||'-'||substr(trade_date,5,2)||'-'||substr(trade_date,7,2)||' '||bar_time||':00','+1 minute')",
+                    (self.target_date,),
+                ).fetchall()
+                snapshots = {t: float(price) for t, price in cached
+                             if t in self.snapshot_times and price is not None
+                             and math.isfinite(float(price)) and float(price) > 0}
+        if all(t in snapshots for t in self.snapshot_times):
+            return snapshots
         try:
             rows = self._fetch_index_minute_rows()
         except Exception as e:
             print(f"[Market Strength Warning] KOSPI200 지수 분봉 조회 실패(code=2001): {e}")
-            return {}
-        snapshots = {}
+            return snapshots
         for snapshot_time in self.snapshot_times:
+            if snapshot_time in snapshots:
+                continue
             row = self._nearest_row(
                 rows,
                 self._time_to_hhmmss(snapshot_time),
@@ -528,6 +542,9 @@ class MarketStrengthAnalyzer:
             price = self._extract_index_price(row)
             if price:
                 snapshots[snapshot_time] = price
+        missing = [t for t in self.snapshot_times if t not in snapshots]
+        if missing:
+            print(f"[Market Strength Warning] KOSPI200 시점값 누락: {', '.join(missing)} (베이시스 임의 보간 없음)")
         return snapshots
 
     def _fetch_index_minute_rows(self):
@@ -578,7 +595,7 @@ class MarketStrengthAnalyzer:
         return list(collected.values())
 
     def _score_basis(self, snapshots):
-        values = [snapshots[t]["basis"] for t in self.snapshot_times]
+        values = [snapshots[t].get("basis") for t in self.snapshot_times]
         if not self._basis_is_valid(snapshots):
             return 0
         delta = values[-1] - values[0]
@@ -706,7 +723,7 @@ class MarketStrengthAnalyzer:
     def _data_quality_issues(self, snapshots):
         last = snapshots[self.snapshot_times[-1]]
         issues = []
-        basis = [snapshots[t]["basis"] for t in self.snapshot_times]
+        basis = [snapshots[t].get("basis") for t in self.snapshot_times]
         basis_complete = all(
             value is not None and math.isfinite(float(value)) for value in basis
         )
@@ -725,7 +742,7 @@ class MarketStrengthAnalyzer:
         return issues
 
     def explain_scores(self, snapshots):
-        basis = [snapshots[t]["basis"] for t in self.snapshot_times]
+        basis = [snapshots[t].get("basis") for t in self.snapshot_times]
         program = [snapshots[t]["program_net"] for t in self.snapshot_times]
         non_arbitrage = [snapshots[t]["non_arbitrage_net"] for t in self.snapshot_times]
         futures = [snapshots[t]["kospi200_futures_price"] for t in self.snapshot_times]
@@ -804,6 +821,9 @@ class MarketStrengthAnalyzer:
             parts.append("베이시스가 장 막판 확대되었습니다" if basis_delta > 0 else "베이시스가 장 막판 축소되었습니다")
         else:
             parts.append("시점별 베이시스는 데이터 오류로 점수에서 제외했습니다")
+            missing = [t for t in self.snapshot_times if snapshots[t].get("basis") is None]
+            if missing:
+                parts.append(f"베이시스 누락 시각: {', '.join(missing)}")
         program_last = snapshots[self.snapshot_times[-1]]["program_net"]
         if program_last < 0:
             parts.append("프로그램 순매도가 이어지고 있습니다")
@@ -874,6 +894,7 @@ class MarketStrengthAnalyzer:
             }
             snapshots[snapshot_time] = {
                 "foreign_futures_net": None,
+                "basis": None,
                 **stored_snapshots.get(snapshot_time, {}),
                 **program_snapshots.get(snapshot_time, {}),
                 **current_futures,

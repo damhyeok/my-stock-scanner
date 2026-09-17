@@ -12,6 +12,46 @@ def make_analyzer(tmp_path):
     )
 
 
+def test_missing_basis_key_does_not_abort_scoring_or_explanation(tmp_path):
+    analyzer = make_analyzer(tmp_path)
+    snapshots = suspicious_snapshots()
+    del snapshots['15:00']['basis']
+    scores = analyzer.score_snapshots(snapshots)
+    assert scores['basis_valid'] is False
+    assert scores['basis_score'] == 0
+    analyzer.explain_scores(snapshots)
+    message = analyzer._build_interpretation(scores['market_strength_score'], 0,
+                                             scores['program_score'], scores['futures_trend_score'], snapshots)
+    assert '베이시스 누락 시각: 15:00' in message
+    analyzer._save_snapshots(snapshots, scores, message)
+    with sqlite3.connect(analyzer.db_path) as conn:
+        assert conn.execute("SELECT basis FROM market_strength_snapshots WHERE snapshot_time='15:00'").fetchone()[0] is None
+
+
+def test_cached_kospi200_exact_minutes_survive_api_failure(tmp_path, monkeypatch):
+    analyzer = make_analyzer(tmp_path)
+    with sqlite3.connect(analyzer.db_path) as conn:
+        conn.execute('CREATE TABLE intraday_index_bars(trade_date TEXT,index_name TEXT,index_code TEXT,bar_time TEXT,close REAL,collected_at_kst TEXT)')
+        date = analyzer.target_date
+        stamp = f'{date[:4]}-{date[4:6]}-{date[6:]} 15:31:00'
+        conn.executemany('INSERT INTO intraday_index_bars VALUES (?,?,?,?,?,?)', [
+            (date,'KOSPI200','2001','14:30',1000,stamp),
+            (date,'KOSPI','0001','15:00',9999,stamp),
+            ('20000101','KOSPI200','2001','15:00',8888,stamp),
+            (date,'KOSPI200','2001','15:20',1001,stamp[:11]+'15:20:10'),
+        ])
+    def unavailable():
+        raise RuntimeError('offline')
+    monkeypatch.setattr(analyzer,'_fetch_index_minute_rows',unavailable)
+    assert analyzer._fetch_index_snapshots() == {'14:30':1000}
+
+
+def test_combiner_keeps_missing_basis_explicit(tmp_path):
+    analyzer = make_analyzer(tmp_path)
+    combined = analyzer._combine_snapshots({}, {})
+    assert all('basis' in row and row['basis'] is None for row in combined.values())
+
+
 def suspicious_snapshots():
     times = ["14:30", "15:00", "15:20", "15:30"]
     basis = [2.35, 23.45, 2.99, 3.77]

@@ -11,6 +11,17 @@ from intraday_relative_strength import (
 
 
 class IntradayIndexFetchTests(TestCase):
+    def test_existing_collection_cycle_includes_kospi200_only_as_extra_source(self):
+        from unittest.mock import Mock
+        from intraday_relative_strength import INDEX_CODES, COLLECTION_INDEX_CODES
+        scanner = IntradayRelativeStrengthScanner.__new__(IntradayRelativeStrengthScanner)
+        scanner._last_index_time = Mock(return_value=None)
+        scanner._fetch_index_delta = Mock(return_value=20)
+        counts = scanner.collect_index_bars('20260917', '13:20')
+        self.assertEqual(set(counts), {'KOSPI', 'KOSDAQ', 'KOSPI200'})
+        self.assertEqual(COLLECTION_INDEX_CODES['KOSPI200'], '2001')
+        self.assertEqual(set(INDEX_CODES), {'KOSPI', 'KOSDAQ'})
+
     def test_kis_millisecond_time_is_normalized(self):
         self.assertEqual(_parse_intraday_time("153000999").strftime("%H:%M:%S"), "15:30:00")
         self.assertEqual(_parse_intraday_time("15:30:00.999").strftime("%H:%M:%S"), "15:30:00")
