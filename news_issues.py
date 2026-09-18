@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 from news_price_response import build_price_display, render_price_context, columns
+from news_ui import rank_news, render_news_table
 
 
 def init_issues(conn):
@@ -186,12 +187,11 @@ def render_issue_tab(st, db_path, date, session):
     if frame.empty:
         st.info('현재까지 새로 확인한 이슈가 없습니다.')
         return True
-    frame['검토 우선순위'] = frame['importance'] + frame['spread_bonus']
-    frame = frame.sort_values(['검토 우선순위','changed_at'], ascending=False)
+    frame = rank_news(frame)
     for label, part in [('신규·중요 내용 변경', frame[frame.change_kind.isin(['신규','중요 내용 변경'])]), ('오늘 누적 주요 이슈', frame)]:
         st.subheader(label)
         display = part[['name','title','direction','confidence','검토 우선순위','change_kind','source_count','first_seen','changed_at']].rename(columns={'name':'종목','title':'핵심 이슈','direction':'방향','confidence':'확인 상태','change_kind':'변경','source_count':'매체 수','first_seen':'최초 확인','changed_at':'최근 갱신'})
-        st.dataframe(display, hide_index=True, use_container_width=True)
+        render_news_table(st, display, f'news-issues-{label}-{date}-{session}')
     with st.expander('점수·보도 확산 기준'):
         st.write('이슈별 제목 중요도 1~3점 + 보도 확산 최대 0.5점입니다. 서로 다른 매체가 추가될 때 0.1점씩 반영합니다. 같은 링크·같은 매체 반복은 가점이 없고, 재검색만으로 점수가 오르지 않습니다. 제목만으로 보도자료 재전송·독립 취재를 확정할 수 없어 확산을 신뢰도에 반영하지 않습니다. 악재에도 검토 우선순위는 높을 수 있으며 호재 점수와 합산·상쇄하지 않습니다.')
     selected = st.selectbox('원문과 판단 근거를 볼 이슈', list(range(len(frame))),

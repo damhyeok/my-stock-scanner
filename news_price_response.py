@@ -4,6 +4,7 @@ import sqlite3
 from datetime import datetime, timedelta
 
 import pandas as pd
+from news_ui import rank_news, render_news_table
 
 
 def columns(conn, table):
@@ -116,17 +117,18 @@ def render_price_context(st, conn, date, session, events):
     prices = pd.read_sql_query('SELECT * FROM web_news_issue_price_context WHERE date=? AND session=?', conn, params=(date,session))
     if prices.empty:
         return
-    frame = events.merge(prices, on='event_id')
+    frame = rank_news(events.merge(prices, on='event_id'))
     st.subheader('뉴스·주가 반응 관심 후보')
     st.caption('매수 추천·저평가 판정이 아닌 관찰용 분류입니다. —는 자료 부족이며 0%가 아닙니다.')
     labels = {'name':'종목','title':'핵심 이슈','confidence':'확인 상태','verdict':'구분','today_rate':'오늘 등락률(%)','reaction_rate':'기준 이후 변화(%)','baseline_kind':'비교 기준','pre_news_5d':'뉴스 전 5거래일(%)','sector_excess_today':'오늘 업종표본 대비(%p)','program_change_eok':'프로그램 변화(억)','flow_interval':'수급 비교 구간','review_reason':'검토 이유','baseline_at':'기준 가격 시각','price_at':'현재 가격 시각','current_price':'현재가'}
+    labels = {'name':'종목', '검토 우선순위':'검토 우선순위', **labels}
     candidate = frame[frame.verdict.isin(['반응 시작·검토','반응 제한·관찰'])]
     if candidate.empty:
         st.info('현재 자료로 조건을 확인한 관심 후보가 없습니다. 아래에서 자료 부족·주의 사유를 볼 수 있습니다.')
     else:
-        st.dataframe(candidate[list(labels)].rename(columns=labels), hide_index=True, use_container_width=True)
+        render_news_table(st, candidate[list(labels)].rename(columns=labels), f'news-candidates-{date}-{session}')
     with st.expander('전체 이슈의 가격 반응·자료 부족 사유'):
-        st.dataframe(frame[list(labels)].rename(columns=labels), hide_index=True, use_container_width=True)
+        render_news_table(st, frame[list(labels)].rename(columns=labels), f'news-all-prices-{date}-{session}')
     with st.expander('뉴스·주가 반응 계산 설명'):
         st.write('오늘 등락률은 전일 종가 대비입니다. 기준 이후 변화는 표시된 기준 가격 대비이며, 최초 수집 시점 부근 기준은 뉴스 발표 이후 전체 반응과 다릅니다. 뉴스 전 5거래일은 뉴스 날짜 이전의 6개 종가로 계산하며 중간 자료가 없으면 비워 둡니다. 업종 대비는 같은 회차 거래대금 TOP60 내 같은 업종(최소 3종목)의 등락률 중앙값 대비이며 정식 업종지수가 아닙니다. 프로그램 변화는 최소 20분 간격의 최근 두 관측치 차이입니다.')
         st.write('임시 관찰 기준: 기준 이후 +5% 또는 사전 5거래일 +10% 이상은 상승 진행·주의, 기준 이후 −3% 이하는 부정적 반응·주의입니다. 그 외 호재 가능·내용 중요도 2점 이상이고 가격 자료가 있는 이슈만 관찰 후보로 분류합니다. 기대·검토 보도와 동일 종목의 악재·혼재는 우선 제외합니다. 임계값은 수익성 검증 전이며 적정 상승률이나 남은 상승 여력을 뜻하지 않습니다.')

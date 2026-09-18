@@ -123,5 +123,6 @@ class NewsIssueTests(unittest.TestCase):
             st.expander.side_effect = lambda *a, **k: nullcontext()
             st.selectbox.return_value = 0
             self.assertTrue(render_issue_tab(st, web, '20260915', '09:30'))
-            self.assertEqual(st.dataframe.call_count, 3)
+            self.assertEqual(st.dataframe.call_count, 0)
+            self.assertGreaterEqual(st.markdown.call_count, 3)
             self.assertFalse(render_issue_tab(st, web, '20260914', '09:30'))
