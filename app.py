@@ -1711,7 +1711,10 @@ else:
             if not (df_selected['category'] == 'RISE_TOP_60').any():
                 st.caption('이전 분석 회차에는 Top 30만 저장되어 있어 기존 30위까지만 표시합니다.')
             elif len(rise_top60) < 60:
-                st.caption(f'해당 회차에서 확보된 대상 종목은 {len(rise_top60)}개입니다. 미수집 순위는 채우지 않습니다.')
+                st.caption(
+                    f'불완전 수집: 유효한 일반주 {len(rise_top60)}/60개. '
+                    '미수집 순위는 채우지 않으며 날짜별 업종 추적에서는 이 회차를 제외합니다.'
+                )
             display_rise_rank_table(rise_top60)
 
         st.divider()

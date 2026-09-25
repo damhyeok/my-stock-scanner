@@ -349,17 +349,15 @@ class StockCrawler:
             time.sleep(0.2)
             return response.json().get('output', [])
 
-        def eligible(rows):
-            if not rows:
-                return []
-            frame = pd.DataFrame(rows)
-            frame['name'] = frame.get('hts_kor_isnm', '')
-            frame['ticker'] = frame.get('stck_shrn_iscd', frame.get('mksc_shrn_iscd', '')).astype(str)
-            return self._exclude_exchange_traded_products(frame)
-
-        raw = pd.DataFrame(collect_rise_rows(fetch_band, eligible))
+        # Count only rows that can actually be saved. Previously blank names or
+        # invalid tickers could fill the 60-row target and disappear afterward.
+        collected_rows = collect_rise_rows(fetch_band, self._eligible_rise_rank_rows)
+        raw = self._eligible_rise_rank_rows(collected_rows)
         if raw.empty:
             raise RuntimeError("KIS 등락률 순위가 비어 있습니다.")
+        filtered_count = len(collected_rows) - len(raw)
+        if filtered_count:
+            print(f"[Rise Rank] 상품형·코드/이름/등락률 불완전·중복 {filtered_count}건 제외")
 
         def field(*names, default=0):
             for name in names:
@@ -368,8 +366,8 @@ class StockCrawler:
             return pd.Series(default, index=raw.index)
 
         result = pd.DataFrame(index=raw.index)
-        result["ticker"] = field("stck_shrn_iscd", "mksc_shrn_iscd", default="").astype(str).str.zfill(6)
-        result["name"] = field("hts_kor_isnm", default="").fillna("").astype(str)
+        result["ticker"] = raw["ticker"]
+        result["name"] = raw["name"]
         result["close"] = pd.to_numeric(field("stck_prpr"), errors="coerce").fillna(0)
         result["fluctuation_rate"] = pd.to_numeric(field("prdy_ctrt"), errors="coerce").fillna(0)
         result["previous_day_rate"] = float("nan")
@@ -380,14 +378,17 @@ class StockCrawler:
         result["inst_net"] = 0
         result["sector"] = ""
         result["theme"] = ""
-        result = result[(result["ticker"].str.fullmatch(r"\d{6}")) & (result["name"] != "")]
-        result = self._exclude_exchange_traded_products(result)
         result = (
             result.sort_values("fluctuation_rate", ascending=False)
             .drop_duplicates("ticker", keep="first")
             .head(60)
             .copy()
         )
+        if len(result) < 60:
+            print(
+                f"[Rise Rank Warning] 유효한 일반주 {len(result)}/60개만 확보했습니다. "
+                "나머지 순위는 채우지 않으며 업종 추적에서는 이 회차를 제외합니다."
+            )
 
         # 등락률 순위 응답에 없는 정확한 시가총액을 현재가 API로 보완한다.
         price_url = f"{self.kis_base_url}/uapi/domestic-stock/v1/quotations/inquire-price"
@@ -679,7 +680,7 @@ class StockCrawler:
             return f"시간외진행({hour:02d}:{minute:02d})"
         return "시간외(20:30)"
 
-    def _exclude_exchange_traded_products(self, df):
+    def _exclude_exchange_traded_products(self, df, log=True):
         """ETF/ETN/레버리지/인버스 등 상품형 종목을 분석 대상에서 제외합니다."""
         if df.empty or 'name' not in df.columns:
             return df
@@ -694,10 +695,35 @@ class StockCrawler:
         product_mask = name_upper.str.contains('|'.join(product_keywords), regex=True, na=False)
         excluded_count = int(product_mask.sum())
 
-        if excluded_count > 0:
+        if excluded_count > 0 and log:
             print(f"[Filter] ETF/ETN 등 상품형 종목 {excluded_count}건을 분석 대상에서 제외했습니다.")
 
         return df[~product_mask].copy()
+
+    def _eligible_rise_rank_rows(self, rows):
+        """Use identical eligibility rules for rank collection and final output."""
+        frame = pd.DataFrame(rows).copy()
+        if frame.empty:
+            return frame
+
+        tickers = pd.Series("", index=frame.index)
+        for ticker_field in ("stck_shrn_iscd", "mksc_shrn_iscd"):
+            if ticker_field in frame:
+                fallback = frame[ticker_field].fillna("").astype(str).str.strip()
+                tickers = tickers.where(tickers.ne(""), fallback)
+        valid_ticker = tickers.str.fullmatch(r"\d{1,6}")
+        frame["ticker"] = tickers.where(valid_ticker, "").str.zfill(6)
+        frame["name"] = (
+            frame["hts_kor_isnm"].fillna("").astype(str).str.strip()
+            if "hts_kor_isnm" in frame else ""
+        )
+        frame["rank_rate"] = pd.to_numeric(
+            frame["prdy_ctrt"] if "prdy_ctrt" in frame else pd.Series(index=frame.index, dtype=float),
+            errors="coerce",
+        )
+        frame = frame[valid_ticker & frame["name"].ne("") & frame["rank_rate"].notna()]
+        frame = self._exclude_exchange_traded_products(frame, log=False)
+        return frame.sort_values("rank_rate", ascending=False).drop_duplicates("ticker")
 
     def _normalize_sector(self, ticker, name, sector):
         """네이버 업종을 주요 주도 테마 기준 섹터로 보정합니다."""

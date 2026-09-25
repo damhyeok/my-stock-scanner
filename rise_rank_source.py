@@ -12,7 +12,7 @@ def collect_rise_rows(fetch, eligible, target=60, max_calls=40):
         calls += 1
         rows = fetch(low / 100, high / 100, price_low, price_high)
         for row in rows:
-            ticker = str(row.get('stck_shrn_iscd', row.get('mksc_shrn_iscd', '')))
+            ticker = str(row.get('stck_shrn_iscd') or row.get('mksc_shrn_iscd') or '').strip()
             if ticker:
                 found[ticker] = row
         if len(rows) < 30 or len(eligible(list(found.values()))) >= target:

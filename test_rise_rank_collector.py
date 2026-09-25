@@ -21,6 +21,90 @@ class FakeResponse:
 
 
 class RiseRankCollectorTest(unittest.TestCase):
+    def test_rank_target_counts_only_rows_that_survive_final_validation(self):
+        crawler = StockCrawler.__new__(StockCrawler)
+        source = [
+            {
+                "stck_shrn_iscd": f"{index + 1:06d}",
+                "hts_kor_isnm": f"일반주{index}",
+                "prdy_ctrt": f"{30 - index * 0.1:.2f}",
+                "stck_prpr": "1000",
+            }
+            for index in range(64)
+        ]
+        source[0]["hts_kor_isnm"] = "KODEX 200"
+        source[1]["hts_kor_isnm"] = "  "
+        source[2]["stck_shrn_iscd"] = "invalid"
+        source[3]["prdy_ctrt"] = ""
+
+        def fake_get(url, headers=None, params=None, timeout=None):
+            if "ranking/fluctuation" in url:
+                low = float(params["FID_RSFL_RATE1"])
+                high = float(params["FID_RSFL_RATE2"])
+                rows = [row for row in source if row["prdy_ctrt"] and
+                        low <= float(row["prdy_ctrt"]) <= high]
+                return FakeResponse({"rt_cd": "0", "output": rows[:30]})
+            return FakeResponse({}, status_code=503)
+
+        crawler.target_date = "20260923"
+        crawler.kis_base_url = "https://example.test"
+        crawler.kis_app_key = "key"
+        crawler.kis_app_secret = "secret"
+        crawler._get_kis_access_token = lambda: "token"
+        with patch("crawler.requests.get", side_effect=fake_get), \
+             patch("crawler.time.sleep", return_value=None):
+            result = crawler.get_rise_top_data()
+
+        self.assertEqual(len(result), 60)
+        self.assertEqual(result["ticker"].nunique(), 60)
+        self.assertNotIn("000001", result["ticker"].tolist())
+        self.assertNotIn("000002", result["ticker"].tolist())
+        self.assertNotIn("000004", result["ticker"].tolist())
+        self.assertEqual(result.iloc[0]["ticker"], "000005")
+
+    def test_rank_eligibility_rejects_duplicate_and_bad_fields(self):
+        crawler = StockCrawler.__new__(StockCrawler)
+        rows = [
+            {"stck_shrn_iscd": "005930", "hts_kor_isnm": "삼성전자", "prdy_ctrt": "5.5"},
+            {"stck_shrn_iscd": "005930", "hts_kor_isnm": "삼성전자", "prdy_ctrt": "5.0"},
+            {"stck_shrn_iscd": "", "mksc_shrn_iscd": "000660", "hts_kor_isnm": "SK하이닉스", "prdy_ctrt": "4.0"},
+            {"stck_shrn_iscd": "000001", "hts_kor_isnm": "", "prdy_ctrt": "9.0"},
+            {"stck_shrn_iscd": "bad", "hts_kor_isnm": "잘못된 코드", "prdy_ctrt": "8.0"},
+            {"stck_shrn_iscd": "000002", "hts_kor_isnm": "KODEX 200", "prdy_ctrt": "7.0"},
+            {"stck_shrn_iscd": "000003", "hts_kor_isnm": "주가 없음", "prdy_ctrt": ""},
+        ]
+        eligible = crawler._eligible_rise_rank_rows(rows)
+        self.assertEqual(eligible["ticker"].tolist(), ["005930", "000660"])
+
+    def test_fewer_than_sixty_valid_stocks_stays_partial(self):
+        crawler = StockCrawler.__new__(StockCrawler)
+        rows = [
+            {"stck_shrn_iscd": f"{index + 1:06d}",
+             "hts_kor_isnm": f"일반주{index}", "prdy_ctrt": f"{29 - index * 0.1:.2f}"}
+            for index in range(58)
+        ]
+        crawler.target_date = "20260923"
+        crawler.kis_base_url = "https://example.test"
+        crawler.kis_app_key = "key"
+        crawler.kis_app_secret = "secret"
+        crawler._get_kis_access_token = lambda: "token"
+
+        def fake_get(url, headers=None, params=None, timeout=None):
+            if "ranking/fluctuation" in url:
+                low = float(params["FID_RSFL_RATE1"])
+                high = float(params["FID_RSFL_RATE2"])
+                return FakeResponse({"rt_cd": "0", "output": [
+                    row for row in rows if low <= float(row["prdy_ctrt"]) <= high
+                ][:30]})
+            return FakeResponse({}, status_code=503)
+
+        with patch("crawler.requests.get", side_effect=fake_get), \
+             patch("crawler.time.sleep", return_value=None), \
+             patch("builtins.print") as output:
+            result = crawler.get_rise_top_data()
+        self.assertEqual(len(result), 58)
+        self.assertTrue(any("58/60" in str(call) for call in output.call_args_list))
+
     def test_daily_stocks_schema_persists_previous_day_rate(self):
         with tempfile.TemporaryDirectory() as directory:
             db_path = Path(directory) / "stocks.db"
