@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from streamlit_layout import layout_width
 import pandas as pd
 import streamlit as st
 
@@ -40,7 +41,7 @@ def _show_passed_stocks(frame: pd.DataFrame, columns: list[str], empty_message: 
         display.style.format({
             column: '{:,.2f}' for column in display.select_dtypes(include=['number']).columns
         }),
-        use_container_width=True,
+        **layout_width(),
         hide_index=True,
     )
 

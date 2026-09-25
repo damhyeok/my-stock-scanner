@@ -1,5 +1,6 @@
 """Display-only sector interest comparisons from saved daily summaries."""
 
+from streamlit_layout import layout_width
 import pandas as pd
 import sqlite3
 import html
@@ -91,7 +92,7 @@ def render_interest(st, summary, count, db_path=None):
         '직전 거래일 대비(%p)': rows['change'].map(lambda x: '자료 부족' if pd.isna(x) else f'{x:+.2f}%p'),
         '상승 종목 / 표본': [f'{int(a)} / {int(b)}' for a, b in zip(rows['rising_count'], rows['stock_count'])],
     })
-    st.dataframe(display, hide_index=True, use_container_width=True)
+    st.dataframe(display, hide_index=True, **layout_width())
     dates = sorted(path['date'].unique())
     st.caption(f'최근 마감 비중은 그래프 마지막 날({dates[-1]})의 실제 비중과 같습니다.')
     if len(dates) >= 2:
@@ -137,7 +138,7 @@ def render_interest(st, summary, count, db_path=None):
     if change_mode:
         zero = alt.Chart(pd.DataFrame({'zero': [0]})).mark_rule(color='#888888', strokeDash=[4, 4]).encode(y='zero:Q')
         chart = chart + zero
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, **layout_width())
     st.caption('선이 올라갈수록 표본 내 거래 관심이 커집니다. 전체 거래가 줄어도 비중은 오를 수 있습니다. 선이 끊긴 날은 TOP60 표본에서 관측되지 않은 날이며, 업종 거래가 0이라는 뜻은 아닙니다.')
     with st.expander('섹터별 자세히 보기 · 계산 기준'):
         sector = st.selectbox('확인할 섹터', rows['sector'].tolist(), key='interest_sector')

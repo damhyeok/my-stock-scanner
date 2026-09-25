@@ -1,3 +1,4 @@
+from streamlit_layout import layout_width
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -133,7 +134,7 @@ def display_formatted_df(df, use_container_width=True, hidden_columns=None):
         temp_df = temp_df.drop(columns=existing_drop_columns)
     current_map = {k: v for k, v in COLUMN_MAP.items() if k in temp_df.columns}
     temp_df = temp_df.rename(columns=current_map)
-    st.dataframe(temp_df, use_container_width=use_container_width)
+    st.dataframe(temp_df, **layout_width(use_container_width))
 
 
 def display_rise_rank_table(df):
@@ -155,7 +156,7 @@ def display_rise_rank_table(df):
     })
     st.dataframe(
         display,
-        width="stretch",
+        **layout_width(),
         hide_index=True,
         column_config={
             "종목명": st.column_config.TextColumn(width="medium"),
@@ -309,7 +310,7 @@ def display_consecutive_buy_table(streaks, mode):
         'total_net': '현재 합산(억)',
         'trading_value': '현재 거래대금(억)',
     })
-    st.dataframe(display, use_container_width=True, hide_index=True)
+    st.dataframe(display, **layout_width(), hide_index=True)
 
 def to_csv_bytes(df):
     return df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
@@ -1145,7 +1146,7 @@ else:
             st.write("")
             st.button(
                 "추가",
-                use_container_width=True,
+                **layout_width(),
                 disabled=selected_watch_stock is None,
                 on_click=change_watchlist,
                 args=("add", selected_watch_stock),
@@ -1173,7 +1174,7 @@ else:
                     "당일 등락률(%)": "{:+.2f}%",
                     "총 수익률(%)": "{:+.2f}%",
                 }, na_rep="-"),
-                use_container_width=True,
+                **layout_width(),
                 hide_index=True,
             )
             pending_count = int(watchlist_df["entry_price"].isna().sum())
@@ -1388,7 +1389,7 @@ else:
                         "프로그램 순매수(억원)": "{:,.1f}",
                         "프로그램 비중(%)": "{:.2f}%",
                     }, na_rep="-"),
-                    use_container_width=True,
+                    **layout_width(),
                     hide_index=True,
                 )
 
@@ -1444,7 +1445,7 @@ else:
                 "return_flow": "등락률 흐름",
                 "program_flow": "프로그램 순매수 흐름",
             })
-            st.dataframe(divergence_display, use_container_width=True, hide_index=True)
+            st.dataframe(divergence_display, **layout_width(), hide_index=True)
 
             candidate_options = divergence_summary["ticker"].astype(str).tolist()
             candidate_names = dict(zip(
@@ -1472,7 +1473,7 @@ else:
                             alt.Tooltip("fluctuation_rate:Q", title="등락률(%)", format="+.2f"),
                         ],
                     ).properties(title="종목 등락률 흐름", height=280),
-                    use_container_width=True,
+                    **layout_width(),
                 )
             with program_col:
                 st.altair_chart(
@@ -1484,7 +1485,7 @@ else:
                             alt.Tooltip("program_net_buy_eok:Q", title="순매수(억원)", format="+,.1f"),
                         ],
                     ).properties(title="프로그램 순매수 흐름", height=280),
-                    use_container_width=True,
+                    **layout_width(),
                 )
 
     # 탭 1: 분석 시각까지의 분봉으로 계산한 지수 대비 상대강도
@@ -1546,7 +1547,7 @@ else:
             ]
             for column in numeric_columns:
                 display[column] = pd.to_numeric(display[column], errors='coerce').round(2)
-            st.dataframe(display, use_container_width=True, hide_index=True)
+            st.dataframe(display, **layout_width(), hide_index=True)
             with st.expander("판정 기준 보기"):
                 st.markdown("""
                 - **상승장 주도**: 지수가 상승하는 동안 종목의 초과수익률이 양수이고, 전체 분봉의 절반 이상에서 지수보다 강한 종목
@@ -1680,7 +1681,7 @@ else:
                 alt.Tooltip('stock_count:Q', title='종목 수'),
             ],
         ).properties(height=420)
-        st.altair_chart(sector_bar, use_container_width=True)
+        st.altair_chart(sector_bar, **layout_width())
         st.caption("거래대금 차이가 너무 큰 섹터 때문에 다른 섹터가 눌려 보이지 않도록 그래프 축만 압축해서 표시합니다. 정확한 금액은 아래 표에서 확인할 수 있습니다.")
         def classify_sector_flow(row):
             if row['foreign_net'] > 0 and row['inst_net'] > 0:
@@ -1711,7 +1712,7 @@ else:
             'flow_status': '수급 상태',
             'included_stocks': '포함된 종목들',
         })
-        st.dataframe(sector_disp, use_container_width=True)
+        st.dataframe(sector_disp, **layout_width())
 
     # 탭 6: 트렌드
     with tab6:
@@ -1779,7 +1780,7 @@ else:
                         alt.Tooltip('stock_count:Q', title='종목 수'),
                     ],
                 ).properties(height=420)
-                st.altair_chart(trend_line, use_container_width=True)
+                st.altair_chart(trend_line, **layout_width())
 
                 latest_flow_disp = latest_flow[['sector', 'trading_rank', 'trading_value_eok', 'stock_count', 'included_stocks']].rename(columns={
                     'sector': '업종',
@@ -1835,7 +1836,7 @@ else:
                             alt.Tooltip('stock_count:Q', title='상승 종목 수'),
                         ],
                     ).properties(height=420)
-                    st.altair_chart(rising_line, use_container_width=True)
+                    st.altair_chart(rising_line, **layout_width())
 
                     latest_rising_disp = latest_rising.head(trend_count)[
                         ['sector', 'trading_rank', 'trading_value_eok', 'stock_count', 'included_stocks']
@@ -1943,7 +1944,7 @@ else:
                     for column in ['비교 등락률(%)', '기준 등락률(%)', '등락률 변화(%p)']
                 }
                 st.dataframe(
-                    rank_display, use_container_width=True, hide_index=True,
+                    rank_display, **layout_width(), hide_index=True,
                     column_config=rate_columns,
                 )
 
@@ -1998,7 +1999,7 @@ else:
                     'fluctuation_rate_기준': '기준 등락률(%)',
                 })
                 st.dataframe(
-                    joint_display, use_container_width=True, hide_index=True,
+                    joint_display, **layout_width(), hide_index=True,
                     column_config=rate_columns,
                 )
 
@@ -2078,7 +2079,7 @@ else:
                     'neutral_count': '중립',
                     'keywords': '주요 키워드'
                 })
-                st.dataframe(summary_disp.drop(columns=['종목코드']), use_container_width=True)
+                st.dataframe(summary_disp.drop(columns=['종목코드']), **layout_width())
 
                 st.write("---")
                 st.subheader("종목별 뉴스 펼쳐보기")
@@ -2281,7 +2282,7 @@ else:
                 if not basis_valid:
                     display_df['베이시스'] = '제외'
                 st.subheader("시간별 시장강도 흐름")
-                st.dataframe(display_df, use_container_width=True, hide_index=True)
+                st.dataframe(display_df, **layout_width(), hide_index=True)
 
     with tab11:
         st.header(f"🎯 종가베팅 스캐너 ({selected_session_label})")
@@ -2330,7 +2331,7 @@ else:
                 'volume_ratio': '거래비율(%)', 'foreign_net': '외국인 순매수',
                 'inst_net': '기관 순매수',
             })
-            display_integer_table(first_display, use_container_width=True)
+            display_integer_table(first_display, **layout_width())
 
         st.subheader('② 종가베팅 조건 충족 후보')
         st.caption('시가총액 5,000억 원 이상 종목 중 단기 추세가 상승하고, RSI 55 초과·Williams %R -20 초과·MACD 강세·OBV 지지 조건을 만족합니다. 거래량 증가와 5일 박스권 돌파 여부로 S/A 등급을 나눕니다.')
@@ -2395,7 +2396,7 @@ else:
                     'rsi': 'RSI',
                     'williams_r': 'W%R',
                 })
-                display_integer_table(display_scan, use_container_width=True)
+                display_integer_table(display_scan, **layout_width())
                 latest_scan_time = selected_scan['scanned_at_kst'].dropna().max()
                 if latest_scan_time:
                     st.caption(f"스캔 완료 시각: {latest_scan_time} KST")
@@ -2453,7 +2454,7 @@ else:
                     'volume_ratio': '20일 거래량 배수', 'rsi': 'RSI',
                     'ma20_change_5d': 'MA20 5일 변화(%)',
                 })
-                display_integer_table(display, use_container_width=True)
+                display_integer_table(display, **layout_width())
 
         st.divider()
         render_rule_model_section(df_close_bet_rule_model, selected_date)
@@ -2579,7 +2580,7 @@ else:
                     xaxis_title='2시간 구간',
                     yaxis_title='업종',
                 )
-                st.plotly_chart(heatmap_figure, use_container_width=True)
+                st.plotly_chart(heatmap_figure, **layout_width())
 
             with crossover_tab:
                 minute_flow = minute_flow.sort_values(['sector', 'window_key'])
@@ -2619,7 +2620,7 @@ else:
                     margin={'l': 20, 'r': 20, 't': 20, 'b': 20},
                     showlegend=False,
                 )
-                st.plotly_chart(scatter, use_container_width=True)
+                st.plotly_chart(scatter, **layout_width())
                 latest_table = crossover.sort_values(
                     ['inflow_change_z', 'sector_return'], ascending=False
                 )[[
@@ -2796,7 +2797,7 @@ else:
                 zero_rule = alt.Chart(pd.DataFrame({'zero': [0]})).mark_rule(
                     color='#777777', strokeDash=[4, 4]
                 ).encode(y='zero:Q')
-                st.altair_chart(strength_line + zero_rule, use_container_width=True)
+                st.altair_chart(strength_line + zero_rule, **layout_width())
 
                 st.subheader("구간 신규 거래대금 비중")
                 flow_chart_data = flow_df[flow_df['sector'].isin(tracked_sectors)].copy()
@@ -2820,7 +2821,7 @@ else:
                         alt.Tooltip('rising_ratio:Q', title='상승 종목 비율(%)', format='.0f'),
                     ],
                 ).properties(height=320)
-                st.altair_chart(flow_line, use_container_width=True)
+                st.altair_chart(flow_line, **layout_width())
 
                 rotation_rows = []
                 for interval_order, (previous_session, current_session) in enumerate(

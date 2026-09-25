@@ -1,0 +1,49 @@
+name: Publish lightweight web app
+on:
+  push:
+    branches: [main]
+    paths:
+      - '*.py'
+      - 'close_bet_staged/**'
+      - 'market_betting_engine/**'
+      - 'config/**'
+      - 'requirements-web.txt'
+      - 'web_data.bootstrap.db.gz'
+      - 'deploy/export_web.py'
+      - '.github/workflows/publish-web.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: publish-lightweight-web
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Export runtime files without historical data
+        run: python deploy/export_web.py --target "$RUNNER_TEMP/web-export"
+      - name: Check out deployment repository
+        uses: actions/checkout@v4
+        with:
+          repository: damhyeok/my-stock-scanner-web
+          ssh-key: ${{ secrets.WEB_DEPLOY_SSH_KEY }}
+          path: web-target
+          fetch-depth: 1
+      - name: Sync and publish
+        run: |
+          rsync -a --delete --exclude='.git' "$RUNNER_TEMP/web-export/" web-target/
+          cd web-target
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add --all
+          if ! git diff --cached --quiet; then
+            git commit -m "Deploy source ${GITHUB_SHA}"
+            git push origin HEAD:main
+          fi

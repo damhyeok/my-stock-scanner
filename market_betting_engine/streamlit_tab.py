@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from streamlit_layout import layout_width
 import re
 from datetime import datetime
 from typing import Any, Callable, Mapping, Sequence
@@ -873,7 +874,7 @@ def render_hourly_details(st, detail):
         return
     st.caption("최근 60분의 1분봉 전체를 평가합니다. 15:20 이후 동시호가는 분리하고 15:19까지의 연속매매 흐름을 사용합니다. 새 결과부터 적용됩니다.")
     with st.expander("60분 흐름 · 종목별 근거와 데이터 충족도", expanded=False):
-        st.dataframe(rows, use_container_width=True, hide_index=True)
+        st.dataframe(rows, **layout_width(), hide_index=True)
         st.caption("‘—’는 비교 자료 부족입니다. 이전 60분이 없으면 거래활동 증감은 계산하지 않으며, 상승·하락 구간 거래 비중만 사용합니다. 누락된 분봉은 채워 넣지 않습니다.")
         st.caption("자료 조건: 종목·지수 동일 시각 분봉 90% 이상, 구간 처음·마지막 봉 존재, 3분 초과 간격 없음. 섹터는 추적 종목의 80% 이상이 자료 조건을 충족해야 정식 판정합니다.")
 
@@ -992,7 +993,7 @@ def render_sector_strength_flow_tab(
         )
         .properties(height=max(260, len(current) * 48))
     )
-    st.altair_chart(current_chart, use_container_width=True)
+    st.altair_chart(current_chart, **layout_width())
 
     with st.expander("🔎 조건에 해당한 종목명 확인", expanded=False):
         selected_sector = st.selectbox(
@@ -1046,7 +1047,7 @@ def render_sector_strength_flow_tab(
         )
         .properties(height=max(260, len(sector_order) * 48))
     )
-    st.altair_chart(heatmap, use_container_width=True)
+    st.altair_chart(heatmap, **layout_width())
 
     st.divider()
     st.subheader("📅 최근 거래일별 섹터 강약 흐름")
@@ -1137,7 +1138,7 @@ def render_sector_strength_flow_tab(
                 )
                 .properties(height=max(260, len(selected_sectors) * 48))
             )
-            st.altair_chart(daily_chart, use_container_width=True)
+            st.altair_chart(daily_chart, **layout_width())
             st.caption(
                 "흰색 ‘미추적’은 약세라는 뜻이 아니라, 해당 날짜에 거래활동 상위 분석 섹터로 "
                 "선정되지 않았다는 뜻입니다."
@@ -1201,7 +1202,7 @@ def render_sector_strength_flow_tab(
     st.subheader("시각별 강세 섹터 요약")
     st.dataframe(
         leaders,
-        use_container_width=True,
+        **layout_width(),
         hide_index=True,
         column_config={
             "시각": st.column_config.TextColumn(width="small"),
@@ -1271,7 +1272,7 @@ def _render_evidence_group(st, title: str, items: Sequence[Mapping[str, Any]], k
         st.warning(title)
     else:
         st.success(title)
-    st.dataframe(evidence_table(items), use_container_width=True, hide_index=True)
+    st.dataframe(evidence_table(items), **layout_width(), hide_index=True)
 
 
 def render_market_betting_tab(
@@ -1422,7 +1423,7 @@ def render_market_betting_tab(
         if not view["sectors"]:
             st.info("저장된 섹터 판단이 없습니다.")
         else:
-            st.dataframe(sector_actions, use_container_width=True, hide_index=True)
+            st.dataframe(sector_actions, **layout_width(), hide_index=True)
             member_rows = build_sector_member_rows(view)
             st.subheader("섹터별 분석 종목과 현재 등락률")
             st.caption(
@@ -1459,7 +1460,7 @@ def render_market_betting_tab(
                         ]
                         st.dataframe(
                             display_rows,
-                            use_container_width=True,
+                            **layout_width(),
                             hide_index=True,
                         )
             for item in view["sectors"]:
@@ -1646,7 +1647,7 @@ def render_market_betting_tab(
                         "판단 사유": ", ".join(assessment.get("reasons", [])),
                     }
                 )
-            st.dataframe(rows, use_container_width=True, hide_index=True)
+            st.dataframe(rows, **layout_width(), hide_index=True)
             if position_api is not None:
                 remove_options = {
                     f"{item.get('name', '')} ({item.get('ticker', '')})": item.get("ticker", "")
@@ -1703,7 +1704,7 @@ def render_market_betting_tab(
                         }
                     )
                 if probe_rows:
-                    st.dataframe(probe_rows, use_container_width=True, hide_index=True)
+                    st.dataframe(probe_rows, **layout_width(), hide_index=True)
                 else:
                     st.info("월요일 첫 검증 실행 전입니다.")
 
@@ -1727,7 +1728,7 @@ def render_market_betting_tab(
                     }
                     for item in issues
                 ],
-                use_container_width=True,
+                **layout_width(),
                 hide_index=True,
             )
         with st.expander("파생값 원문 보기"):
