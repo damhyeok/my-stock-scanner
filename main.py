@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from crawler import StockCrawler
+from market_calendar import is_krx_closed
 from analyzer import StockAnalyzer
 from excel_manager import ExcelManager
 from news_collector import NewsCollector
@@ -125,6 +126,10 @@ def run_bottom_model():
 
 def main():
     print("=== 주식 분석 자동화 시스템 시작 ===")
+
+    if is_krx_closed():
+        print("[Market Closed] KRX 휴장일에는 시세·분석 결과를 생성하지 않습니다.")
+        return
 
     scheduled_cron = os.environ.get("GITHUB_EVENT_SCHEDULE", "").strip()
     run_mode = os.environ.get("ANALYSIS_RUN_MODE", "").strip()

@@ -19,6 +19,7 @@ if __name__ == "__main__":
 from dotenv import load_dotenv
 
 from analysis_schedule import closest_full_analysis_cron
+from market_calendar import is_krx_closed
 from market_strength import MarketStrengthAnalyzer
 from program_ws_collector import ProgramTradeCollector
 from sector_flow_collector import SectorFlowCollector
@@ -383,6 +384,19 @@ def main():
     parser.add_argument("--session", default="정규장(16:00)")
     args = parser.parse_args()
     scheduled_cron = None
+
+    market_tasks = {
+        "full-analysis", "manual-analysis", "morning-collector",
+        "morning-strength", "afternoon-collector", "afternoon-strength",
+        "closing-collector", "closing-strength", "sector-flow",
+        "bottom-model", "index-bars", "market-betting", "api-verification",
+    }
+    if args.task in market_tasks and is_krx_closed():
+        print(f"[Market Closed] KRX closed on {datetime.now(KST):%Y-%m-%d}; skipping {args.task}.")
+        return
+    if args.task == "intraday-rs-backfill" and not args.trade_date and is_krx_closed():
+        print("[Market Closed] Current-day intraday RS backfill skipped.")
+        return
 
     if args.task == "morning-collector":
         pull_latest()
