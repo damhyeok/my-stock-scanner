@@ -30,6 +30,7 @@ from stock_catalog_display import read_stock_catalog_display
 from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
 from program_net_divergence import build_program_price_divergence
 from rise_rankings import build_rise_rank_tables
+from rise_sector_history import build_rise_sector_history
 import sector_interest as _sector_interest
 
 # Refresh this display helper on reruns after a Streamlit Cloud deployment.
@@ -169,6 +170,99 @@ def display_rise_rank_table(df):
             "업종": st.column_config.TextColumn(width="medium"),
         },
     )
+
+
+def display_rise_sector_history(raw_data, trading_dates, selected_date):
+    """Show a short daily sector summary; reveal stock details only on demand."""
+    history = build_rise_sector_history(raw_data, trading_dates, selected_date, window=20)
+    st.subheader("🗓️ 업종별 상승 흐름")
+    st.caption("정규장 기준 · 종목 수 순위(동률은 거래대금 순) · 휴장일/불완전 수집 제외")
+    if not history["dates"]:
+        st.info("거래일 확인 자료가 없어 업종 기록을 표시할 수 없습니다. 다음 웹 데이터 갱신 후 확인해주세요.")
+        return
+
+    active = {}
+    for kind, title in (("rise", "상승률 TOP60"), ("overlap", "상승·거래 TOP60 교집합")):
+        dated = [date for date in history["dates"] if not history["days"][date][kind]["reason"]]
+        if not dated:
+            st.caption(f"{title}: 완전한 TOP60 기록이 아직 없습니다.")
+            continue
+        date = dated[-1]
+        active[kind] = date
+        if date != str(selected_date):
+            st.caption(f"{title} · 마지막 확인 거래일 {date[:4]}.{date[4:6]}.{date[6:]}")
+        else:
+            st.markdown(f"**{title}**")
+        day = history["days"][date][kind]
+        if not day["leaders"]:
+            st.caption("분류된 업종이 없습니다.")
+        for rank, group in enumerate(day["leaders"], start=1):
+            breadth_note = " · 단독(확산 미확인)" if group["count"] == 1 else ""
+            st.markdown(
+                f"{('🥇', '🥈', '🥉')[rank - 1]} **{group['sector']}** "
+                f"{group['count']}종목 · {group['trading_value'] / 100_000_000:,.0f}억 "
+                f"· {group['tracking']}{breadth_note}"
+            )
+        if kind == "overlap" and day["other"]:
+            other = day["other"]
+            st.caption(f"기타(별도) · {other['count']}종목 · {other['trading_value'] / 100_000_000:,.0f}억")
+
+    if active:
+        with st.expander("업종별 종목 보기"):
+            detail_dates = [
+                date for date in reversed(history["dates"])
+                if any(not history["days"][date][kind]["reason"] for kind in ("rise", "overlap"))
+            ]
+            detail_date = st.selectbox(
+                "확인할 날짜", detail_dates,
+                format_func=lambda date: f"{date[:4]}.{date[4:6]}.{date[6:]}",
+                key="rise_sector_detail_date",
+            )
+            groups = {
+                (kind, group["sector"]): group
+                for kind in ("rise", "overlap")
+                for group in (
+                    history["days"][detail_date][kind]["leaders"]
+                    + ([history["days"][detail_date][kind]["other"]]
+                       if history["days"][detail_date][kind]["other"] else [])
+                )
+            }
+            if groups:
+                choice = st.selectbox(
+                    "확인할 업종",
+                    list(groups),
+                    format_func=lambda item: (
+                        f"{'상승 TOP60' if item[0] == 'rise' else '교집합'} · "
+                        f"{item[1]} ({groups[item]['count']}종목)"
+                    ),
+                    key="rise_sector_detail",
+                )
+                group = groups[choice]
+                for stock in group["stocks"]:
+                    st.markdown(
+                        f"**{stock['name']}** {stock['rate']:+.2f}% · "
+                        f"{stock['trading_value'] / 100_000_000:,.0f}억 "
+                        f"· {stock['tracking']}"
+                    )
+
+    with st.expander("날짜별 기록 보기"):
+        kind = st.radio(
+            "기록 기준", ("rise", "overlap"),
+            format_func=lambda value: "상승 TOP60" if value == "rise" else "교집합",
+            horizontal=True, key="rise_sector_history_kind",
+        )
+        period = st.selectbox("기간", (10, 20), key="rise_sector_history_period")
+        for date in reversed(history["dates"][-period:]):
+            day = history["days"][date][kind]
+            if day["reason"]:
+                summary = day["reason"]
+            else:
+                summary = " · ".join(
+                    f"{group['sector']} {group['count']}" for group in day["leaders"]
+                ) or "해당 업종 없음"
+                if kind == "overlap" and day["other"]:
+                    summary += f" · 기타 {day['other']['count']}(별도)"
+            st.markdown(f"**{date[4:6]}/{date[6:]}**  {summary}")
 
 def display_integer_table(df, **kwargs):
     """Render scanner tables with whole numbers, except two-decimal return rates."""
@@ -592,6 +686,19 @@ def get_raw_data():
         return df
     except:
         return pd.DataFrame()
+
+
+@st.cache_data(ttl=60)
+def get_trading_dates():
+    try:
+        db_path, _ = get_database_path()
+        with sqlite3.connect(db_path) as conn:
+            return [row[0] for row in conn.execute(
+                "SELECT date FROM web_trading_dates ORDER BY date"
+            )]
+    except sqlite3.Error:
+        # Older bootstrap snapshots do not contain the holiday-safe marker.
+        return []
 
 @st.cache_data(ttl=60)
 def get_sector_trend_summary():
@@ -1613,6 +1720,9 @@ else:
             st.info("두 순위에 동시에 포함된 종목이 없습니다.")
         else:
             display_rise_rank_table(rise_volume_overlap)
+
+        st.divider()
+        display_rise_sector_history(df_raw, get_trading_dates(), selected_date)
 
     with tab3:
         st.header(f"🟢 외국인 순매수 Top 30 ({selected_session_label})")

@@ -152,6 +152,20 @@ def build_web_database(source="stock_data.db", target="web_data.db"):
         conn = sqlite3.connect(temp_path)
         try:
             conn.execute("PRAGMA foreign_keys=ON")
+            # A tiny trading-date marker keeps holiday reruns of stale rank APIs
+            # out of the web history without shipping raw minute/daily bars.
+            conn.execute("CREATE TABLE IF NOT EXISTS web_trading_dates (date TEXT PRIMARY KEY)")
+            conn.execute("DELETE FROM web_trading_dates")
+            for table, column in (
+                ("intraday_index_bars", "trade_date"),
+                ("model_ohlcv_daily", "date"),
+            ):
+                if _table_exists(conn, table):
+                    conn.execute(
+                        f'INSERT OR IGNORE INTO web_trading_dates(date) '
+                        f'SELECT DISTINCT "{column}" FROM "{table}" '
+                        f'WHERE "{column}" IS NOT NULL'
+                    )
             for table in DROP_TABLES:
                 conn.execute(f'DROP TABLE IF EXISTS "{table}"')
             for table, (date_column, keep_dates) in RETENTION.items():
