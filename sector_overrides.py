@@ -7,7 +7,8 @@ user chooses one.  Keep aliases explicit; never use a fuzzy name match here.
 SECTOR_STOCKS = {
     "보안·양자": "엑스게이트, 샌즈랩, 드림시큐리티, 드림시큐리",
     "데이터센터": (
-        "지엔씨에너지, SGC에너지, 두산퓨얼셀, NHN, LG씨엔에스, LG CNS, "
+        "삼성에스디에스, 삼성SDS, 지엔씨에너지, SGC에너지, 두산퓨얼셀, "
+        "NHN, LG씨엔에스, LG CNS, "
         "비나텍, 케이아이엔엑스, 가비아, 한미글로벌, 지투파워, 윈스, 윈스테크넷, "
         "SKAI, 알서포트, 데이타솔루션, 파이오링크, SGA솔루션즈, "
         "모니터랩, 한싹, 멤레이비티, 모아데이타"
@@ -19,7 +20,7 @@ SECTOR_STOCKS = {
         "하나머티리얼즈, 에스앤에스텍, 솔브레인홀딩스, GST, 에스티아이, "
         "오로스테크놀로지, 넥스틴, 에이치엠넥스, 디아이티, 케이씨텍, "
         "유니셈, 원익머티리얼즈, 이엔에프테크놀로지, 엘티씨, 원익QnC, "
-        "한솔아이원스, 케이엔제이, 월덱스"
+        "한솔아이원스, 케이엔제이, 월덱스, DB하이텍"
     ),
     "반도체 후공정": (
         "한미반도체, 이오테크닉스, 리노공업, ISC, 티에스이, 하나마이크론, "
@@ -30,19 +31,22 @@ SECTOR_STOCKS = {
     "기판": "삼성전기, 이수페타시스, 코리아써키트, 티엘비, 기가비스",
     "전력": "LS, LS ELECTRIC, 효성중공업, HD현대일렉트릭, HD일렉트릭, 가온전선, 산일전기, 대한전선",
     "원전": "두산에너빌리티, 한국전력, 한전기술, 우리기술, 비에이치아이",
-    "에너지": "한화솔루션, SK이터닉스, HD현대에너지솔루션, SK오션플랜트, OCI홀딩스, 태웅",
+    "에너지": "씨에스윈드, 한화솔루션, SK이터닉스, HD현대에너지솔루션, SK오션플랜트, OCI홀딩스, 태웅",
     "방산·우주항공": (
-        "한화시스템, 한화에어로스페이스, 한화에어로, 한국항공우주, "
+        "풍산, 한화시스템, 한화에어로스페이스, 한화에어로, 한국항공우주, "
         "LIG디펜스앤에어로스페이스, LIG디펜스, LIG넥스원, "
         "에이치브이엠, 에이치브이, 현대로템, 스피어"
     ),
-    "조선": "HD현대중공업, HD한국조선해양, HD한국조선, 한화오션, 성광벤드",
+    "조선": (
+        "HD현대중공업, HD한국조선해양, HD한국조선, HD현대, "
+        "한화오션, 한화엔진, STX엔진, 성광벤드"
+    ),
     "IT서비스": "NAVER, 카카오, 현대오토에버, SK텔레콤, KT, LG유플러스",
-    "광통신": "대한광통신, 오이솔루션, RFHIC, RF머트리얼즈",
+    "광통신": "광전자, 대한광통신, 오이솔루션, RFHIC, RF머트리얼즈",
     "로봇": "레인보우로보틱스, 로보티즈, 현대무벡스, 에스피지, SFA, 유일로보틱스, 삼현",
     "핀테크": "카카오페이, 삼성카드",
     "엔터": "하이브, 에스엠, JYP Ent., JYP Ent, 와이지엔터테인먼트",
-    "게임": "크래프톤, 펄어비스, 카카오게임즈, 카카오게임",
+    "게임": "크래프톤, 펄어비스, 카카오게임즈, 카카오게임, NC, 엔씨소프트, 컴투스",
     "바이오": (
         "SK바이오팜, 알테오젠, HLB, 에이비엘바이오, 펩트론, 리가켐바이오, "
         "보로노이, 올릭스, 메지온, 디앤디파마텍, 네이처셀, 에임드바이오, "
@@ -50,7 +54,7 @@ SECTOR_STOCKS = {
     ),
     "제약": (
         "삼성바이오로직스, 셀트리온, 삼성에피스홀딩스, 한미약품, 유한양행, "
-        "삼천당제약, 에스티팜, 셀트리온제약, HK이노엔, 동국제약"
+        "삼천당제약, 에스티팜, 셀트리온제약, HK이노엔, 동국제약, 삼익제약"
     ),
     "의료기기·미용": "씨젠, 씨어스, 큐리옥스바이오, 리브스메드, 파마리서치, 휴젤",
     "금융": (
@@ -59,7 +63,7 @@ SECTOR_STOCKS = {
     ),
     "2차전지": (
         "삼성SDI, SK이노베이션, 포스코퓨처엠, LG에너지솔루션, "
-        "삼화콘덴서, POSCO홀딩스, HT로보틱스, 삼기에너지솔루션즈, "
+        "삼화콘덴서, POSCO홀딩스, HT로보틱스, 삼기에너지솔루션즈, 애경케미칼, "
         "엘앤에프, 에코프로, LG화학, 에코프로비엠, 메가터치, "
         "포스코인터내셔널, 미코, 한솔케미칼, 인텍플러스, "
         "SK아이이테크놀로지, SK아이테크놀로지, "
@@ -70,12 +74,21 @@ SECTOR_STOCKS = {
         "나노팀, 코칩, 엔켐, SKC, 포스코케미칼, 천보, 피엔티, "
         "코스모화학, 씨아이에스"
     ),
-    "정유": "S-Oil, SK가스, E1, 흥구석유, 극동유화, 중앙에너비스",
+    "정유": "GS, 한국석유, S-Oil, SK가스, E1, 흥구석유, 극동유화, 중앙에너비스",
     "화장품": (
         "에이피알, 아모레퍼시픽, LG생활건강, 한국콜마, 코스맥스, "
         "아모레퍼시픽홀딩스, 아모레G, 네오팜, 한국화장품제조, "
-        "콜마홀딩스, 애경산업, 마녀공장"
+        "콜마홀딩스, 애경산업, 마녀공장, 달바글로벌"
     ),
+    "식품": "삼양식품, 샘표식품",
+}
+
+
+SECTOR_LABEL_ALIASES = {
+    "전력기기·전선": "전력",
+    "전력기기전선": "전력",
+    "전력/전기장비": "전력",
+    "게임엔터테인먼트": "게임",
 }
 
 
@@ -93,8 +106,11 @@ NAME_SECTOR_OVERRIDES = _build_name_map()
 
 
 def override_sector(name, current_sector):
-    """Return the curated sector, or preserve the existing classification."""
-    return NAME_SECTOR_OVERRIDES.get(str(name or "").strip(), current_sector)
+    """Return an exact-name override or a canonicalized existing sector."""
+    matched = NAME_SECTOR_OVERRIDES.get(str(name or "").strip())
+    if matched is not None:
+        return matched
+    return SECTOR_LABEL_ALIASES.get(current_sector, current_sector)
 
 
 def override_frame_sectors(frame):
@@ -102,6 +118,7 @@ def override_frame_sectors(frame):
     if frame.empty or not {"name", "sector"}.issubset(frame.columns):
         return frame
     result = frame.copy()
+    result["sector"] = result["sector"].replace(SECTOR_LABEL_ALIASES)
     overrides = result["name"].fillna("").astype(str).str.strip().map(NAME_SECTOR_OVERRIDES)
     result.loc[overrides.notna(), "sector"] = overrides[overrides.notna()]
     return result

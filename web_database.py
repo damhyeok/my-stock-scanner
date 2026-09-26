@@ -17,7 +17,7 @@ from market_betting_display import compact_market_betting_runs
 from news_display import build_stock_news_display
 from news_issues import build_issue_display
 from sector_trend_window import build_sector_trend_summary
-from sector_overrides import NAME_SECTOR_OVERRIDES, override_frame_sectors
+from sector_overrides import NAME_SECTOR_OVERRIDES, SECTOR_LABEL_ALIASES, override_frame_sectors
 from stock_catalog_display import build_stock_catalog_display
 
 
@@ -173,6 +173,10 @@ def build_web_database(source="stock_data.db", target="web_data.db"):
             for table, (date_column, keep_dates) in RETENTION.items():
                 _trim_to_latest_dates(conn, table, date_column, keep_dates)
             if {"name", "sector"}.issubset(_table_columns(conn, "daily_stocks")):
+                conn.executemany(
+                    "UPDATE daily_stocks SET sector=? WHERE sector=?",
+                    ((new, old) for old, new in SECTOR_LABEL_ALIASES.items()),
+                )
                 conn.executemany(
                     "UPDATE daily_stocks SET sector=? WHERE name=? AND sector IS NOT ?",
                     ((sector, name, sector) for name, sector in NAME_SECTOR_OVERRIDES.items()),

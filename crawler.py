@@ -891,7 +891,7 @@ class StockCrawler:
         }
         name_text = str(name or '')
         if name_text in exact_name_sector_map:
-            return exact_name_sector_map[name_text]
+            return override_sector('', exact_name_sector_map[name_text])
 
         ticker_sector_map = {
             '005930': '반도체',
@@ -985,7 +985,7 @@ class StockCrawler:
             '001040': '지주/투자',
         }
         if ticker in ticker_sector_map:
-            return ticker_sector_map[ticker]
+            return override_sector('', ticker_sector_map[ticker])
 
         keyword_sector_map = [
             ('로봇', '로봇'),
@@ -1051,14 +1051,14 @@ class StockCrawler:
         ]
         for keyword, normalized_sector in keyword_sector_map:
             if keyword in name_text:
-                return normalized_sector
+                return override_sector('', normalized_sector)
 
         sector_text = str(sector or '')
         canonical_sector = self._canonical_sector(sector_text)
         if canonical_sector != sector_text:
-            return canonical_sector
+            return override_sector('', canonical_sector)
 
-        return sector if sector else '기타'
+        return override_sector('', sector if sector else '기타')
 
     def _canonical_sector(self, sector):
         sector_text = str(sector or '').strip()
