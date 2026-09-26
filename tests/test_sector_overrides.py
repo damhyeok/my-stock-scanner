@@ -33,6 +33,7 @@ class SectorOverrideTests(unittest.TestCase):
             "카카오게임": "게임",
             "NC": "게임",
             "컴투스": "게임",
+            "삼성전기우": "기판",
         }
         for name, expected in requested.items():
             with self.subTest(name=name):
