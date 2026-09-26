@@ -76,6 +76,28 @@ class WebDatabaseCompressionTest(unittest.TestCase):
         self.assertEqual(raw_dates, 30)
         self.assertEqual(summary_dates, 39)
 
+    def test_web_snapshot_reclassifies_recent_rows_but_preserves_duplicate_requests(self):
+        source = self.root / "sector-source.db"
+        target = self.root / "sector-web.db"
+        with sqlite3.connect(source) as conn:
+            conn.execute(
+                "CREATE TABLE daily_stocks (date TEXT, session TEXT, category TEXT, "
+                "ticker TEXT, name TEXT, sector TEXT, trading_value INTEGER, fluctuation_rate REAL)"
+            )
+            conn.executemany(
+                "INSERT INTO daily_stocks VALUES ('20260923', '정규장(16:00)', "
+                "'VOLUME_TOP_60', ?, ?, ?, 100, 1)",
+                [
+                    ("1", "HD현대일렉트릭", "에너지"),
+                    ("2", "삼성에스디에스", "플랫폼·IT"),
+                ],
+            )
+        build_web_database(source, target)
+        with sqlite3.connect(target) as conn:
+            sectors = dict(conn.execute("SELECT name, sector FROM daily_stocks"))
+        self.assertEqual(sectors["HD현대일렉트릭"], "전력")
+        self.assertEqual(sectors["삼성에스디에스"], "플랫폼·IT")
+
     def test_precomputed_scores_equal_existing_analyzer_output_and_order(self):
         source = self.root / "scores-source.db"
         target = self.root / "scores-web.db"

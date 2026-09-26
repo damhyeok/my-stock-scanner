@@ -31,6 +31,7 @@ from market_strength import MarketStrengthAnalyzer, calculate_daily_market_stren
 from program_net_divergence import build_program_price_divergence
 from rise_rankings import build_rise_rank_tables
 from rise_sector_history import build_rise_sector_history
+from sector_overrides import override_frame_sectors
 import sector_interest as _sector_interest
 
 # Refresh this display helper on reruns after a Streamlit Cloud deployment.
@@ -683,7 +684,7 @@ def get_raw_data():
         conn = sqlite3.connect(db_path)
         df = pd.read_sql("SELECT * FROM daily_stocks WHERE session NOT LIKE '%시간외%' ORDER BY date DESC", conn)
         conn.close()
-        return df
+        return override_frame_sectors(df)
     except:
         return pd.DataFrame()
 

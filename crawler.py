@@ -13,6 +13,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from analysis_schedule import FULL_ANALYSIS_SESSION_BY_CRON
 from program_net_buy_scanner import ProgramNetBuyScanner
+from sector_overrides import override_sector
 
 # .env 파일에서 환경변수 로드
 load_dotenv()
@@ -727,6 +728,9 @@ class StockCrawler:
 
     def _normalize_sector(self, ticker, name, sector):
         """네이버 업종을 주요 주도 테마 기준 섹터로 보정합니다."""
+        requested_sector = override_sector(name, None)
+        if requested_sector is not None:
+            return requested_sector
         exact_name_sector_map = {
             '두산로보틱스': '로봇',
             '레인보우로보틱스': '로봇',
