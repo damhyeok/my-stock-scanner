@@ -9,6 +9,7 @@ class SectorOverrideTests(unittest.TestCase):
         self.assertEqual(override_sector("HD현대일렉트릭", "에너지"), "전력")
         self.assertEqual(override_sector("멤레이비티", "기타"), "데이터센터")
         self.assertEqual(override_sector("삼성바이오로직스", "바이오"), "제약")
+        self.assertEqual(override_sector("동국제약", "기타"), "제약")
         self.assertEqual(override_sector("아모레퍼시픽홀딩스", "기타"), "화장품")
 
     def test_duplicate_requests_keep_existing_sector(self):
