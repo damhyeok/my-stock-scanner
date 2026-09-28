@@ -7,6 +7,16 @@ REGULAR_SESSION = "정규장(16:00)"
 KINDS = ("rise", "overlap")
 
 
+def format_stock_preview(stocks, limit=5):
+    """Keep sector history readable on narrow screens without hiding the stocks."""
+    shown = stocks[:limit]
+    preview = " · ".join(
+        f"{stock['name']} {stock['rate']:+.2f}%" for stock in shown
+    )
+    remaining = len(stocks) - len(shown)
+    return f"{preview} · 외 {remaining}종목" if remaining else preview
+
+
 def _empty_day(reason):
     return {"leaders": [], "other": None, "reason": reason}
 

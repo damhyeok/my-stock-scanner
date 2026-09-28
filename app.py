@@ -30,7 +30,7 @@ from stock_catalog_display import read_stock_catalog_display
 from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
 from program_net_divergence import build_program_price_divergence
 from rise_rankings import build_rise_rank_tables
-from rise_sector_history import build_rise_sector_history
+from rise_sector_history import build_rise_sector_history, format_stock_preview
 from sector_overrides import override_frame_sectors
 import sector_interest as _sector_interest
 
@@ -174,10 +174,10 @@ def display_rise_rank_table(df):
 
 
 def display_rise_sector_history(raw_data, trading_dates, selected_date):
-    """Show a short daily sector summary; reveal stock details only on demand."""
+    """Show sector leaders together with their leading stocks and daily history."""
     history = build_rise_sector_history(raw_data, trading_dates, selected_date, window=20)
     st.subheader("🗓️ 업종별 상승 흐름")
-    st.caption("정규장 기준 · 종목 수 순위(동률은 거래대금 순) · 휴장일/불완전 수집 제외")
+    st.caption("정규장 기준 · 종목 수 순위(동률은 거래대금 순) · 업종별 상승률 상위 5종목 표시 · 휴장일/불완전 수집 제외")
     if not history["dates"]:
         st.info("거래일 확인 자료가 없어 업종 기록을 표시할 수 없습니다. 다음 웹 데이터 갱신 후 확인해주세요.")
         return
@@ -204,12 +204,14 @@ def display_rise_sector_history(raw_data, trading_dates, selected_date):
                 f"{group['count']}종목 · {group['trading_value'] / 100_000_000:,.0f}억 "
                 f"· {group['tracking']}{breadth_note}"
             )
+            st.markdown(f"↳ {format_stock_preview(group['stocks'])}")
         if kind == "overlap" and day["other"]:
             other = day["other"]
             st.caption(f"기타(별도) · {other['count']}종목 · {other['trading_value'] / 100_000_000:,.0f}억")
+            st.markdown(f"↳ {format_stock_preview(other['stocks'])}")
 
     if active:
-        with st.expander("업종별 종목 보기"):
+        with st.expander("업종별 전체 종목·추적 상태 보기"):
             detail_dates = [
                 date for date in reversed(history["dates"])
                 if any(not history["days"][date][kind]["reason"] for kind in ("rise", "overlap"))
@@ -256,14 +258,18 @@ def display_rise_sector_history(raw_data, trading_dates, selected_date):
         for date in reversed(history["dates"][-period:]):
             day = history["days"][date][kind]
             if day["reason"]:
-                summary = day["reason"]
-            else:
-                summary = " · ".join(
-                    f"{group['sector']} {group['count']}" for group in day["leaders"]
-                ) or "해당 업종 없음"
-                if kind == "overlap" and day["other"]:
-                    summary += f" · 기타 {day['other']['count']}(별도)"
-            st.markdown(f"**{date[4:6]}/{date[6:]}**  {summary}")
+                st.markdown(f"**{date[4:6]}/{date[6:]}** · {day['reason']}")
+                continue
+            st.markdown(f"**{date[4:6]}/{date[6:]}**")
+            groups = day["leaders"] + ([day["other"]] if kind == "overlap" and day["other"] else [])
+            if not groups:
+                st.caption("해당 업종 없음")
+            for group in groups:
+                label = "기타(별도)" if group["sector"] == "기타" else group["sector"]
+                st.markdown(
+                    f"{label} {group['count']}종목 · "
+                    f"{format_stock_preview(group['stocks'])}"
+                )
 
 def display_integer_table(df, **kwargs):
     """Render scanner tables with whole numbers, except two-decimal return rates."""

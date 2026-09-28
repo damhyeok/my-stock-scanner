@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from rise_sector_history import build_rise_sector_history
+from rise_sector_history import build_rise_sector_history, format_stock_preview
 from web_database import build_web_database
 
 
@@ -41,6 +41,14 @@ def volume_rows(date, tickers):
 
 
 class RiseSectorHistoryTests(unittest.TestCase):
+    def test_stock_preview_shows_names_rates_and_remaining_count(self):
+        stocks = [{"name": f"종목{number}", "rate": number / 10} for number in range(1, 7)]
+        self.assertEqual(
+            format_stock_preview(stocks, limit=3),
+            "종목1 +0.10% · 종목2 +0.20% · 종목3 +0.30% · 외 3종목",
+        )
+        self.assertEqual(format_stock_preview(stocks[:1]), "종목1 +0.10%")
+
     def test_web_copy_keeps_only_small_real_trading_date_marker(self):
         with tempfile.TemporaryDirectory() as directory:
             source, target = Path(directory, "source.db"), Path(directory, "web.db")
