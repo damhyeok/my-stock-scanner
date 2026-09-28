@@ -30,7 +30,7 @@ from stock_catalog_display import read_stock_catalog_display
 from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
 from program_net_divergence import build_program_price_divergence
 from rise_rankings import build_rise_rank_tables
-from rise_sector_history import build_rise_sector_history, format_stock_preview
+from rise_sector_history import build_rise_sector_history
 from sector_overrides import override_frame_sectors
 import sector_interest as _sector_interest
 
@@ -171,6 +171,16 @@ def display_rise_rank_table(df):
             "업종": st.column_config.TextColumn(width="medium"),
         },
     )
+
+
+def format_stock_preview(stocks, limit=5):
+    """Keep stock names and returns visible without crowding mobile screens."""
+    shown = stocks[:limit]
+    preview = " · ".join(
+        f"{stock['name']} {stock['rate']:+.2f}%" for stock in shown
+    )
+    remaining = len(stocks) - len(shown)
+    return f"{preview} · 외 {remaining}종목" if remaining else preview
 
 
 def display_rise_sector_history(raw_data, trading_dates, selected_date):
