@@ -207,18 +207,24 @@ def display_rise_sector_history(raw_data, trading_dates, selected_date):
         day = history["days"][date][kind]
         if not day["leaders"]:
             st.caption("분류된 업종이 없습니다.")
+        summary_rows = []
         for rank, group in enumerate(day["leaders"], start=1):
             breadth_note = " · 단독(확산 미확인)" if group["count"] == 1 else ""
-            st.markdown(
-                f"{('🥇', '🥈', '🥉')[rank - 1]} **{group['sector']}** "
+            summary_rows.append({
+                "업종·흐름": f"{('🥇', '🥈', '🥉')[rank - 1]} {group['sector']} "
                 f"{group['count']}종목 · {group['trading_value'] / 100_000_000:,.0f}억 "
-                f"· {group['tracking']}{breadth_note}"
-            )
-            st.markdown(f"↳ {format_stock_preview(group['stocks'])}")
+                f"· {group['tracking']}{breadth_note}",
+                "상승 종목": format_stock_preview(group["stocks"]),
+            })
         if kind == "overlap" and day["other"]:
             other = day["other"]
-            st.caption(f"기타(별도) · {other['count']}종목 · {other['trading_value'] / 100_000_000:,.0f}억")
-            st.markdown(f"↳ {format_stock_preview(other['stocks'])}")
+            summary_rows.append({
+                "업종·흐름": f"기타(별도) {other['count']}종목 · "
+                f"{other['trading_value'] / 100_000_000:,.0f}억",
+                "상승 종목": format_stock_preview(other["stocks"]),
+            })
+        if summary_rows:
+            display_wrapped_table(pd.DataFrame(summary_rows), compact=True)
 
     if active:
         with st.expander("업종별 전체 종목·추적 상태 보기"):
@@ -251,12 +257,15 @@ def display_rise_sector_history(raw_data, trading_dates, selected_date):
                     key="rise_sector_detail",
                 )
                 group = groups[choice]
-                for stock in group["stocks"]:
-                    st.markdown(
-                        f"**{stock['name']}** {stock['rate']:+.2f}% · "
-                        f"{stock['trading_value'] / 100_000_000:,.0f}억 "
-                        f"· {stock['tracking']}"
-                    )
+                detail_rows = [{
+                    "종목": stock["name"],
+                    "상승률·거래대금·추적": (
+                        f"{stock['rate']:+.2f}% · "
+                        f"{stock['trading_value'] / 100_000_000:,.0f}억 · "
+                        f"{stock['tracking']}"
+                    ),
+                } for stock in group["stocks"]]
+                display_wrapped_table(pd.DataFrame(detail_rows), compact=True)
 
     with st.expander("날짜별 기록 보기"):
         kind = st.radio(
@@ -265,21 +274,29 @@ def display_rise_sector_history(raw_data, trading_dates, selected_date):
             horizontal=True, key="rise_sector_history_kind",
         )
         period = st.selectbox("기간", (10, 20), key="rise_sector_history_period")
+        history_rows = []
         for date in reversed(history["dates"][-period:]):
             day = history["days"][date][kind]
             if day["reason"]:
-                st.markdown(f"**{date[4:6]}/{date[6:]}** · {day['reason']}")
+                history_rows.append({
+                    "날짜·업종": f"{date[4:6]}/{date[6:]} · 기록 제외",
+                    "상승 종목": day["reason"],
+                })
                 continue
-            st.markdown(f"**{date[4:6]}/{date[6:]}**")
             groups = day["leaders"] + ([day["other"]] if kind == "overlap" and day["other"] else [])
             if not groups:
-                st.caption("해당 업종 없음")
+                history_rows.append({
+                    "날짜·업종": date[4:6] + "/" + date[6:],
+                    "상승 종목": "해당 업종 없음",
+                })
             for group in groups:
                 label = "기타(별도)" if group["sector"] == "기타" else group["sector"]
-                st.markdown(
-                    f"{label} {group['count']}종목 · "
-                    f"{format_stock_preview(group['stocks'])}"
-                )
+                history_rows.append({
+                    "날짜·업종": f"{date[4:6]}/{date[6:]} · {label} {group['count']}종목",
+                    "상승 종목": format_stock_preview(group["stocks"]),
+                })
+        if history_rows:
+            display_wrapped_table(pd.DataFrame(history_rows), compact=True)
 
 def display_integer_table(df, **kwargs):
     """Render scanner tables with whole numbers, except two-decimal return rates."""
@@ -289,7 +306,7 @@ def display_integer_table(df, **kwargs):
             formats[column] = '{:,.2f}'
     st.dataframe(df.style.format(formats), hide_index=True, **kwargs)
 
-def display_wrapped_table(df):
+def display_wrapped_table(df, compact=False):
     escaped_df = df.copy()
     for col in escaped_df.columns:
         escaped_df[col] = escaped_df[col].map(lambda value: html.escape(str(value)))
@@ -321,11 +338,29 @@ def display_wrapped_table(df):
             font-weight: 700;
             background: rgba(128, 128, 128, 0.10);
         }
+        .wrapped-table-compact table {
+            table-layout: fixed;
+        }
+        .wrapped-table-compact th:first-child,
+        .wrapped-table-compact td:first-child {
+            width: 36%;
+        }
+        .wrapped-table-compact th:last-child,
+        .wrapped-table-compact td:last-child {
+            width: 64%;
+            min-width: 0;
+        }
+        @media (max-width: 600px) {
+            .wrapped-table-compact table { font-size: 0.82rem; }
+            .wrapped-table-compact th,
+            .wrapped-table-compact td { padding: 0.35rem; }
+        }
         </style>
         """,
         unsafe_allow_html=True,
     )
-    st.markdown(f'<div class="wrapped-table">{table_html}</div>', unsafe_allow_html=True)
+    table_class = 'wrapped-table wrapped-table-compact' if compact else 'wrapped-table'
+    st.markdown(f'<div class="{table_class}">{table_html}</div>', unsafe_allow_html=True)
 
 def calculate_consecutive_buy_streaks(
     raw_data, current_stocks, selected_date, selected_session, mode, min_days=2
