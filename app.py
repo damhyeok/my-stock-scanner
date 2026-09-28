@@ -268,6 +268,7 @@ def display_rise_sector_history(raw_data, trading_dates, selected_date):
                 display_wrapped_table(pd.DataFrame(detail_rows), compact=True)
 
     with st.expander("날짜별 기록 보기"):
+        st.caption("날짜마다 업종 상위 3위까지 표시 · 기타는 교집합에서 순위 밖 별도 표시")
         kind = st.radio(
             "기록 기준", ("rise", "overlap"),
             format_func=lambda value: "상승 TOP60" if value == "rise" else "교집합",
@@ -279,21 +280,29 @@ def display_rise_sector_history(raw_data, trading_dates, selected_date):
             day = history["days"][date][kind]
             if day["reason"]:
                 history_rows.append({
-                    "날짜·업종": f"{date[4:6]}/{date[6:]} · 기록 제외",
+                    "날짜·순위·업종": f"{date[4:6]}/{date[6:]} · 기록 제외",
                     "상승 종목": day["reason"],
                 })
                 continue
-            groups = day["leaders"] + ([day["other"]] if kind == "overlap" and day["other"] else [])
+            groups = day["leaders"]
             if not groups:
                 history_rows.append({
-                    "날짜·업종": date[4:6] + "/" + date[6:],
+                    "날짜·순위·업종": date[4:6] + "/" + date[6:],
                     "상승 종목": "해당 업종 없음",
                 })
-            for group in groups:
-                label = "기타(별도)" if group["sector"] == "기타" else group["sector"]
+            for rank, group in enumerate(groups, start=1):
                 history_rows.append({
-                    "날짜·업종": f"{date[4:6]}/{date[6:]} · {label} {group['count']}종목",
+                    "날짜·순위·업종": (
+                        f"{date[4:6]}/{date[6:]} · {rank}위 {group['sector']} "
+                        f"{group['count']}종목"
+                    ),
                     "상승 종목": format_stock_preview(group["stocks"]),
+                })
+            if kind == "overlap" and day["other"]:
+                other = day["other"]
+                history_rows.append({
+                    "날짜·순위·업종": f"{date[4:6]}/{date[6:]} · 기타(순위 밖) {other['count']}종목",
+                    "상승 종목": format_stock_preview(other["stocks"]),
                 })
         if history_rows:
             display_wrapped_table(pd.DataFrame(history_rows), compact=True)
