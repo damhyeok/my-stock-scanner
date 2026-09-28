@@ -6,7 +6,7 @@ class ExportTests(unittest.TestCase):
     def test_runtime_files(self):
         for path in ['app.py', 'sector_overrides.py', 'streamlit_layout.py', 'market_betting_engine/streamlit_tab.py',
                      'close_bet_staged/rule_model_ui.py', 'config/market_betting_engine.placeholder.json',
-                     'web_data.bootstrap.db.gz']:
+                     'web_data.bootstrap.db.gz', '.streamlit/config.toml']:
             self.assertTrue(include(path), path)
 
     def test_no_secrets_databases_history_or_caches(self):

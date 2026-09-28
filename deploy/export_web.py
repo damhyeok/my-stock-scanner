@@ -6,6 +6,8 @@ import subprocess
 
 def include(path):
     p = PurePosixPath(path)
+    if path == '.streamlit/config.toml':
+        return True
     if any(part.startswith('.') or part in {'venv', '__pycache__', 'tests'} for part in p.parts):
         return False
     if path == 'web_data.bootstrap.db.gz':
