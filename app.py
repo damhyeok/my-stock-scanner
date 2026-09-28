@@ -183,6 +183,58 @@ def format_stock_preview(stocks, limit=5):
     return f"{preview} · 외 {remaining}종목" if remaining else preview
 
 
+def display_rise_daily_history(history, period):
+    """Render both daily rankings with one date heading per group."""
+    panels = []
+    for kind, title in (("rise", "상승 TOP60"), ("overlap", "상승 TOP60 × 거래대금 TOP60")):
+        rows = []
+        for date in reversed(history["dates"][-period:]):
+            day = history["days"][date][kind]
+            date_label = f"{date[:4]}.{date[4:6]}.{date[6:]}"
+            rows.append(f'<tr class="rise-history-date"><th colspan="2">{html.escape(date_label)}</th></tr>')
+            if day["reason"]:
+                rows.append(f'<tr><td>기록 제외</td><td>{html.escape(day["reason"])}</td></tr>')
+                continue
+            for rank, group in enumerate(day["leaders"], start=1):
+                label = f"{rank}위 {group['sector']} · {group['count']}종목"
+                preview = format_stock_preview(group["stocks"])
+                rows.append(f"<tr><td>{html.escape(label)}</td><td>{html.escape(preview)}</td></tr>")
+            if kind == "overlap" and day["other"]:
+                other = day["other"]
+                label = f"기타(순위 밖) · {other['count']}종목"
+                preview = format_stock_preview(other["stocks"])
+                rows.append(f"<tr><td>{html.escape(label)}</td><td>{html.escape(preview)}</td></tr>")
+            if not day["leaders"] and not day["other"]:
+                rows.append("<tr><td colspan=\"2\">해당 업종 없음</td></tr>")
+        panels.append(
+            f'<section class="rise-history-panel"><h4>{html.escape(title)}</h4>'
+            '<table><thead><tr><th>순위·업종</th><th>상승 종목</th></tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody></table></section>'
+        )
+    st.markdown(
+        """
+        <style>
+        .rise-history-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+        .rise-history-panel { min-width: 0; }
+        .rise-history-panel h4 { margin: 0 0 0.5rem; }
+        .rise-history-panel table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 0.85rem; }
+        .rise-history-panel th, .rise-history-panel td {
+            border: 1px solid rgba(128, 128, 128, 0.28); padding: 0.4rem;
+            vertical-align: top; word-break: keep-all; overflow-wrap: anywhere;
+        }
+        .rise-history-panel th:first-child, .rise-history-panel td:first-child { width: 38%; }
+        .rise-history-panel th:last-child, .rise-history-panel td:last-child { width: 62%; }
+        .rise-history-panel thead th, .rise-history-date th { background: rgba(128, 128, 128, 0.12); }
+        .rise-history-panel .rise-history-date th { width: auto; text-align: left; padding-top: 0.55rem; }
+        @media (max-width: 900px) {
+            .rise-history-grid { grid-template-columns: minmax(0, 1fr); }
+        }
+        </style>
+        """ + f'<div class="rise-history-grid">{"".join(panels)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def display_rise_sector_history(raw_data, trading_dates, selected_date):
     """Show sector leaders together with their leading stocks and daily history."""
     history = build_rise_sector_history(raw_data, trading_dates, selected_date, window=20)
@@ -267,45 +319,10 @@ def display_rise_sector_history(raw_data, trading_dates, selected_date):
                 } for stock in group["stocks"]]
                 display_wrapped_table(pd.DataFrame(detail_rows), compact=True)
 
-    with st.expander("날짜별 기록 보기"):
-        st.caption("날짜마다 업종 상위 3위까지 표시 · 기타는 교집합에서 순위 밖 별도 표시")
-        kind = st.radio(
-            "기록 기준", ("rise", "overlap"),
-            format_func=lambda value: "상승 TOP60" if value == "rise" else "교집합",
-            horizontal=True, key="rise_sector_history_kind",
-        )
-        period = st.selectbox("기간", (10, 20), key="rise_sector_history_period")
-        history_rows = []
-        for date in reversed(history["dates"][-period:]):
-            day = history["days"][date][kind]
-            if day["reason"]:
-                history_rows.append({
-                    "날짜·순위·업종": f"{date[4:6]}/{date[6:]} · 기록 제외",
-                    "상승 종목": day["reason"],
-                })
-                continue
-            groups = day["leaders"]
-            if not groups:
-                history_rows.append({
-                    "날짜·순위·업종": date[4:6] + "/" + date[6:],
-                    "상승 종목": "해당 업종 없음",
-                })
-            for rank, group in enumerate(groups, start=1):
-                history_rows.append({
-                    "날짜·순위·업종": (
-                        f"{date[4:6]}/{date[6:]} · {rank}위 {group['sector']} "
-                        f"{group['count']}종목"
-                    ),
-                    "상승 종목": format_stock_preview(group["stocks"]),
-                })
-            if kind == "overlap" and day["other"]:
-                other = day["other"]
-                history_rows.append({
-                    "날짜·순위·업종": f"{date[4:6]}/{date[6:]} · 기타(순위 밖) {other['count']}종목",
-                    "상승 종목": format_stock_preview(other["stocks"]),
-                })
-        if history_rows:
-            display_wrapped_table(pd.DataFrame(history_rows), compact=True)
+    st.subheader("🗓️ 날짜별 기록")
+    st.caption("날짜마다 업종 상위 3위까지 표시 · 기타는 교집합에서 순위 밖 별도 표시")
+    period = st.selectbox("기간", (10, 20), key="rise_sector_history_period")
+    display_rise_daily_history(history, period)
 
 def display_integer_table(df, **kwargs):
     """Render scanner tables with whole numbers, except two-decimal return rates."""
