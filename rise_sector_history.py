@@ -1,6 +1,7 @@
 """Compact, date-fixed sector breadth history for the rise-rank tab."""
 
 import pandas as pd
+from rise_rankings import RISE_LARGE_CAP_CATEGORY
 
 
 REGULAR_SESSION = "정규장(16:00)"
@@ -94,7 +95,7 @@ def build_rise_sector_history(raw_data, trading_dates, as_of_date, window=10):
     frame = raw_data[
         (raw_data["session"].astype(str) == REGULAR_SESSION)
         & (raw_data["date"].astype(str) <= str(as_of_date))
-        & (raw_data["category"].isin(("RISE_TOP_60", "RISE_TOP_30", "VOLUME_TOP_60")))
+        & (raw_data["category"].isin((RISE_LARGE_CAP_CATEGORY, "RISE_TOP_60", "RISE_TOP_30", "VOLUME_TOP_60")))
     ].copy()
     if frame.empty:
         return empty
@@ -112,7 +113,7 @@ def build_rise_sector_history(raw_data, trading_dates, as_of_date, window=10):
 
     for position, date in enumerate(dates):
         session = frame[frame["date"] == date]
-        rise = _rank_rows(session[session["category"] == "RISE_TOP_60"])
+        rise = _rank_rows(session[session["category"] == RISE_LARGE_CAP_CATEGORY])
         volume = session[session["category"] == "VOLUME_TOP_60"].copy()
         if "trading_value" not in volume:
             volume["trading_value"] = 0
@@ -120,10 +121,12 @@ def build_rise_sector_history(raw_data, trading_dates, as_of_date, window=10):
             volume["trading_value"], errors="coerce"
         ).fillna(0)
         volume = volume.sort_values("trading_value", ascending=False).drop_duplicates("ticker").head(60)
-        if rise.empty and (session["category"] == "RISE_TOP_30").any():
+        if rise.empty and (session["category"] == "RISE_TOP_60").any():
+            rise_reason = "시총 3,000억 기준 적용 전 기록"
+        elif rise.empty and (session["category"] == "RISE_TOP_30").any():
             rise_reason = "당시 TOP30만 수집"
-        elif len(rise) < 60:
-            rise_reason = f"상승률 {len(rise)}/60 · 비교 제외"
+        elif rise.empty:
+            rise_reason = "시총 3,000억 이상 상승 종목 기록 없음"
         else:
             rise_reason = ""
         days[date] = {

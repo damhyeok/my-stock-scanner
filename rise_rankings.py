@@ -1,6 +1,10 @@
 import pandas as pd
 
 
+RISE_LARGE_CAP_CATEGORY = "RISE_TOP_60_300B"
+RISE_MARKET_CAP_MIN = 300_000_000_000
+
+
 RANK_TABLE_COLUMNS = [
     "name",
     "fluctuation_rate",
@@ -14,13 +18,12 @@ RANK_TABLE_COLUMNS = [
 
 
 def build_rise_rank_tables(session_data):
-    """Return rise TOP60 and its intersection with trading-value TOP60."""
+    """Return the large-cap rise TOP60 and its trading-value intersection."""
     empty = pd.DataFrame(columns=RANK_TABLE_COLUMNS)
     if session_data is None or session_data.empty or "category" not in session_data.columns:
         return empty.copy(), empty.copy()
 
-    category = "RISE_TOP_60" if (session_data["category"] == "RISE_TOP_60").any() else "RISE_TOP_30"
-    rise = session_data[session_data["category"] == category].copy()
+    rise = session_data[session_data["category"] == RISE_LARGE_CAP_CATEGORY].copy()
     volume = session_data[session_data["category"] == "VOLUME_TOP_60"].copy()
     if rise.empty:
         return empty.copy(), empty.copy()
@@ -33,10 +36,12 @@ def build_rise_rank_tables(session_data):
             if column != "previous_day_rate":
                 frame[column] = frame[column].fillna(0)
 
+    # Defense in depth: only rows verified by the collector belong in this view.
+    rise = rise[rise["market_cap"] >= RISE_MARKET_CAP_MIN]
     rise = (
         rise.sort_values(["fluctuation_rate", "trading_value"], ascending=[False, False])
         .drop_duplicates("ticker", keep="first")
-        .head(60 if category == "RISE_TOP_60" else 30)
+        .head(60)
         .reset_index(drop=True)
     )
     rise["rise_rank"] = rise.index + 1

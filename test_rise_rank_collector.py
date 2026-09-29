@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from crawler import StockCrawler
+from rise_rankings import RISE_LARGE_CAP_CATEGORY
 
 
 class FakeResponse:
@@ -21,6 +22,42 @@ class FakeResponse:
 
 
 class RiseRankCollectorTest(unittest.TestCase):
+    def test_market_cap_filter_precedes_top_sixty_cutoff(self):
+        crawler = StockCrawler.__new__(StockCrawler)
+        crawler.target_date = "20260929"
+        crawler.kis_base_url = "https://example.test"
+        crawler.kis_app_key = "key"
+        crawler.kis_app_secret = "secret"
+        crawler._get_kis_access_token = lambda: "token"
+        source = [{
+            "stck_shrn_iscd": f"{index + 1:06d}",
+            "hts_kor_isnm": f"일반주{index}",
+            "prdy_ctrt": f"{30 - index * 0.1:.2f}",
+            "stck_prpr": "1000",
+        } for index in range(75)]
+
+        def fake_get(url, headers=None, params=None, timeout=None):
+            if "ranking/fluctuation" in url:
+                low, high = float(params["FID_RSFL_RATE1"]), float(params["FID_RSFL_RATE2"])
+                rows = [row for row in source if low <= float(row["prdy_ctrt"]) <= high]
+                return FakeResponse({"rt_cd": "0", "output": rows[:30]})
+            if "inquire-price" in url:
+                ticker = int(params["FID_INPUT_ISCD"])
+                shares = "299999999" if ticker <= 15 else "300000000"
+                return FakeResponse({"rt_cd": "0", "output": {
+                    "stck_prpr": "1000", "lstn_stcn": shares,
+                }})
+            return FakeResponse({}, status_code=503)
+
+        with patch("crawler.requests.get", side_effect=fake_get), \
+             patch("crawler.time.sleep", return_value=None):
+            result = crawler.get_rise_top_data()
+
+        self.assertEqual(len(result), 60)
+        self.assertEqual(result.iloc[0]["ticker"], "000016")
+        self.assertEqual(result.iloc[-1]["ticker"], "000075")
+        self.assertTrue((result["market_cap"] >= 300_000_000_000).all())
+
     def test_rank_target_counts_only_rows_that_survive_final_validation(self):
         crawler = StockCrawler.__new__(StockCrawler)
         source = [
@@ -44,6 +81,10 @@ class RiseRankCollectorTest(unittest.TestCase):
                 rows = [row for row in source if row["prdy_ctrt"] and
                         low <= float(row["prdy_ctrt"]) <= high]
                 return FakeResponse({"rt_cd": "0", "output": rows[:30]})
+            if "inquire-price" in url:
+                return FakeResponse({"rt_cd": "0", "output": {
+                    "stck_prpr": "1000", "lstn_stcn": "300000000",
+                }})
             return FakeResponse({}, status_code=503)
 
         crawler.target_date = "20260923"
@@ -96,6 +137,10 @@ class RiseRankCollectorTest(unittest.TestCase):
                 return FakeResponse({"rt_cd": "0", "output": [
                     row for row in rows if low <= float(row["prdy_ctrt"]) <= high
                 ][:30]})
+            if "inquire-price" in url:
+                return FakeResponse({"rt_cd": "0", "output": {
+                    "stck_prpr": "1000", "lstn_stcn": "300000000",
+                }})
             return FakeResponse({}, status_code=503)
 
         with patch("crawler.requests.get", side_effect=fake_get), \
@@ -161,7 +206,7 @@ class RiseRankCollectorTest(unittest.TestCase):
                 "rt_cd": "0",
                 "output": {
                     "stck_prpr": "81000",
-                    "lstn_stcn": "1000000",
+                    "lstn_stcn": "4000000",
                     "acml_vol": "1200",
                     "acml_tr_pbmn": "97200000",
                 },
@@ -186,7 +231,7 @@ class RiseRankCollectorTest(unittest.TestCase):
 
         self.assertEqual(result["ticker"].tolist(), ["005930"])
         self.assertEqual(result.iloc[0]["close"], 81000)
-        self.assertEqual(result.iloc[0]["market_cap"], 81_000_000_000)
+        self.assertEqual(result.iloc[0]["market_cap"], 324_000_000_000)
         self.assertEqual(result.iloc[0]["trading_value"], 97_200_000)
         self.assertEqual(result.iloc[0]["previous_day_rate"], -1.75)
         rank_params = mock_get.call_args_list[0].kwargs["params"]
@@ -220,6 +265,7 @@ class RiseRankCollectorTest(unittest.TestCase):
             rise = market.copy()
             rise["ticker"] = "000660"
             rise["name"] = "SK하이닉스"
+            rise["market_cap"] = 300_000_000_000
             rise["previous_day_rate"] = pd.NA
             with patch.object(crawler, "get_market_data", return_value=market), \
                  patch.object(crawler, "_get_session_name", return_value="정규장(16:00)"), \
@@ -228,11 +274,11 @@ class RiseRankCollectorTest(unittest.TestCase):
                  patch.object(crawler, "get_rise_top_data", return_value=rise) as get_rise:
                 self.assertTrue(crawler.run())
                 with closing(sqlite3.connect(crawler.db_path)) as conn:
-                    self.assertEqual(conn.execute("SELECT ticker FROM daily_stocks WHERE category='RISE_TOP_60'").fetchall(), [("000660",)])
+                    self.assertEqual(conn.execute("SELECT ticker FROM daily_stocks WHERE category=?", (RISE_LARGE_CAP_CATEGORY,)).fetchall(), [("000660",)])
                 get_rise.side_effect = RuntimeError("provider unavailable")
                 self.assertTrue(crawler.run())
                 with closing(sqlite3.connect(crawler.db_path)) as conn:
-                    self.assertEqual(conn.execute("SELECT COUNT(*) FROM daily_stocks WHERE category!='RISE_TOP_60'").fetchone()[0], 3)
+                    self.assertEqual(conn.execute("SELECT COUNT(*) FROM daily_stocks WHERE category!=?", (RISE_LARGE_CAP_CATEGORY,)).fetchone()[0], 3)
 
 
 if __name__ == "__main__":

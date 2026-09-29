@@ -7,10 +7,11 @@ from pathlib import Path
 import pandas as pd
 
 from rise_sector_history import build_rise_sector_history, format_stock_preview
+from rise_rankings import RISE_LARGE_CAP_CATEGORY
 from web_database import build_web_database
 
 
-def rank_rows(date, groups, *, category="RISE_TOP_60"):
+def rank_rows(date, groups, *, category=RISE_LARGE_CAP_CATEGORY):
     rows = []
     for sector_index, (sector, count) in enumerate(groups):
         base = {"전력": 100000, "바이오": 200000, "반도체": 300000,
@@ -106,7 +107,7 @@ class RiseSectorHistoryTests(unittest.TestCase):
         self.assertEqual(day4[0]["tracking"], "2거래일 만에 재진입")
         self.assertEqual(day4[0]["stocks"][0]["tracking"], "2거래일 만에 재등장")
 
-    def test_old_top30_and_partial_top60_do_not_create_false_leaders(self):
+    def test_old_top30_is_excluded_but_valid_partial_large_cap_day_is_kept(self):
         dates = ["20260916", "20260917", "20260918"]
         old = rank_rows(dates[0], [("반도체", 30)], category="RISE_TOP_30")
         full = rank_rows(dates[1], [("전력", 60)])
@@ -117,8 +118,15 @@ class RiseSectorHistoryTests(unittest.TestCase):
         result = build_rise_sector_history(pd.DataFrame(rows), dates, dates[-1])
 
         self.assertEqual(result["days"][dates[0]]["rise"]["reason"], "당시 TOP30만 수집")
-        self.assertEqual(result["days"][dates[2]]["rise"]["reason"], "상승률 59/60 · 비교 제외")
+        self.assertEqual(result["days"][dates[2]]["rise"]["reason"], "")
         self.assertEqual(result["days"][dates[1]]["rise"]["leaders"][0]["sector"], "전력")
+
+    def test_legacy_top60_is_not_mixed_with_large_cap_history(self):
+        date = "20260923"
+        old_rows = rank_rows(date, [("전력", 60)], category="RISE_TOP_60")
+        result = build_rise_sector_history(pd.DataFrame(old_rows), [date], date)
+        self.assertEqual(result["days"][date]["rise"]["reason"], "시총 3,000억 기준 적용 전 기록")
+        self.assertEqual(result["days"][date]["rise"]["leaders"], [])
 
     def test_overlap_requires_complete_volume_rank(self):
         date = "20260923"

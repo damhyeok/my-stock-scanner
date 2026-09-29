@@ -239,7 +239,7 @@ def display_rise_sector_history(raw_data, trading_dates, selected_date):
     """Show sector leaders together with their leading stocks and daily history."""
     history = build_rise_sector_history(raw_data, trading_dates, selected_date, window=20)
     st.subheader("🗓️ 업종별 상승 흐름")
-    st.caption("정규장 기준 · 종목 수 순위(동률은 거래대금 순) · 업종별 상승률 상위 5종목 표시 · 휴장일/불완전 수집 제외")
+    st.caption("정규장 기준 · 시총 3,000억 이상 상승률 TOP60 · 종목 수 순위(동률은 거래대금 순) · 이전 기준 기록은 제외")
     if not history["dates"]:
         st.info("거래일 확인 자료가 없어 업종 기록을 표시할 수 없습니다. 다음 웹 데이터 갱신 후 확인해주세요.")
         return
@@ -1781,18 +1781,12 @@ else:
         display_consecutive_buy_table(both_streaks, 'both')
 
     with rise_tab:
-        st.header(f"📈 전일 대비 상승률 Top 60 ({selected_session_label})")
+        st.header(f"📈 시가총액 3,000억 이상 · 전일 대비 상승률 Top 60 ({selected_session_label})")
         rise_top60, rise_volume_overlap = build_rise_rank_tables(df_selected)
         if rise_top60.empty:
-            st.info("선택한 날짜와 시간에는 상승률 Top 60 데이터가 없습니다.")
+            st.info("선택한 날짜와 시간에는 시가총액 3,000억 이상 상승률 Top 60 데이터가 없습니다. 이전 기준의 기록은 섞지 않습니다.")
         else:
-            if not (df_selected['category'] == 'RISE_TOP_60').any():
-                st.caption('이전 분석 회차에는 Top 30만 저장되어 있어 기존 30위까지만 표시합니다.')
-            elif len(rise_top60) < 60:
-                st.caption(
-                    f'불완전 수집: 유효한 일반주 {len(rise_top60)}/60개. '
-                    '미수집 순위는 채우지 않으며 날짜별 업종 추적에서는 이 회차를 제외합니다.'
-                )
+            st.caption(f"시가총액 3,000억 원 이상 종목만 먼저 선별한 뒤 상승률로 정렬 · {len(rise_top60)}종목 표시")
             display_rise_rank_table(rise_top60)
 
         st.divider()

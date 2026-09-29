@@ -2,13 +2,14 @@ import unittest
 
 import pandas as pd
 
-from rise_rankings import build_rise_rank_tables
+from rise_rankings import RISE_LARGE_CAP_CATEGORY, build_rise_rank_tables
 
 
 class RiseRankingsTest(unittest.TestCase):
     def test_top60_overlap_includes_ranks_31_through_60(self):
-        rows = [dict(ticker=str(i), name=str(i), category='RISE_TOP_60',
-                     fluctuation_rate=100-i, trading_value=i) for i in range(65)]
+        rows = [dict(ticker=str(i), name=str(i), category=RISE_LARGE_CAP_CATEGORY,
+                     fluctuation_rate=100-i, trading_value=i, market_cap=300_000_000_000)
+                for i in range(65)]
         rows += [dict(ticker=str(i), category='VOLUME_TOP_60', trading_value=100-i)
                  for i in (0, 29, 30, 59, 60)]
         # A historical-category row must not contaminate the new snapshot.
@@ -18,7 +19,7 @@ class RiseRankingsTest(unittest.TestCase):
         self.assertEqual(top['rise_rank'].tolist(), list(range(1, 61)))
         self.assertEqual(overlap['rise_rank'].tolist(), [1, 30, 31, 60])
 
-    def test_builds_top30_and_volume_intersection_with_independent_ranks(self):
+    def test_old_top30_is_not_misrepresented_as_large_cap_ranking(self):
         rows = []
         for index in range(35):
             rows.append({
@@ -44,12 +45,21 @@ class RiseRankingsTest(unittest.TestCase):
 
         top30, overlap = build_rise_rank_tables(pd.DataFrame(rows))
 
-        self.assertEqual(len(top30), 30)
-        self.assertEqual(top30.iloc[0]["name"], "상승0")
-        self.assertEqual(int(top30.iloc[0]["rise_rank"]), 1)
-        self.assertEqual(top30.iloc[0]["previous_day_rate"], 0)
-        self.assertEqual(overlap["name"].tolist(), ["상승0", "상승10", "상승20"])
-        self.assertEqual(overlap["trading_rank"].astype(int).tolist(), [1, 2, 3])
+        self.assertTrue(top30.empty)
+        self.assertTrue(overlap.empty)
+
+    def test_safety_filter_keeps_only_verified_large_caps(self):
+        rows = [
+            dict(ticker="small", name="소형주", category=RISE_LARGE_CAP_CATEGORY,
+                 fluctuation_rate=20, market_cap=299_999_999_999, trading_value=1),
+            dict(ticker="large", name="대형주", category=RISE_LARGE_CAP_CATEGORY,
+                 fluctuation_rate=10, market_cap=300_000_000_000, trading_value=2),
+            dict(ticker="large", category="VOLUME_TOP_60", trading_value=2),
+        ]
+        top, overlap = build_rise_rank_tables(pd.DataFrame(rows))
+        self.assertEqual(top["name"].tolist(), ["대형주"])
+        self.assertEqual(top["rise_rank"].tolist(), [1])
+        self.assertEqual(overlap["name"].tolist(), ["대형주"])
 
     def test_returns_empty_tables_when_new_category_is_not_available(self):
         frame = pd.DataFrame([

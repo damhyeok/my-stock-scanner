@@ -13,6 +13,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from analysis_schedule import FULL_ANALYSIS_SESSION_BY_CRON
 from program_net_buy_scanner import ProgramNetBuyScanner
+from rise_rankings import RISE_LARGE_CAP_CATEGORY, RISE_MARKET_CAP_MIN
 from sector_overrides import override_sector
 
 # .env 파일에서 환경변수 로드
@@ -307,8 +308,8 @@ class StockCrawler:
             raise
 
     def get_rise_top_data(self):
-        """KIS 등락률 순위에서 ETF/ETN 등을 제외한 상승률 상위 60종목을 가져옵니다."""
-        print(f"[{self.target_date}] 전일 대비 상승률 TOP 60 수집 중 (한국투자증권 API)...")
+        """Rank the >=300 billion won market-cap universe by today's return."""
+        print(f"[{self.target_date}] 시가총액 3,000억 이상 상승률 TOP 60 수집 중 (한국투자증권 API)...")
 
         token = self._get_kis_access_token()
         url = f"{self.kis_base_url}/uapi/domestic-stock/v1/ranking/fluctuation"
@@ -350,15 +351,49 @@ class StockCrawler:
             time.sleep(0.2)
             return response.json().get('output', [])
 
-        # Count only rows that can actually be saved. Previously blank names or
-        # invalid tickers could fill the 60-row target and disappear afterward.
-        collected_rows = collect_rise_rows(fetch_band, self._eligible_rise_rank_rows)
-        raw = self._eligible_rise_rank_rows(collected_rows)
+        price_url = f"{self.kis_base_url}/uapi/domestic-stock/v1/quotations/inquire-price"
+        price_headers = headers.copy()
+        price_headers["tr_id"] = "FHKST01010100"
+        quote_cache = {}
+
+        def verified_quote(ticker):
+            if ticker not in quote_cache:
+                try:
+                    response = requests.get(
+                        price_url,
+                        headers=price_headers,
+                        params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ticker},
+                        timeout=10,
+                    )
+                    if response.status_code != 200 or response.json().get("rt_cd") != "0":
+                        raise RuntimeError("KIS 현재가 조회 실패")
+                    quote = response.json().get("output") or {}
+                    close = pd.to_numeric(quote.get("stck_prpr"), errors="coerce")
+                    shares = pd.to_numeric(quote.get("lstn_stcn"), errors="coerce")
+                    if pd.isna(close) or close <= 0 or pd.isna(shares) or shares <= 0:
+                        raise RuntimeError("시가총액 계산에 필요한 현재가·상장주식수 누락")
+                    quote_cache[ticker] = (quote, int(close * shares))
+                    time.sleep(0.08)
+                except (requests.RequestException, ValueError, RuntimeError) as error:
+                    raise RuntimeError(f"{ticker} 시가총액 확인 실패") from error
+            return quote_cache[ticker]
+
+        def eligible_large_caps(rows):
+            frame = self._eligible_rise_rank_rows(rows)
+            if frame.empty:
+                return frame
+            caps = {ticker: verified_quote(ticker)[1] for ticker in frame["ticker"]}
+            return frame[frame["ticker"].map(caps) >= RISE_MARKET_CAP_MIN]
+
+        # The 60-row stop condition uses the market-cap-qualified count, so
+        # smaller stocks never consume a place ahead of a lower-ranked large cap.
+        collected_rows = collect_rise_rows(fetch_band, eligible_large_caps)
+        raw = eligible_large_caps(collected_rows)
         if raw.empty:
             raise RuntimeError("KIS 등락률 순위가 비어 있습니다.")
         filtered_count = len(collected_rows) - len(raw)
         if filtered_count:
-            print(f"[Rise Rank] 상품형·코드/이름/등락률 불완전·중복 {filtered_count}건 제외")
+            print(f"[Rise Rank] 시총 3,000억 미만·상품형·불완전·중복 {filtered_count}건 제외")
 
         def field(*names, default=0):
             for name in names:
@@ -386,41 +421,21 @@ class StockCrawler:
             .copy()
         )
         if len(result) < 60:
-            print(
-                f"[Rise Rank Warning] 유효한 일반주 {len(result)}/60개만 확보했습니다. "
-                "나머지 순위는 채우지 않으며 업종 추적에서는 이 회차를 제외합니다."
-            )
+            print(f"[Rise Rank] 시총 3,000억 이상 상승 종목 {len(result)}/60개")
 
-        # 등락률 순위 응답에 없는 정확한 시가총액을 현재가 API로 보완한다.
-        price_url = f"{self.kis_base_url}/uapi/domestic-stock/v1/quotations/inquire-price"
-        price_headers = headers.copy()
-        price_headers["tr_id"] = "FHKST01010100"
+        # Reuse the verified quotes; only previous-day returns need another call.
         daily_url = f"{self.kis_base_url}/uapi/domestic-stock/v1/quotations/inquire-daily-price"
         daily_headers = headers.copy()
         daily_headers["tr_id"] = "FHKST01010400"
         for index, row in result.iterrows():
-            try:
-                price_response = requests.get(
-                    price_url,
-                    headers=price_headers,
-                    params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": row["ticker"]},
-                    timeout=10,
-                )
-                if price_response.status_code != 200 or price_response.json().get("rt_cd") != "0":
-                    continue
-                quote = price_response.json().get("output", {})
-                close = pd.to_numeric(quote.get("stck_prpr"), errors="coerce")
-                listed_shares = pd.to_numeric(quote.get("lstn_stcn"), errors="coerce")
-                if pd.notna(close) and close > 0:
-                    result.at[index, "close"] = close
-                if pd.notna(close) and pd.notna(listed_shares):
-                    result.at[index, "market_cap"] = int(close * listed_shares)
-                for source, target in (("acml_vol", "volume"), ("acml_tr_pbmn", "trading_value")):
-                    value = pd.to_numeric(quote.get(source), errors="coerce")
-                    if pd.notna(value):
-                        result.at[index, target] = value
-            except (requests.RequestException, ValueError):
-                pass
+            quote, market_cap = verified_quote(row["ticker"])
+            close = pd.to_numeric(quote.get("stck_prpr"), errors="coerce")
+            result.at[index, "close"] = close
+            result.at[index, "market_cap"] = market_cap
+            for source, target in (("acml_vol", "volume"), ("acml_tr_pbmn", "trading_value")):
+                value = pd.to_numeric(quote.get(source), errors="coerce")
+                if pd.notna(value):
+                    result.at[index, target] = value
 
             try:
                 daily_response = requests.get(
@@ -1294,7 +1309,7 @@ class StockCrawler:
                     if ticker not in sector_dict:
                         sector_dict[ticker] = self.get_sector_info(ticker)
                         time.sleep(0.2)
-                self.save_to_db(apply_sector(df_rise_top), 'RISE_TOP_60')
+                self.save_to_db(apply_sector(df_rise_top), RISE_LARGE_CAP_CATEGORY)
             except Exception as error:
                 print(f"[Rise Rank Warning] 상승률 순위 수집/저장 실패; 기존 분석은 보존합니다: {error}")
         
