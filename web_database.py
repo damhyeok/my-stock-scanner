@@ -22,6 +22,10 @@ from stock_catalog_display import build_stock_catalog_display
 
 
 RETENTION = {
+    "etf_sector_snapshots": ("trade_date", 50),
+    "etf_sector_daily": ("trade_date", 60),
+    "etf_sector_holdings": ("trade_date", 30),
+    "etf_sector_runs": ("trade_date", 30),
     "daily_stocks": ("date", 30),
     "stock_news": ("date", 15),
     "market_strength_snapshots": ("trade_date", 30),

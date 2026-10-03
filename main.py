@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from crawler import StockCrawler
+from etf_sector_flow import EtfSectorCollector
 from market_calendar import is_krx_closed
 from analyzer import StockAnalyzer
 from excel_manager import ExcelManager
@@ -164,6 +165,12 @@ def main():
     # 1. 크롤링 및 DB 누적 저장
     print("\n[Step 1] 데이터 크롤링을 시작합니다.")
     crawler = StockCrawler()
+    if not use_latest_regular_data:
+        try:
+            etf_result = EtfSectorCollector(crawler).run()
+            print(f"[ETF Sector] {etf_result['status']}: {etf_result['success_count']} ETFs")
+        except Exception as error:
+            print(f"[ETF Sector Warning] {type(error).__name__}; existing analysis continues")
     if use_latest_regular_data:
         print("[Manual Analysis] 장 운영시간이 아니므로 최신 정규장 DB를 기준으로 후속 분석을 실행합니다.")
     elif crawler.run() is False:

@@ -30,6 +30,7 @@ from stock_catalog_display import read_stock_catalog_display
 from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
 from program_net_divergence import build_program_price_divergence
 from rise_rankings import build_rise_rank_tables
+from etf_sector_ui import render_etf_sector_tab
 from rise_sector_history import build_rise_sector_history
 from sector_overrides import override_frame_sectors
 import sector_interest as _sector_interest
@@ -1264,10 +1265,11 @@ else:
     st.divider()
 
     # 탭으로 분리
-    watchlist_tab, tab1, tab2, rise_tab, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13, tab14 = st.tabs([
+    watchlist_tab, tab1, tab2, etf_tab, rise_tab, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13, tab14 = st.tabs([
         "⭐ 내 관심종목",
         "🚀 지수대비 강한 종목",
         "🔥 거래대금 Top",
+        "🧭 ETF 섹터 흐름",
         "📈 상승률 Top 60",
         "🟢 외인 순매수", 
         "🔴 기관 순매수",
@@ -1779,6 +1781,10 @@ else:
             df_raw, both_buy_df, selected_date, selected_session, 'both'
         )
         display_consecutive_buy_table(both_streaks, 'both')
+
+    with etf_tab:
+        etf_db_path, etf_db_version = get_database_path()
+        render_etf_sector_tab(etf_db_path, etf_db_version, selected_date, selected_session)
 
     with rise_tab:
         st.header(f"📈 시가총액 3,000억 이상 · 전일 대비 상승률 Top 60 ({selected_session_label})")
