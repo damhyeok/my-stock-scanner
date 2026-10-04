@@ -10,6 +10,14 @@ from news_discovery import (build_candidates, build_discovery_display, catalog,
     prune_discovery, render_discovery_tab)
 
 
+def ui_mock():
+    st = Mock()
+    st.fragment.side_effect = lambda fn: fn
+    st.session_state = {}
+    st.columns.return_value = [Mock(),Mock(),Mock()]
+    return st
+
+
 def article(i='1', title='삼성전자 100억원 공급계약 체결', published='2026-10-06 09:00:00', **kw):
     return dict(article_id=i, ticker='005930', name='삼성전자', sector='반도체',
                 title=title, source='신문'+i, link='https://example.com/'+i,
@@ -62,6 +70,15 @@ def test_future_news_excluded_and_recent_sorted_first():
     events = build_candidates(items,'2026-10-06 09:30:00')
     assert len(events) == 2
     assert events[0]['article_id'] == '2'
+
+
+def test_morning_news_keeps_today_score_at_close():
+    morning = article('1', published='2026-10-06 08:00:00')
+    afternoon = article('2', title='삼성전자 900억원 공급계약 체결',published='2026-10-06 15:00:00')
+    items = build_candidates([morning,afternoon],'2026-10-06 16:13:00')
+    assert len(items) == 2
+    assert all(i['freshness_score'] == 2 and i['freshness'] == '당일 발행' for i in items)
+    assert items[0]['score'] == items[1]['score']
 
 
 def test_catalog_includes_outside_top60_and_boundary(tmp_path):
@@ -122,14 +139,14 @@ def test_retention_bounded():
 def test_ui_empty_and_missing_prices_keeps_candidate(tmp_path):
     path = tmp_path/'a.db'
     make_db(path)
-    st = Mock()
+    st = ui_mock()
     render_discovery_tab(st,path,'20261006','09:30')
     assert st.info.called
     item = {k:v for k,v in article().items() if k in ('title','link','source','published_at')}
     collect_discovery(path,'20261006','09:30','2026-10-06 09:30:00',lambda q:[item])
     with sqlite3.connect(path) as c:
         build_discovery_display(c)
-    st = Mock()
+    st = ui_mock()
     st.expander.return_value.__enter__ = Mock()
     st.expander.return_value.__exit__ = Mock(return_value=False)
     st.selectbox.return_value = 0
@@ -148,7 +165,7 @@ def test_existing_news_comparison_is_labeled_and_asof(tmp_path):
         record_issues(c,[stock],[(stock,a)],'20261006','09:30','2026-10-06 09:30:00')
         build_issue_display(c)
         c.commit()
-    st = Mock()
+    st = ui_mock()
     st.expander.return_value.__enter__ = Mock()
     st.expander.return_value.__exit__ = Mock(return_value=False)
     st.selectbox.return_value = 0

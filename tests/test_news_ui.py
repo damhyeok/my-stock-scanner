@@ -33,3 +33,24 @@ class NewsUiTests(unittest.TestCase):
         self.assertIn('stock-19',rendered)
         self.assertNotIn('stock-09',rendered)
         self.assertNotIn('stock-20',rendered)
+
+    def test_fast_pagination_fragment_and_buttons(self):
+        st = Mock()
+        st.fragment.side_effect = lambda fn: fn
+        st.session_state = {}
+        left,center,right = Mock(),Mock(),Mock()
+        st.columns.return_value = [left,center,right]
+        frame = pd.DataFrame({'종목':[f'stock-{i:02}' for i in range(25)]})
+        render_news_table(st,frame,'fast',fast=True)
+        self.assertEqual(st.fragment.call_count,1)
+        st.selectbox.assert_not_called()
+        self.assertIn('stock-00', st.markdown.call_args.args[0])
+        change = right.button.call_args.kwargs['on_click']
+        change(*right.button.call_args.kwargs['args'])
+        render_news_table(st,frame,'fast',fast=True)
+        self.assertIn('stock-10',st.markdown.call_args.args[0])
+        self.assertNotIn('stock-00',st.markdown.call_args.args[0])
+        change(999)
+        self.assertEqual(st.session_state['fast-page'],2)
+        change(-999)
+        self.assertEqual(st.session_state['fast-page'],0)

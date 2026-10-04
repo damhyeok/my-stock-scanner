@@ -40,7 +40,32 @@ def news_table_html(frame):
 </style><div class="news-scroll-safe"><table><thead><tr>'''+headers+'</tr></thead><tbody>'+''.join(rows)+'</tbody></table></div>'
 
 
-def render_news_table(st, frame, key, page_size=10):
+def render_news_table(st, frame, key, page_size=10, fast=False):
+    if fast:
+        # Each table reruns independently. Page navigation must not rerun the
+        # whole dashboard, read the DB again, or rebuild discovery candidates.
+        @st.fragment
+        def render_page():
+            if frame.empty:
+                st.caption('해당하는 이슈가 없습니다.')
+                return
+            pages = math.ceil(len(frame)/page_size)
+            state_key = key+'-page'
+            st.session_state[state_key] = min(pages-1, max(0, st.session_state.get(state_key, 0)))
+            page = st.session_state[state_key]
+            def change_page(step):
+                st.session_state[state_key] = min(pages-1, max(0, st.session_state[state_key]+step))
+            if pages > 1:
+                left, center, right = st.columns([1, 2, 1])
+                left.button('◀ 이전', key=key+'-prev', disabled=page == 0,
+                            on_click=change_page, args=(-1,))
+                center.caption(f'{page+1} / {pages} 페이지')
+                right.button('다음 ▶', key=key+'-next', disabled=page == pages-1,
+                             on_click=change_page, args=(1,))
+            st.caption(f'전체 {len(frame)}건 · {page*page_size+1}~{min((page+1)*page_size,len(frame))}번째 · 높은 점수순')
+            st.markdown(news_table_html(frame.iloc[page*page_size:(page+1)*page_size]), unsafe_allow_html=True)
+        render_page()
+        return
     if frame.empty:
         st.caption('해당하는 이슈가 없습니다.')
         return

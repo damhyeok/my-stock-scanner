@@ -147,11 +147,12 @@ def build_candidates(articles, observed_at, limit=80):
         event['first_seen'] = min(event['first_seen'], item['first_seen'])
     for event in events:
         age = max(0, (observed - datetime.fromisoformat(event['published_at'])).total_seconds()/3600)
-        event['freshness_score'] = 2 if age <= 6 else 1 if age <= 24 else 0
+        today = event['published_at'][:10] == observed_at[:10]
+        event['freshness_score'] = 2 if today else 1 if age <= 24 else 0
         event['source_count'] = len({a['source'].strip().lower() for a in event['articles'] if a['source'].strip()})
         event['spread_bonus'] = min(.5, max(0, event['source_count']-1)*.1)
         event['score'] = event['content_score'] + event['clarity_score'] + event['freshness_score'] + event['spread_bonus']
-        event['freshness'] = '발행6시간 이내' if age <= 6 else '발행24시간 이내' if age <= 24 else '이전 보도'
+        event['freshness'] = '당일 발행' if today else '전일 발행(24시간 이내)' if age <= 24 else '이전 보도'
         # Repeated coverage never changes the first publication/freshness anchor.
         event['articles'] = event['articles'][:1] + event['articles'][-5:] if len(event['articles']) > 6 else event['articles']
     # Keep each class represented even when the feed contains many noisy stories.
@@ -294,6 +295,17 @@ def render_discovery_tab(st, db_path, date, session, prices=None):
     if not records:
         st.info('이번 회차까지 연결된 뉴스 후보가 없습니다.')
         return
+    # Apply the current display policy also to already-saved experimental
+    # snapshots without rewriting their collected articles or historical DB.
+    observed = datetime.fromisoformat(run[2])
+    for record in records:
+        age = max(0, (observed-datetime.fromisoformat(record['published_at'])).total_seconds()/3600)
+        today = record['published_at'][:10] == run[2][:10]
+        record['freshness_score'] = 2 if today else 1 if age <= 24 else 0
+        record['freshness'] = '당일 발행' if today else '전일 발행(24시간 이내)' if age <= 24 else '이전 보도'
+        record['score'] = record['content_score']+record['clarity_score']+record['freshness_score']+record['spread_bonus']
+    records.sort(key=lambda r: r['published_at'], reverse=True)
+    records.sort(key=lambda r: r['score'], reverse=True)
     frame = pd.DataFrame(records)
     rates = {}
     if prices is not None and not prices.empty and {'ticker','fluctuation_rate'}.issubset(prices.columns):
@@ -301,12 +313,14 @@ def render_discovery_tab(st, db_path, date, session, prices=None):
     frame['참고 등락률(%)'] = frame['ticker'].map(rates)
     show = frame.rename(columns={'name':'종목','sector':'업종','title':'핵심 이슈','topic':'이슈 유형',
         'score':'뉴스 검토점수','freshness':'신규성','source_count':'매체 수','published_at':'최초 발행'})
-    for label, group in [('새 호재 검토 후보','호재 후보'), ('기대·해설 보도 — 보조 자료','기대·해설 보도')]:
+    st.caption('오전부터 선택한 분석 시각까지 누적된 기사입니다. 당일 기사는 발행 시간과 관계없이 같은 신규성 점수를 받으며, 6시간이 지나도 제외되지 않습니다.')
+    st.caption('호재 후보는 뉴스 점수 상위 최대 50건을 10건씩 표시합니다. 오전 기사가 뒤 페이지로 갈 수는 있지만, 시간 경과만으로 제외하지는 않습니다.')
+    for label, group in [('오늘 누적 호재 검토 후보','호재 후보'), ('기대·해설 보도 — 보조 자료','기대·해설 보도')]:
         st.subheader(label)
         part = show[show['group'] == group]
-        render_news_table(st, part[['종목','업종','핵심 이슈','뉴스 검토점수','신규성','참고 등락률(%)','매체 수','최초 발행']], f'news2-{group}-{date}-{session}')
+        render_news_table(st, part[['종목','업종','핵심 이슈','뉴스 검토점수','신규성','참고 등락률(%)','매체 수','최초 발행']], f'news2-{group}-{date}-{session}', fast=True)
     with st.expander('판단 근거·원문 / 점수 설명'):
-        st.write('내용 0~5점 + 제목의 구체적 발표 표현 0~2점 + 최초 기사 발행 후 6시간 이내 2점/24시간 이내 1점 + 매체 확산 최대 0.5점. 기대·추측·주가 해설은 별도로 분리합니다. 이 점수는 상승 확률이 아닙니다. 반복 보도는 최초 발행 시점을 새로 만들지 않습니다.')
+        st.write('내용 0~5점 + 제목의 구체적 발표 표현 0~2점 + 당일 발행 2점/전일 발행 중 24시간 이내 1점 + 매체 확산 최대 0.5점. 오전 기사도 종가까지 당일 점수를 유지합니다. 기대·추측·주가 해설은 별도로 분리합니다. 이 점수는 상승 확률이 아닙니다. 반복 보도는 최초 발행 시점을 새로 만들지 않습니다.')
         st.caption('등락률은 선택 회차의 기존 가격 자료가 있는 종목만 표시합니다. 빈 값 때문에 뉴스 후보가 제외되지는 않습니다. 중복 이슈는 제목 유사도 기준이라 완전하지 않습니다.')
         index = st.selectbox('원문 확인', range(len(records)), format_func=lambda i: records[i]['name']+' · '+records[i]['title'], key=f'news2-evidence-{date}-{session}')
         issue = records[index]
@@ -319,4 +333,4 @@ def render_discovery_tab(st, db_path, date, session, prices=None):
             st.caption(article['source']+' · '+article['published_at'])
     with st.expander('악재·혼재 / 방향 확인 필요'):
         part = show[show['group'].isin(['악재·혼재 확인','방향 확인 필요'])]
-        render_news_table(st, part[['종목','핵심 이슈','뉴스 검토점수','최초 발행']], f'news2-risk-{date}-{session}')
+        render_news_table(st, part[['종목','핵심 이슈','뉴스 검토점수','최초 발행']], f'news2-risk-{date}-{session}', fast=True)
