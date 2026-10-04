@@ -92,12 +92,13 @@ def test_snapshot_preserved_and_compact_web_export(tmp_path):
     item = {k:v for k,v in article().items() if k in ('title','link','source','published_at')}
     collect_discovery(path,'20261006','09:30','2026-10-06 09:30:00',lambda q:[item])
     with sqlite3.connect(path) as c:
-        first = c.execute('SELECT payload FROM news_discovery_snapshots').fetchone()[0]
+        first = c.execute('SELECT version_id FROM news_discovery_snapshots').fetchone()[0]
     collect_discovery(path,'20261006','14:00','2026-10-06 14:00:00',lambda q:[])
     with sqlite3.connect(path) as c:
-        assert c.execute("SELECT payload FROM news_discovery_snapshots WHERE session='09:30'").fetchone()[0] == first
+        assert c.execute("SELECT version_id FROM news_discovery_snapshots WHERE session='09:30'").fetchone()[0] == first
         build_discovery_display(c)
         assert c.execute('SELECT COUNT(*) FROM web_news_discovery_snapshots').fetchone()[0] == 2
+        assert c.execute('SELECT COUNT(*) FROM web_news_discovery_versions').fetchone()[0] == 1
 
 
 def test_retention_bounded():

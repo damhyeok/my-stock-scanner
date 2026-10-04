@@ -60,7 +60,7 @@ DROP_TABLES = {
 # These remain in Oracle's full analysis DB. They are removed only from the
 # bounded web copy after all display values that depend on them are materialized.
 WEB_ONLY_SOURCE_TABLES = {
-    "news_discovery_articles", "news_discovery_runs", "news_discovery_snapshots",
+    "news_discovery_articles", "news_discovery_runs", "news_discovery_snapshots", "news_discovery_versions",
     "news_issue_price_context",
     "news_issue_articles", "news_issue_versions", "news_issue_snapshots", "news_issue_runs",
     "intraday_stock_bars",

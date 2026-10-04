@@ -46,8 +46,10 @@ def init_discovery(conn):
         failed_count INTEGER, catalog_count INTEGER, matched_count INTEGER,
         PRIMARY KEY(date,session));
       CREATE TABLE IF NOT EXISTS news_discovery_snapshots (
-        date TEXT, session TEXT, display_order INTEGER, payload TEXT,
+        date TEXT, session TEXT, display_order INTEGER, version_id TEXT,
         PRIMARY KEY(date,session,display_order));
+      CREATE TABLE IF NOT EXISTS news_discovery_versions (
+        version_id TEXT PRIMARY KEY, payload TEXT);
     ''')
 
 
@@ -218,8 +220,11 @@ def collect_discovery(db_path, date, session, observed_at=None, fetch=fetch_feed
             conn.row_factory = sqlite3.Row
             articles = [dict(r) for r in conn.execute('SELECT * FROM news_discovery_articles WHERE published_at>=? AND first_seen<=? ORDER BY published_at DESC LIMIT 2000', (window,observed_at))]
             events = build_candidates(articles, observed_at)
-            conn.executemany('INSERT INTO news_discovery_snapshots VALUES (?,?,?,?)',
-                [(date,session,i,json.dumps(e,ensure_ascii=False)) for i,e in enumerate(events)])
+            for i, event in enumerate(events):
+                payload = json.dumps(event,ensure_ascii=False,sort_keys=True)
+                vid = hashlib.sha256(payload.encode()).hexdigest()
+                conn.execute('INSERT OR IGNORE INTO news_discovery_versions VALUES (?,?)', (vid,payload))
+                conn.execute('INSERT INTO news_discovery_snapshots VALUES (?,?,?,?)', (date,session,i,vid))
             conn.execute('INSERT INTO news_discovery_runs VALUES (?,?,?,?,?,?,?)',
                          (date,session,observed_at,feeds,failed,len(stocks),len({r[0] for r in matched})))
             prune_discovery(conn)
@@ -231,6 +236,7 @@ def prune_discovery(conn):
         return
     conn.execute('DELETE FROM news_discovery_snapshots WHERE date NOT IN (SELECT DISTINCT date FROM news_discovery_runs ORDER BY date DESC LIMIT 90)')
     conn.execute('DELETE FROM news_discovery_runs WHERE date NOT IN (SELECT DISTINCT date FROM news_discovery_runs ORDER BY date DESC LIMIT 90)')
+    conn.execute('DELETE FROM news_discovery_versions WHERE version_id NOT IN (SELECT version_id FROM news_discovery_snapshots)')
     # Article pool has a hard rolling time bound, including partially matched feeds.
     latest = conn.execute('SELECT MAX(observed_at) FROM news_discovery_runs').fetchone()[0]
     if latest:
@@ -246,6 +252,9 @@ def build_discovery_display(conn):
         conn.execute(f'DROP TABLE IF EXISTS {target}')
         conn.execute(f'CREATE TABLE {target} AS SELECT * FROM {source} WHERE date IN (SELECT DISTINCT date FROM news_discovery_runs ORDER BY date DESC LIMIT 15)')
         conn.execute(f'CREATE INDEX idx_{target}_session ON {target}(date,session)')
+    conn.execute('DROP TABLE IF EXISTS web_news_discovery_versions')
+    conn.execute('CREATE TABLE web_news_discovery_versions AS SELECT * FROM news_discovery_versions WHERE version_id IN (SELECT version_id FROM web_news_discovery_snapshots)')
+    conn.execute('CREATE UNIQUE INDEX idx_web_news_discovery_version ON web_news_discovery_versions(version_id)')
 
 
 def render_discovery_tab(st, db_path, date, session, prices=None):
@@ -255,7 +264,7 @@ def render_discovery_tab(st, db_path, date, session, prices=None):
         run = conn.execute('SELECT * FROM web_news_discovery_runs WHERE date=? AND session=?', (date,session)).fetchone() if exists(conn, 'web_news_discovery_runs') else None
         records = []
         if run is not None:
-            records = [json.loads(r[0]) for r in conn.execute('SELECT payload FROM web_news_discovery_snapshots WHERE date=? AND session=? ORDER BY display_order', (date,session))]
+            records = [json.loads(r[0]) for r in conn.execute('SELECT v.payload FROM web_news_discovery_snapshots s JOIN web_news_discovery_versions v USING(version_id) WHERE s.date=? AND s.session=? ORDER BY s.display_order', (date,session))]
         elif all(exists(conn, t) for t in ('web_news_issue_runs','web_news_issue_versions','web_news_issue_snapshots')):
             old_run = conn.execute('SELECT observed_at FROM web_news_issue_runs WHERE date=? AND session=?', (date,session)).fetchone()
             if old_run:
