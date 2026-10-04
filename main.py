@@ -10,6 +10,7 @@ from market_calendar import is_krx_closed
 from analyzer import StockAnalyzer
 from excel_manager import ExcelManager
 from news_collector import NewsCollector
+from news_discovery import collect_discovery
 from market_strength import MarketStrengthAnalyzer
 from close_bet_scanner import CloseBetScanner
 from close_bet_model3_scanner import CloseBetModel3Scanner
@@ -176,6 +177,17 @@ def main():
     elif crawler.run() is False:
         print("[Skip] 시간외 데이터는 분석 대상에서 제외되어 이후 단계를 실행하지 않습니다.")
         return
+
+    # Experimental news-first scan runs after prices but before the expensive
+    # technical models. Original news collection and all timers remain unchanged.
+    if not use_latest_regular_data:
+        try:
+            with sqlite3.connect(crawler.db_path) as conn:
+                news_slot = conn.execute("SELECT date,session FROM daily_stocks WHERE category='VOLUME_TOP_60' AND session NOT LIKE '%시간외%' GROUP BY date,session ORDER BY MAX(collected_at_kst) DESC,date DESC LIMIT 1").fetchone()
+            if news_slot:
+                print(f"[News Discovery] {collect_discovery(crawler.db_path, *news_slot)}")
+        except Exception as error:
+            print(f"[News Discovery Warning] {type(error).__name__}; existing analysis continues")
 
     print("\n[Step 1-0-0] 장중 지수 대비 상대강도를 증분 분석합니다.")
     if use_latest_regular_data:

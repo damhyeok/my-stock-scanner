@@ -26,6 +26,8 @@ from dashboard_session_display import read_dashboard_sessions
 from news_display import read_stock_news_display
 import news_issues as _news_issues
 _news_issues = importlib.reload(_news_issues)
+import news_discovery as _news_discovery
+_news_discovery = importlib.reload(_news_discovery)
 from stock_catalog_display import read_stock_catalog_display
 from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
 from program_net_divergence import build_program_price_divergence
@@ -1265,7 +1267,7 @@ else:
     st.divider()
 
     # 탭으로 분리
-    watchlist_tab, tab1, tab2, etf_tab, rise_tab, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12, tab13, tab14 = st.tabs([
+    watchlist_tab, tab1, tab2, etf_tab, rise_tab, tab3, tab4, tab5, tab6, tab7, tab8, news2_tab, tab9, tab10, tab11, tab12, tab13, tab14 = st.tabs([
         "⭐ 내 관심종목",
         "🚀 지수대비 강한 종목",
         "🔥 거래대금 Top",
@@ -1277,6 +1279,7 @@ else:
         "📈 최근 섹터 흐름",
         "⚡ 실시간 변화(직전 대비)",
         "📰 뉴스 이슈 종목",
+        "📰 뉴스 이슈 종목 2",
         "🌡️ 시장 강도 분석",
         "🧭 오늘 섹터 흐름",
         "🎯 종가베팅 스캐너",
@@ -2292,6 +2295,11 @@ else:
                             else:
                                 st.markdown(f"**{idx}. {title}**")
                             st.caption(f"{sentiment} | {source} | {published_at}")
+
+    with news2_tab:
+        st.header(f"📰 뉴스 이슈 종목 2 ({selected_session_label})")
+        _news_discovery.render_discovery_tab(st, dashboard_db_path, str(selected_date),
+                                             str(selected_session), df_selected)
 
     with tab9:
         market_display_date = selected_date

@@ -15,6 +15,7 @@ from pathlib import Path
 
 from market_betting_engine.storage import prune_decision_history
 from news_issues import prune_issues
+from news_discovery import prune_discovery
 
 
 KST = timezone(timedelta(hours=9))
@@ -240,6 +241,7 @@ def run_storage_maintenance(project_dir, *, allow_vacuum=False) -> dict:
     if (root / 'stock_data.db').is_file():
         with closing(sqlite3.connect(root / 'stock_data.db')) as conn:
             prune_issues(conn)
+            prune_discovery(conn)
             conn.commit()
 
     stock_result = prune_database(
