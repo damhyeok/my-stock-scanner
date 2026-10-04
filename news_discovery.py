@@ -94,9 +94,9 @@ def match_stocks(title, stocks):
 
 
 def headline_features(title):
-    text = re.sub(r'\s+', '', title)
+    text = re.sub(r'\s+', '', re.sub(r' - [^-]+$', '', title))
     uncertain = bool(re.search(r'기대|전망|추진|검토|루머|가능성|예정|인수설|합병설', text))
-    commentary = bool(re.search(r'특징주|급등|강세|목표주가|추천주', text))
+    commentary = bool(re.search(r'특징주|급등|강세|목표주가|추천주|주가|만원대|수주잔고|마진점검|수주가핵심|IPO워치|[?？]|나올까|할까|될까', text))
     negative_text = re.sub(r'적자축소|적자감소|손실축소|손실감소', '', text)
     negative = bool(re.search(r'해지|취소|실패|거절|적자전환|횡령|배임|상장폐지|거래정지|쇼크|손실확대', negative_text))
     rules = [
@@ -271,6 +271,10 @@ def render_discovery_tab(st, db_path, date, session, prices=None):
                 articles = {}
                 for ticker,name,sector,evidence in conn.execute('SELECT v.ticker,v.name,v.sector,v.evidence_json FROM web_news_issue_snapshots s JOIN web_news_issue_versions v USING(version_id) WHERE s.date=? AND s.session=?', (date,session)):
                     for a in json.loads(evidence):
+                        # Legacy issuer-specific search sometimes returns other
+                        # companies' articles. Do not inherit those associations.
+                        if not match_stocks(a['title'], [dict(ticker=ticker,name=name,sector=sector)]):
+                            continue
                         aid = hashlib.sha256((ticker+'|'+a['link']).encode()).hexdigest()
                         articles[aid] = dict(a,article_id=aid,ticker=ticker,name=name,sector=sector)
                 records = build_candidates(list(articles.values()), old_run[0])

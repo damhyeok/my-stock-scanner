@@ -29,6 +29,8 @@ def test_positive_uncertain_negative_and_commentary():
     assert headline_features('삼성전자 수주 기대')['group'] == '기대·해설 보도'
     assert headline_features('삼성전자 공급계약 취소')['group'] == '악재·혼재 확인'
     assert headline_features('[특징주] 삼성전자 수주 급등')['group'] == '기대·해설 보도'
+    assert headline_features('삼성전자 20만원대로 조정…수주잔고 점검')['group'] == '기대·해설 보도'
+    assert headline_features('삼성전자 첫 수주 나올까?')['group'] == '기대·해설 보도'
     assert headline_features('삼성전자 적자 축소 발표')['group'] == '호재 후보'
     assert '미검증' in headline_features('공시 공급계약 체결')['evidence']
 
