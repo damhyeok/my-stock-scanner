@@ -20,6 +20,7 @@ from news_discovery import build_discovery_display
 from sector_trend_window import build_sector_trend_summary
 from sector_overrides import NAME_SECTOR_OVERRIDES, SECTOR_LABEL_ALIASES, override_frame_sectors
 from stock_catalog_display import build_stock_catalog_display
+from market_strength2 import build_market_strength2_display
 
 
 RETENTION = {
@@ -30,6 +31,7 @@ RETENTION = {
     "daily_stocks": ("date", 30),
     "stock_news": ("date", 15),
     "market_strength_snapshots": ("trade_date", 30),
+    "web_market_strength2": ("trade_date", 30),
     "market_program_snapshots": ("trade_date", 30),
     "stock_program_net_snapshots": ("trade_date", 30),
     "stock_program_net_runs": ("trade_date", 30),
@@ -209,6 +211,7 @@ def build_web_database(source="stock_data.db", target="web_data.db"):
             build_issue_display(conn)
             build_discovery_display(conn)
             build_dashboard_sessions(conn)
+            build_market_strength2_display(conn)
             for table in WEB_ONLY_SOURCE_TABLES:
                 conn.execute(f'DROP TABLE IF EXISTS "{table}"')
             conn.commit()

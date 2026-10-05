@@ -30,6 +30,7 @@ import news_discovery as _news_discovery
 _news_discovery = importlib.reload(_news_discovery)
 from stock_catalog_display import read_stock_catalog_display
 from market_strength import MarketStrengthAnalyzer, calculate_daily_market_strength
+from market_strength2 import render_market_strength2
 from program_net_divergence import build_program_price_divergence
 from rise_rankings import build_rise_rank_tables
 from etf_sector_ui import render_etf_sector_tab
@@ -1267,7 +1268,7 @@ else:
     st.divider()
 
     # 탭으로 분리
-    watchlist_tab, tab1, tab2, etf_tab, rise_tab, tab3, tab4, tab5, tab6, tab7, tab8, news2_tab, tab9, tab10, tab11, tab12, tab13, tab14 = st.tabs([
+    watchlist_tab, tab1, tab2, etf_tab, rise_tab, tab3, tab4, tab5, tab6, tab7, tab8, news2_tab, tab9, strength2_tab, tab10, tab11, tab12, tab13, tab14 = st.tabs([
         "⭐ 내 관심종목",
         "🚀 지수대비 강한 종목",
         "🔥 거래대금 Top",
@@ -1281,6 +1282,7 @@ else:
         "📰 뉴스 이슈 종목",
         "📰 뉴스 이슈 종목 2",
         "🌡️ 시장 강도 분석",
+        "🌡️ 시장강도분석2",
         "🧭 오늘 섹터 흐름",
         "🎯 종가베팅 스캐너",
         "🧱 바닥 후보 종목",
@@ -2672,6 +2674,10 @@ else:
         if "position_api" in market_betting_parameters:
             market_betting_kwargs["position_api"] = oracle_request
         render_market_betting_tab(st, **market_betting_kwargs)
+
+    with strength2_tab:
+        strength2_db, _ = get_database_path()
+        render_market_strength2(strength2_db, selected_date, selected_session)
 
     with tab10:
         render_sector_strength_flow_tab(
