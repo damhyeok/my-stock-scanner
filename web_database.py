@@ -211,6 +211,16 @@ def build_web_database(source="stock_data.db", target="web_data.db"):
             build_issue_display(conn)
             build_discovery_display(conn)
             build_dashboard_sessions(conn)
+            # Carry bounded derived history forward even after Oracle's raw
+            # minutes expire. Do not copy old raw data or overwrite fresh rows.
+            if target_path.is_file():
+                with closing(sqlite3.connect(target_path)) as previous:
+                    if _table_exists(previous, "web_market_strength2"):
+                        conn.execute("CREATE TABLE IF NOT EXISTS web_market_strength2 (trade_date TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+                        conn.executemany(
+                            "INSERT OR IGNORE INTO web_market_strength2 VALUES (?,?)",
+                            previous.execute("SELECT trade_date,payload FROM web_market_strength2 ORDER BY trade_date DESC LIMIT 30").fetchall(),
+                        )
             build_market_strength2_display(conn)
             for table in WEB_ONLY_SOURCE_TABLES:
                 conn.execute(f'DROP TABLE IF EXISTS "{table}"')
