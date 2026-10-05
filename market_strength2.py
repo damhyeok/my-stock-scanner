@@ -98,6 +98,16 @@ def build_market_strength2_display(conn):
 def render_market_strength2(db_path, selected_date, selected_session):
     import sqlite3
     import streamlit as st
+    import altair as alt
+    def plot(frame, value_columns):
+        values = frame.melt('시간', value_vars=value_columns, var_name='항목', value_name='값')
+        values['시각'] = pd.to_datetime('2000-01-01 ' + values['시간'])
+        chart = alt.Chart(values).mark_line(point=True).encode(
+            x=alt.X('시각:T', title='시간', axis=alt.Axis(format='%H:%M')),
+            y=alt.Y('값:Q', scale=alt.Scale(zero=False)),
+            color=alt.Color('항목:N'), tooltip=['시간:N', '항목:N', alt.Tooltip('값:Q', format=',.2f')],
+        ).properties(height=230)
+        st.altair_chart(chart, width='stretch')
     st.subheader('시장강도분석2 · 정규장 마감 환경')
     st.caption('16시 확인용 · 15:30까지의 정규장 데이터만 사용합니다. NXT·해외 변수·다음 날 상승 예측은 포함하지 않습니다.')
     if '16:00' not in str(selected_session):
@@ -121,7 +131,7 @@ def render_market_strength2(db_path, selected_date, selected_session):
             value = number(last[column])
             state = '순매수' if value is not None and value > 0 else '순매도' if value is not None and value < 0 else '중립' if value == 0 else '데이터 부족'
             st.write(f'마감 {column}: {state}')
-        st.line_chart(points.set_index('시간'), height=220)
+        plot(points, ['프로그램 누적', '비차익 누적'])
         with st.expander('시간별 누적 수급 수치'):
             st.dataframe(points, hide_index=True, width='stretch')
     st.caption('프로그램 수급은 코스피 기준이며 코스닥 전체 수급을 뜻하지 않습니다. 확보된 관측 시점의 누적 금액으로, 1분 연속 수급이 아닙니다. 금액은 제공기관 원자료 단위이며 거래대금 대비 정규화 점수는 산출하지 않습니다.')
@@ -145,7 +155,8 @@ def render_market_strength2(db_path, selected_date, selected_session):
         data = payload['indices'][name]
         chart = pd.DataFrame(data['points'])
         if not chart.empty:
-            st.line_chart(chart.set_index('시간'), y='지수', height=230)
+            chart = chart[(chart['시간'] <= '15:20') | (chart['시간'] == '15:30')]
+            plot(chart, ['지수'])
         st.caption(f"동시호가 비교 기준: {data.get('auction_baseline', '미확보')} → 15:30. 동시호가 구간은 연속매매 분봉으로 채우거나 보간하지 않습니다.")
     else:
         st.warning('지수 분봉이 없어 가격 흐름과 마감 위치를 판단할 수 없습니다.')
