@@ -95,6 +95,60 @@ def build_market_strength2_display(conn):
     conn.execute('DELETE FROM web_market_strength2 WHERE trade_date NOT IN (SELECT trade_date FROM web_market_strength2 ORDER BY trade_date DESC LIMIT 30)')
 
 
+def interpret_market_environment(payload):
+    """Explain agreement/conflict in existing evidence, not a buy signal."""
+    supply = payload.get('supply', {})
+    close = next((p for p in reversed(supply.get('points', [])) if p.get('시간') == '15:30'), {})
+    cumulative = [number(close.get(k)) for k in ['프로그램 누적', '비차익 누적']]
+    changes = [number(supply.get(k)) for k in ['program_delta', 'non_arbitrage_delta']]
+    indices = payload.get('indices', {})
+    missing = []
+    if any(v is None for v in cumulative + changes):
+        missing.append('마감 누적 수급 또는 마지막 60분 수급')
+    for name in ['KOSPI', 'KOSDAQ']:
+        item = indices.get(name, {})
+        if (not item.get('complete') or number(item.get('clv')) is None
+                or number(item.get('late_return')) is None or number(item.get('auction_return')) is None
+                or item.get('flow') not in ['개선', '혼조', '약화']):
+            missing.append(f'{name}의 장 후반 흐름·마감 위치')
+    if missing:
+        return {'label': '데이터 부족 · 종합 판단 보류', 'level': 'info',
+                'reason': ' / '.join(missing) + '가 부족해 긍정·부정으로 분류하지 않습니다.',
+                'details': []}
+    up_supply = all(v > 0 for v in cumulative)
+    down_supply = all(v < 0 for v in cumulative)
+    improving = all(v > 0 for v in changes)
+    weakening = all(v < 0 for v in changes)
+    items = [indices[n] for n in ['KOSPI', 'KOSDAQ']]
+    price_good = all(i['flow'] == '개선' and i['clv'] >= 80 and i['late_return'] > 0
+                     and i['auction_return'] >= 0 for i in items)
+    price_bad = all(i['flow'] == '약화' and i['clv'] <= 20 and i['late_return'] < 0 for i in items)
+    if up_supply and improving and price_good:
+        label, level = '긍정적 근거 우세', 'success'
+        reason = '하루 누적 순매수, 장 후반 수급 개선, 두 지수의 개선·상단 마감이 함께 확인됩니다.'
+    elif weakening and price_bad:
+        label, level = '부정적 근거 우세', 'error'
+        reason = '장 후반 프로그램·비차익 수급이 악화되고, 두 지수도 약화·하단 마감해 마감 환경이 부정적입니다.'
+    else:
+        label, level = '혼조 · 신중 검토', 'warning'
+        if down_supply and improving:
+            reason = '마감 전 수급은 개선됐지만 하루 누적 순매도가 남아 있습니다. 매도 압력 감소이지 누적 순매수 전환은 아닙니다.'
+        elif up_supply and not improving:
+            reason = '하루 누적 순매수는 있지만 장 후반 수급 개선이 함께 확인되지는 않습니다.'
+        else:
+            reason = '수급·지수 흐름·마감 위치가 일관되게 같은 방향을 가리키지 않아 우호적인 환경으로 단정하지 않습니다.'
+    daily = '둘 다 순매수' if up_supply else '둘 다 순매도' if down_supply else '혼조·중립'
+    late = '둘 다 개선' if improving else '둘 다 악화' if weakening else '혼조·중립'
+    details = [f'하루 누적 수급: 프로그램·비차익 {daily}.', f'마지막 60분 수급: 프로그램·비차익 {late}.']
+    for name in ['KOSPI', 'KOSDAQ']:
+        i = indices[name]
+        position = '상단' if i['clv'] >= 80 else '하단' if i['clv'] <= 20 else '중단'
+        details.append(f"{name}: 장 후반 {i['flow']} · {position} 마감({i['clv']:.1f}%).")
+    if any(i['auction_return'] < 0 for i in items):
+        details.append('주의: 종가 동시호가에서 하락한 지수가 있습니다.')
+    return {'label': label, 'level': level, 'reason': reason, 'details': details}
+
+
 def render_market_strength2(db_path, selected_date, selected_session):
     import sqlite3
     import streamlit as st
@@ -122,6 +176,11 @@ def render_market_strength2(db_path, selected_date, selected_session):
         st.info('해당 날짜의 마감 요약이 없습니다. 새 웹 데이터 생성 시 저장 분봉으로 계산됩니다. 다른 날짜 결과로 대체하지 않습니다.')
         return
     payload = json.loads(row[0])
+    interpretation = interpret_market_environment(payload)
+    getattr(st, interpretation['level'])(f"**정규장 마감 해석: {interpretation['label']}**\n\n{interpretation['reason']}")
+    for detail in interpretation['details']:
+        st.write('• ' + detail)
+    st.caption('종가베팅 참고용 정성적 해석입니다. 매수 추천·다음 날 상승 확률이 아니며, 판정 기준은 수익률로 검증된 매매 규칙이 아닙니다. 프로그램·비차익은 서로 겹치는 수급이므로 독립된 두 신호로 중복 가점하지 않습니다.')
     supply = payload['supply']
     st.markdown('#### 하루 누적 수급 / 장 후반 수급')
     points = pd.DataFrame(supply['points'])
@@ -164,4 +223,5 @@ def render_market_strength2(db_path, selected_date, selected_session):
         st.write('장 후반: 14:30~15:19의 1분봉 전체에서 처음 15분과 마지막 15분 평균·저점을 비교합니다. 평균과 저점이 함께 높아지면 개선, 함께 낮아지면 약화, 나머지는 혼조입니다. 분봉 누락 또는 15:30 값 누락 시 분석 불충분입니다.')
         st.write('마감 위치 = (종가−당일 저가)/(당일 고가−당일 저가)×100. 80% 이상 상단, 20% 이하 하단은 설명용 기준이며 검증된 매수 기준이 아닙니다. 당일 전체 분봉이 부족하거나 고가=저가이면 계산하지 않습니다.')
         st.write('상단 마감은 상승분 유지의 참고 신호이지 다음 날 상승 보장이 아닙니다. 전일 대비 하락한 날도 상단 마감할 수 있습니다. 코스피·코스닥 지수 비교는 상승 종목 비율과 다르며 시장 전체 상승 확산을 확정하지 않습니다.')
-        st.write('새 탭에는 임의의 종합점수나 합격·탈락 판정을 넣지 않습니다. 누적 수급, 장 후반 흐름, 마감 위치를 함께 보고 사용자가 판단합니다.')
+        st.write('종합 해석: 프로그램·비차익 누적 순매수와 마지막 60분 개선, 코스피·코스닥 개선·상단 마감 및 동시호가 유지가 모두 일치하면 긍정적 근거 우세입니다. 장 후반 수급이 모두 악화하고 두 지수가 약화·하단 마감하면 부정적 근거 우세입니다. 나머지는 혼조·신중 검토이며 필수 데이터가 없으면 판단 보류입니다. 베이시스와 코스피200은 종합 분류의 필수 조건이 아닌 보조자료입니다.')
+        st.write('임의의 종합점수나 매수 합격·탈락 판정은 넣지 않습니다. 누적 수급, 장 후반 흐름, 마감 위치를 함께 보고 사용자가 판단합니다.')

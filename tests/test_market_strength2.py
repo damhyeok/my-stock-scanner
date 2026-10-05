@@ -4,7 +4,7 @@ import unittest
 import tempfile
 from pathlib import Path
 import pandas as pd
-from market_strength2 import summarize_index, summarize_supply, build_market_strength2_display
+from market_strength2 import summarize_index, summarize_supply, build_market_strength2_display, interpret_market_environment
 
 
 def bars():
@@ -15,6 +15,45 @@ def bars():
 
 
 class Strength2Tests(unittest.TestCase):
+    def environment(self, cumulative=100, delta=20, flow='개선', clv=90, late_return=1):
+        return {'supply': {'points': [{'시간': '15:30', '프로그램 누적': cumulative, '비차익 누적': cumulative}],
+                           'program_delta': delta, 'non_arbitrage_delta': delta},
+                'indices': {name: {'complete': True, 'flow': flow, 'clv': clv,
+                                   'late_return': late_return, 'auction_return': 0}
+                            for name in ['KOSPI', 'KOSDAQ']}}
+
+    def test_positive_agreement(self):
+        self.assertEqual(interpret_market_environment(self.environment())['label'], '긍정적 근거 우세')
+
+    def test_negative_agreement(self):
+        result = interpret_market_environment(self.environment(-100, -20, '약화', 10, -1))
+        self.assertEqual(result['label'], '부정적 근거 우세')
+
+    def test_reduced_selling_is_not_positive_cumulative_buying(self):
+        result = interpret_market_environment(self.environment(-100, 20))
+        self.assertEqual(result['label'], '혼조 · 신중 검토')
+        self.assertIn('누적 순매수 전환은 아닙니다', result['reason'])
+
+    def test_disagreement_and_auction_weakness(self):
+        data = self.environment()
+        data['indices']['KOSDAQ']['auction_return'] = -1
+        self.assertEqual(interpret_market_environment(data)['level'], 'warning')
+        data['indices']['KOSDAQ']['clv'] = 40
+        self.assertEqual(interpret_market_environment(data)['level'], 'warning')
+
+    def test_required_missing_vs_optional_index(self):
+        data = self.environment()
+        data['indices']['KOSPI200'] = {'complete': False}
+        self.assertEqual(interpret_market_environment(data)['level'], 'success')
+        data['indices']['KOSDAQ']['complete'] = False
+        self.assertEqual(interpret_market_environment(data)['level'], 'info')
+        self.assertEqual(interpret_market_environment({})['level'], 'info')
+
+    def test_no_substitute_for_closing_supply(self):
+        data = self.environment()
+        data['supply']['points'][0]['시간'] = '15:20'
+        self.assertEqual(interpret_market_environment(data)['level'], 'info')
+
     def test_full_flow_and_clv(self):
         result = summarize_index(bars())
         self.assertTrue(result['complete'])
