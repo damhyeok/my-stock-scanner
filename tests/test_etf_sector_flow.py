@@ -101,8 +101,9 @@ def test_ui_renders_empty_and_populated_database(tmp_path):
         daily.to_sql("etf_sector_daily", conn, if_exists="append", index=False)
     app = AppTest.from_string(script.replace("'empty'", "'populated'")).run(timeout=30)
     assert not app.exception
-    assert app.multiselect[0].value == ["반도체"]
-    assert app.selectbox[0].value == "반도체"
+    assert len(app.multiselect) == 0
+    assert len(app.selectbox) == 0
+    assert '반도체' in [item.label for item in app.expander]
 
 
 def test_web_retention_includes_bounded_etf_tables(tmp_path):

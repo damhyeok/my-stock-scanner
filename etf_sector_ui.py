@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from etf_sector_flow import ETF_UNIVERSE, build_ranking, build_trend
+from etf_sector_flow import ETF_UNIVERSE, build_ranking, build_daily_return_trend
 from streamlit_layout import layout_width
 
 
@@ -83,34 +83,39 @@ def render_etf_sector_tab(path, version, day, session):
                     "- ETF는 우리 섹터 분류와 다를 수 있고 구성종목이 중복됩니다. 수익률은 분배금을 포함하지 않는 가격 기준입니다.")
 
     st.subheader("최근 10거래일 흐름")
-    options = ranking.sector.tolist()
-    selected = st.multiselect("비교할 섹터", options, default=options[:8], key="etf_flow_sectors")
-    tickers = ranking.loc[ranking.sector.isin(selected), "ticker"].tolist()
-    trend = build_trend(daily, ranking, str(day), tickers)
+    trend = build_daily_return_trend(daily, ranking, str(day))
     if not trend.empty:
+        table = trend.pivot(index='date', columns='sector', values='daily_return')
+        table = table.reindex(columns=ranking.head(8).sector.tolist())
+        table.index.name = '날짜'
+        st.dataframe(table.reset_index().style.format(
+            {column: '{:+.2f}%' for column in table.columns}, na_rep='미수집'),
+            hide_index=True, **layout_width())
         trend["date"] = pd.to_datetime(trend.date, format="%Y%m%d")
-        chart = px.line(trend, x="date", y="return", color="sector", markers=True,
-                        labels={"date": "거래일", "return": "첫 표시일 대비 수익률(%)", "sector": "섹터"})
+        chart = px.line(trend, x="date", y="daily_return", color="sector", markers=True,
+                        labels={"date": "거래일", "daily_return": "전일 대비 등락률(%)", "sector": "섹터"})
         chart.update_layout(height=380, margin=dict(l=5, r=5, t=15, b=5), legend=dict(orientation="h"))
         st.plotly_chart(chart, **layout_width())
-        st.caption("이전 날짜는 종가, 마지막 날짜는 선택한 분석 시점 가격입니다. 휴장일은 제외하며 최대 10거래일을 표시합니다.")
+        st.caption("선택한 날짜·시간의 상승률 상위 8개 ETF를 비교합니다. 과거 날짜는 전 거래일 종가 대비 해당일 종가 등락률, 마지막 날짜는 선택 시점의 전일 대비 등락률입니다. 누적 수익률이 아닙니다. 전 거래일 가격 누락은 미수집으로 표시하며 최대 10거래일을 보여줍니다.")
     else:
-        st.info("비교할 섹터를 선택하거나 일별 가격 수집을 기다려 주세요.")
+        st.info("일별 가격 수집을 기다려 주세요.")
 
     st.subheader("섹터 구성종목 확인")
-    sector = st.selectbox("확인할 섹터", options, key="etf_flow_detail")
-    chosen = ranking[ranking.sector == sector].iloc[0]
-    note = next(item[3] for item in ETF_UNIVERSE if item[1] == chosen.ticker)
-    st.caption(f"{chosen['name']} ({chosen.ticker}) · {note} · 실제 수집 {chosen.collected_at_kst}")
-    st.write(f"오늘 {fmt(chosen.change_rate, '%', True)} · 코스피 대비 {fmt(chosen.excess_rate, '%p', True)} · "
-             f"거래대금 {fmt(chosen.trading_eok, '억')} · 최근 5일 {fmt(chosen.return_5d, '%', True)}")
     holdings = data["etf_sector_holdings"]
     if not holdings.empty:
         holdings = holdings[(holdings.trade_date == str(day)) & (holdings.session == str(session))
-                            & (holdings.etf_ticker == chosen.ticker)].sort_values("weight", ascending=False)
-    if holdings.empty:
-        st.info("이 시점의 구성종목 조회 결과가 없습니다.")
-    else:
-        shown = holdings[["name", "weight", "change_rate"]].rename(columns={"name": "종목명", "weight": "편입비중(%)", "change_rate": "오늘 상승률(%)"})
-        st.dataframe(shown.style.format({"편입비중(%)": "{:.2f}", "오늘 상승률(%)": "{:+.2f}"}, na_rep="-"),
-                     hide_index=True, **layout_width())
+                            ].sort_values("weight", ascending=False)
+    st.caption('섹터 이름을 누르면 구성종목이 펼쳐집니다. 펼치기·접기는 분석 재실행이나 전체 페이지 재로딩을 요청하지 않습니다.')
+    notes = {item[1]: item[3] for item in ETF_UNIVERSE}
+    for chosen in ranking.itertuples():
+        with st.expander(chosen.sector, expanded=False):
+            st.caption(f"{chosen.name} ({chosen.ticker}) · {notes.get(chosen.ticker, '')} · 실제 수집 {chosen.collected_at_kst}")
+            st.write(f"오늘 {fmt(chosen.change_rate, '%', True)} · 코스피 대비 {fmt(chosen.excess_rate, '%p', True)} · "
+                     f"거래대금 {fmt(chosen.trading_eok, '억')} · 최근 5일 {fmt(chosen.return_5d, '%', True)}")
+            selected_holdings = holdings[holdings.etf_ticker == chosen.ticker] if not holdings.empty else holdings
+            if selected_holdings.empty:
+                st.info("이 시점의 구성종목 조회 결과가 없습니다.")
+            else:
+                shown = selected_holdings[["name", "weight", "change_rate"]].rename(columns={"name": "종목명", "weight": "편입비중(%)", "change_rate": "오늘 상승률(%)"})
+                st.dataframe(shown.style.format({"편입비중(%)": "{:.2f}", "오늘 상승률(%)": "{:+.2f}"}, na_rep="-"),
+                             hide_index=True, **layout_width())

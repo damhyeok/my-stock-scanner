@@ -245,3 +245,29 @@ def build_trend(daily, ranking, day, tickers):
         for date, price in series:
             records.append({"date": date, "sector": row.sector, "return": (price / base - 1) * 100})
     return pd.DataFrame(records)
+
+
+def build_daily_return_trend(daily, ranking, day):
+    """Selected-slot top eight; past close-to-close, current reported daily change."""
+    if ranking.empty:
+        return pd.DataFrame()
+    history = daily[daily.trade_date.astype(str) < str(day)].copy() if not daily.empty else pd.DataFrame()
+    dates = sorted(history.trade_date.astype(str).unique()) if not history.empty else []
+    shown_dates = dates[-9:] + [str(day)]
+    previous = {date: dates[i-1] if i else None for i, date in enumerate(dates)}
+    prices = {(str(r.trade_date), str(r.ticker)): number(r.close) for r in history.itertuples()}
+    records = []
+    top = ranking.sort_values(['change_rate', 'ticker'], ascending=[False, True]).head(8)
+    for row in top.itertuples():
+        for date in shown_dates:
+            rate = None
+            if date == str(day):
+                rate = number(row.change_rate)
+            else:
+                price = prices.get((date, str(row.ticker)))
+                base = prices.get((previous.get(date), str(row.ticker)))
+                if price is not None and price > 0 and base is not None and base > 0:
+                    rate = (price / base - 1) * 100
+            records.append({'date': date, 'sector': row.sector, 'ticker': row.ticker,
+                            'daily_return': rate})
+    return pd.DataFrame(records)
