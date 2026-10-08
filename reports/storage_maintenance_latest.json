@@ -1,6 +1,6 @@
 {
-  "started_at_kst": "2026-10-07T18:30:06+09:00",
-  "completed_at_kst": "2026-10-07T18:30:51+09:00",
+  "started_at_kst": "2026-10-08T18:30:06+09:00",
+  "completed_at_kst": "2026-10-08T18:30:53+09:00",
   "policy": {
     "stock_data": {
       "etf_sector_snapshots": [
@@ -123,18 +123,18 @@
   },
   "disk": {
     "total_bytes": 48274628608,
-    "used_bytes_before": 10119491584,
-    "used_bytes_after": 10119491584,
-    "free_bytes_after": 38138359808,
-    "used_percent": 20.96,
+    "used_bytes_before": 10152226816,
+    "used_bytes_after": 10152226816,
+    "free_bytes_after": 38105624576,
+    "used_percent": 21.03,
     "status": "OK"
   },
   "databases": {
     "stock_data": {
       "path": "/home/ubuntu/my-stock-scanner/stock_data.db",
       "exists": true,
-      "bytes_before": 569155584,
-      "bytes_after": 569155584,
+      "bytes_before": 586588160,
+      "bytes_after": 586588160,
       "deleted_rows": {
         "etf_sector_snapshots": 0,
         "etf_sector_daily": 0,
@@ -166,9 +166,9 @@
       "vacuumed": false,
       "sqlite": {
         "page_size": 4096,
-        "page_count": 138954,
+        "page_count": 143210,
         "free_pages": 1,
-        "free_ratio": 7.196626221627301e-06
+        "free_ratio": 6.982752601075344e-06
       },
       "integrity": "ok"
     },
@@ -197,10 +197,10 @@
   "git": {
     "before": {
       "exists": true,
-      "count_objects": "count: 4080\nsize: 18092\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
+      "count_objects": "count: 4179\nsize: 18488\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
       "return_code": 0,
-      "loose_objects": 4080,
-      "loose_bytes": 18526208,
+      "loose_objects": 4179,
+      "loose_bytes": 18931712,
       "packed_bytes": 2388114432
     },
     "gc": {
@@ -210,10 +210,10 @@
     },
     "after": {
       "exists": true,
-      "count_objects": "count: 4080\nsize: 18092\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
+      "count_objects": "count: 4179\nsize: 18488\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
       "return_code": 0,
-      "loose_objects": 4080,
-      "loose_bytes": 18526208,
+      "loose_objects": 4179,
+      "loose_bytes": 18931712,
       "packed_bytes": 2388114432
     }
   }
