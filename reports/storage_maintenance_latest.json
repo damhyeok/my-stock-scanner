@@ -1,6 +1,6 @@
 {
-  "started_at_kst": "2026-10-08T18:30:06+09:00",
-  "completed_at_kst": "2026-10-08T18:30:53+09:00",
+  "started_at_kst": "2026-10-09T18:30:04+09:00",
+  "completed_at_kst": "2026-10-09T18:30:47+09:00",
   "policy": {
     "stock_data": {
       "etf_sector_snapshots": [
@@ -123,10 +123,10 @@
   },
   "disk": {
     "total_bytes": 48274628608,
-    "used_bytes_before": 10152226816,
-    "used_bytes_after": 10152226816,
-    "free_bytes_after": 38105624576,
-    "used_percent": 21.03,
+    "used_bytes_before": 10162761728,
+    "used_bytes_after": 10162761728,
+    "free_bytes_after": 38095089664,
+    "used_percent": 21.05,
     "status": "OK"
   },
   "databases": {
@@ -197,10 +197,10 @@
   "git": {
     "before": {
       "exists": true,
-      "count_objects": "count: 4179\nsize: 18488\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
+      "count_objects": "count: 4264\nsize: 18828\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
       "return_code": 0,
-      "loose_objects": 4179,
-      "loose_bytes": 18931712,
+      "loose_objects": 4264,
+      "loose_bytes": 19279872,
       "packed_bytes": 2388114432
     },
     "gc": {
@@ -210,10 +210,10 @@
     },
     "after": {
       "exists": true,
-      "count_objects": "count: 4179\nsize: 18488\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
+      "count_objects": "count: 4264\nsize: 18828\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
       "return_code": 0,
-      "loose_objects": 4179,
-      "loose_bytes": 18931712,
+      "loose_objects": 4264,
+      "loose_bytes": 19279872,
       "packed_bytes": 2388114432
     }
   }
