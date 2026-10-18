@@ -63,12 +63,21 @@ def aggregate_period(data, dates):
     return matrix, pd.DataFrame(totals), raw
 
 
+def rank_reference_amount(frame, *, buying=True, limit=10):
+    """Compare complete periods only; missing closes never fall back to shares."""
+    eligible = frame[frame.complete & frame.reference_net_amount.notna()]
+    amount = eligible.reference_net_amount
+    eligible = eligible[amount.gt(0) if buying else amount.lt(0)]
+    return eligible.sort_values(['reference_net_amount','ticker'],
+                                ascending=[not buying,True]).head(limit)
+
+
 def show_quantities(frame, identity='broker_name'):
     columns = [identity,'buy_qty','sell_qty','net_qty','reference_net_amount']
     shown = frame[columns].copy().rename(columns={identity:'거래원' if identity=='broker_name' else '종목명',
         'buy_qty':'매수수량(주)','sell_qty':'매도수량(주)','net_qty':'순매수수량(주)',
-        'reference_net_amount':'종가 환산 참고금액(억)'})
-    shown['종가 환산 참고금액(억)'] = pd.to_numeric(shown['종가 환산 참고금액(억)'], errors='coerce') / 1e8
+        'reference_net_amount':'종가 환산 순매수 참고금액(억)'})
+    shown['종가 환산 순매수 참고금액(억)'] = pd.to_numeric(shown['종가 환산 순매수 참고금액(억)'], errors='coerce') / 1e8
     if 'observed_days' in frame:
         shown['확보일수'] = frame.observed_days.astype(int).astype(str) + '/' + frame.expected_days.astype(int).astype(str)
     if 'provisional_days' in frame:
@@ -76,7 +85,7 @@ def show_quantities(frame, identity='broker_name'):
     if 'collected_at' in frame:
         shown['최근 조회'] = frame.collected_at
     st.dataframe(shown.style.format({'매수수량(주)':'{:,.0f}','매도수량(주)':'{:,.0f}',
-                                      '순매수수량(주)':'{:+,.0f}','종가 환산 참고금액(억)':'{:+,.2f}'},na_rep='미수집'),
+                                      '순매수수량(주)':'{:+,.0f}','종가 환산 순매수 참고금액(억)':'{:+,.2f}'},na_rep='미수집'),
                  hide_index=True, **layout_width())
 
 
@@ -88,7 +97,9 @@ def render_broker_stock_search(details, totals, raw, members):
     chosen = st.selectbox('종목 검색',options,index=None,format_func=lambda t:f'{names[t]} ({t})',
                           placeholder='종목명 또는 코드로 검색',key='foreign_stock')
     if chosen:
-        stock = details[details.ticker==chosen].sort_values('net_qty',ascending=False,na_position='last')
+        stock = details[details.ticker==chosen].copy()
+        stock.loc[~stock.complete, 'reference_net_amount'] = float('nan')
+        stock = stock.sort_values(['reference_net_amount','broker_code'],ascending=[False,True],na_position='last')
         show_quantities(stock)
         st.caption('일부 날짜만 확보된 행의 수량은 확보된 날짜의 소계입니다. 확보일수가 전체 기간보다 작으면 기간 전체 누적으로 해석하지 마세요.')
         if not raw.empty:
@@ -100,7 +111,7 @@ def render_broker_stock_search(details, totals, raw, members):
 @st.fragment
 def render_foreign_broker_tab(path, version, day):
     st.header('🏦 외국계 거래원')
-    st.caption('KRX 회원사 기준 · 순위는 순매수/순매도 수량 기준입니다. 외국계 창구는 외국인 투자자와 다릅니다. 검색·기간 변경은 이 탭 안에서만 갱신합니다.')
+    st.caption('KRX 회원사 기준 · 순위는 종가 환산 순매수 참고금액 기준입니다. 매수는 양수 큰 순, 매도는 음수 절댓값 큰 순입니다. 외국계 창구는 외국인 투자자와 다릅니다. 검색·기간 변경은 이 탭 안에서만 갱신합니다.')
     data = load_broker_data(str(path), str(version), Path(path).stat().st_mtime_ns)
     if data['universe'].empty or data['members'].empty:
         st.info('외국계 거래원 수집 준비 중입니다. 독립 수집 작업이 데이터를 확보하면 표시됩니다. 과거 미수집 자료는 0주로 표시하지 않습니다.')
@@ -133,18 +144,20 @@ def render_foreign_broker_tab(path, version, day):
         st.warning('아직 수집 중이거나 일부 날짜가 미수집입니다. 전체 TOP10은 기간 내 모든 거래원·거래일 자료가 확보된 종목만 비교합니다. 미수집 종목이 빠져 순위가 달라질 수 있습니다.')
     if not data['daily'].empty:
         st.caption('최근 저장 시각: ' + str(data['daily'].collected_at.max()) + ' · 당일 자료는 잠정치이며 다음 거래일 재조회로 보완합니다. 회원사별 조회시각이 다를 수 있고, 상단 분석 시간 선택과 별도로 마지막 수집값을 보여줍니다.')
-    st.info('참고금액 = Σ(각 날짜 순매수수량 × 해당 날짜 KRX 종가). 실제 거래금액·매입단가·보유잔고가 아닙니다. 확정 종가가 없으면 미수집이며, 순위 산정에는 사용하지 않습니다.')
+    st.info('참고금액 = Σ(각 날짜 순매수수량 × 해당 날짜 KRX 종가). 실제 거래금액·매입단가·보유잔고가 아닙니다. 기간 전체 수량과 모든 날짜 종가가 있는 자료만 금액 순위에 포함합니다. 장중에는 당일 종가가 없어 순위가 비어 있을 수 있으며, 종가 수집 후 표시됩니다. 수량 순위로 대신 채우지 않습니다.')
+    ranked = complete[complete.reference_net_amount.notna()]
+    st.caption(f'전체 금액 순위 비교 가능: {len(ranked)}/{len(totals)}종목 · 수량 완비이나 종가 미확보: {len(complete)-len(ranked)}종목. 기간 누적 금액과 수량의 부호는 날짜별 가격 차이로 다를 수 있습니다.')
     render_broker_stock_search(details, totals, raw, data['members'])
     st.subheader('② 외국계 합산 순매수 TOP10')
-    buy = complete[complete.net_qty > 0].sort_values(['net_qty','ticker'],ascending=[False,True]).head(10)
+    buy = rank_reference_amount(totals)
     if buy.empty:
-        st.info('자료가 확보된 순매수 종목이 없습니다.')
+        st.info('기간 전체 수량·종가가 확보된 양수 참고금액 종목이 없습니다.')
     else:
         show_quantities(buy, 'name')
     st.subheader('③ 외국계 합산 순매도 TOP10')
-    sell = complete[complete.net_qty < 0].sort_values(['net_qty','ticker']).head(10)
+    sell = rank_reference_amount(totals, buying=False)
     if sell.empty:
-        st.info('자료가 확보된 순매도 종목이 없습니다.')
+        st.info('기간 전체 수량·종가가 확보된 음수 참고금액 종목이 없습니다.')
     else:
         show_quantities(sell, 'name')
     st.subheader('④ 거래원별 순매수 · 순매도 상위 종목')
@@ -152,17 +165,17 @@ def render_foreign_broker_tab(path, version, day):
         with st.expander(member.broker_name):
             broker = details[details.broker_code==member.broker_code]
             subset = broker[broker.complete]
-            st.caption(f'기간 전체 확보 {len(subset)}/{len(broker)}종목. 미수집은 0주가 아닙니다.')
+            st.caption(f'기간 전체 수량 확보 {len(subset)}/{len(broker)}종목 · 금액 비교 가능 {int(subset.reference_net_amount.notna().sum())}종목. 미수집은 0주가 아닙니다.')
             st.write('순매수 TOP10')
-            buys = subset[subset.net_qty>0].sort_values(['net_qty','ticker'],ascending=[False,True]).head(10)
+            buys = rank_reference_amount(broker)
             if buys.empty:
-                st.info('확보된 순매수 종목 없음')
+                st.info('수량·종가가 확보된 양수 참고금액 종목 없음')
             else:
                 show_quantities(buys,'name')
             st.write('순매도 TOP10')
-            sells = subset[subset.net_qty<0].sort_values(['net_qty','ticker']).head(10)
+            sells = rank_reference_amount(broker, buying=False)
             if sells.empty:
-                st.info('확보된 순매도 종목 없음')
+                st.info('수량·종가가 확보된 음수 참고금액 종목 없음')
             else:
                 show_quantities(sells,'name')
     with st.expander('수집 방식·주의사항'):

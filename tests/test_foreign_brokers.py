@@ -7,7 +7,32 @@ import pytest
 
 from foreign_broker_flow import (parse_members, parse_daily, init_tables, collect_universe,
                                  ForeignBrokerCollector, publish_broker_snapshot)
-from foreign_broker_ui import aggregate_period
+from foreign_broker_ui import aggregate_period, rank_reference_amount
+
+
+def test_reference_ranking_uses_money_not_shares_and_excludes_missing():
+    frame = pd.DataFrame([
+        dict(ticker='A',net_qty=100000,reference_net_amount=100000000,complete=True),
+        dict(ticker='B',net_qty=5000,reference_net_amount=500000000,complete=True),
+        dict(ticker='C',net_qty=900000,reference_net_amount=float('nan'),complete=True),
+        dict(ticker='D',net_qty=900000,reference_net_amount=900000000,complete=False),
+        dict(ticker='E',net_qty=100,reference_net_amount=-300000000,complete=True),
+        dict(ticker='F',net_qty=-1000,reference_net_amount=-100000000,complete=True),
+        dict(ticker='G',net_qty=-100,reference_net_amount=200000000,complete=True),
+        dict(ticker='H',net_qty=0,reference_net_amount=0,complete=True),
+    ])
+    assert rank_reference_amount(frame).ticker.tolist() == ['B','G','A']
+    assert rank_reference_amount(frame,buying=False).ticker.tolist() == ['E','F']
+    assert rank_reference_amount(frame,limit=1).ticker.tolist() == ['B']
+
+
+def test_reference_ranking_empty_when_closes_missing():
+    with closing(sqlite3.connect(':memory:')) as conn:
+        fixture(conn)
+        conn.execute('DELETE FROM foreign_broker_closes')
+        details, totals, _ = aggregate_period(data(conn),['20261015','20261016'])
+        assert rank_reference_amount(totals).empty
+        assert rank_reference_amount(details,buying=False).empty
 from market_calendar import KST
 
 
