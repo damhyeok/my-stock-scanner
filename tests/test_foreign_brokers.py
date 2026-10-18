@@ -105,7 +105,8 @@ def test_collector_stores_only_requested_date_and_resume_final(tmp_path):
     assert collector.run()['requests_done'] == 0
 
 
-def test_lightweight_publisher_preserves_existing_tables(tmp_path):
+def test_lightweight_publisher_preserves_existing_tables(tmp_path, monkeypatch):
+    import foreign_broker_flow as flow
     source, target = tmp_path/'source.db',tmp_path/'web.db'
     with closing(sqlite3.connect(source)) as conn:
         fixture(conn)
@@ -113,6 +114,14 @@ def test_lightweight_publisher_preserves_existing_tables(tmp_path):
         conn.execute('CREATE TABLE untouched (value TEXT)')
         conn.execute("INSERT INTO untouched VALUES ('preserved')")
         conn.commit()
+    original = flow.check_web_snapshot
+    def check_unlocked(conn):
+        assert 'broker_source' not in [r[1] for r in conn.execute('PRAGMA database_list')]
+        with closing(sqlite3.connect(source,timeout=.1)) as writer:
+            writer.execute("UPDATE foreign_broker_members SET broker_name=broker_name")
+            writer.commit()
+        original(conn)
+    monkeypatch.setattr(flow,'check_web_snapshot',check_unlocked)
     publish_broker_snapshot(source,target)
     with closing(sqlite3.connect(target)) as conn:
         assert conn.execute('SELECT * FROM untouched').fetchone() == ('preserved',)

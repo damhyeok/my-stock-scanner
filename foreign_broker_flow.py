@@ -296,6 +296,11 @@ def main():
                         str(project / 'foreign_broker_flow.py'), '--db', args.db, '--publish-only'], timeout=300, check=True)
 
 
+def check_web_snapshot(conn):
+    if conn.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
+        raise ValueError('web database integrity error')
+
+
 def publish_broker_snapshot(source, target):
     """Refresh only broker tables; never rerun stock scoring or other collectors."""
     from web_database import compress_web_database
@@ -319,8 +324,10 @@ def publish_broker_snapshot(source, target):
                     conn.execute(f'INSERT INTO {table} SELECT * FROM broker_source.{table} WHERE trade_date>=?', (cutoff,))
             conn.execute('DROP TABLE IF EXISTS foreign_broker_attempts')
             conn.commit()
-            if conn.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
-                raise ValueError('web database integrity error')
+            # Release the source read lock before checking the much larger web
+            # copy. Otherwise a concurrent collector cannot commit quantities.
+            conn.execute('DETACH DATABASE broker_source')
+            check_web_snapshot(conn)
         os.replace(temporary, target)
         compress_web_database(target, str(target) + '.gz')
     finally:
