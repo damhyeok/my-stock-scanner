@@ -81,6 +81,23 @@ def show_quantities(frame, identity='broker_name'):
 
 
 @st.fragment
+def render_broker_stock_search(details, totals, raw, members):
+    st.subheader('① 종목별 외국계 거래원')
+    options = totals.sort_values('name').ticker.tolist()
+    names = dict(zip(totals.ticker,totals.name))
+    chosen = st.selectbox('종목 검색',options,index=None,format_func=lambda t:f'{names[t]} ({t})',
+                          placeholder='종목명 또는 코드로 검색',key='foreign_stock')
+    if chosen:
+        stock = details[details.ticker==chosen].sort_values('net_qty',ascending=False,na_position='last')
+        show_quantities(stock)
+        st.caption('일부 날짜만 확보된 행의 수량은 확보된 날짜의 소계입니다. 확보일수가 전체 기간보다 작으면 기간 전체 누적으로 해석하지 마세요.')
+        if not raw.empty:
+            with st.expander('날짜별 상세 내역'):
+                daily = raw[raw.ticker==chosen].merge(members[['broker_code','broker_name']],on='broker_code',how='left').sort_values(['trade_date','broker_name'],ascending=[False,True])
+                st.dataframe(daily[['trade_date','broker_name','buy_qty','sell_qty','net_qty','close','collected_at']].rename(columns={'trade_date':'날짜','broker_name':'거래원','buy_qty':'매수수량','sell_qty':'매도수량','net_qty':'순매수수량','close':'환산 기준 종가','collected_at':'수집 시각'}),hide_index=True,**layout_width())
+
+
+@st.fragment
 def render_foreign_broker_tab(path, version, day):
     st.header('🏦 외국계 거래원')
     st.caption('KRX 회원사 기준 · 순위는 순매수/순매도 수량 기준입니다. 외국계 창구는 외국인 투자자와 다릅니다. 검색·기간 변경은 이 탭 안에서만 갱신합니다.')
@@ -117,19 +134,7 @@ def render_foreign_broker_tab(path, version, day):
     if not data['daily'].empty:
         st.caption('최근 저장 시각: ' + str(data['daily'].collected_at.max()) + ' · 당일 자료는 잠정치이며 다음 거래일 재조회로 보완합니다. 회원사별 조회시각이 다를 수 있고, 상단 분석 시간 선택과 별도로 마지막 수집값을 보여줍니다.')
     st.info('참고금액 = Σ(각 날짜 순매수수량 × 해당 날짜 KRX 종가). 실제 거래금액·매입단가·보유잔고가 아닙니다. 확정 종가가 없으면 미수집이며, 순위 산정에는 사용하지 않습니다.')
-    st.subheader('① 종목별 외국계 거래원')
-    options = totals.sort_values('name').ticker.tolist()
-    names = dict(zip(totals.ticker,totals.name))
-    chosen = st.selectbox('종목 검색',options,index=None,format_func=lambda t:f'{names[t]} ({t})',
-                          placeholder='종목명 또는 코드로 검색',key='foreign_stock')
-    if chosen:
-        stock = details[details.ticker==chosen].sort_values('net_qty',ascending=False,na_position='last')
-        show_quantities(stock)
-        st.caption('일부 날짜만 확보된 행의 수량은 확보된 날짜의 소계입니다. 확보일수가 전체 기간보다 작으면 기간 전체 누적으로 해석하지 마세요.')
-        if not raw.empty:
-            with st.expander('날짜별 상세 내역'):
-                daily = raw[raw.ticker==chosen].merge(data['members'][['broker_code','broker_name']],on='broker_code',how='left').sort_values(['trade_date','broker_name'],ascending=[False,True])
-                st.dataframe(daily[['trade_date','broker_name','buy_qty','sell_qty','net_qty','close','collected_at']].rename(columns={'trade_date':'날짜','broker_name':'거래원','buy_qty':'매수수량','sell_qty':'매도수량','net_qty':'순매수수량','close':'환산 기준 종가','collected_at':'수집 시각'}),hide_index=True,**layout_width())
+    render_broker_stock_search(details, totals, raw, data['members'])
     st.subheader('② 외국계 합산 순매수 TOP10')
     buy = complete[complete.net_qty > 0].sort_values(['net_qty','ticker'],ascending=[False,True]).head(10)
     if buy.empty:
