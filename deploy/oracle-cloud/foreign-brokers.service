@@ -1,0 +1,16 @@
+[Unit]
+Description=Independent foreign broker daily quantity collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=__USER__
+WorkingDirectory=__PROJECT_DIR__
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/flock -n __PROJECT_DIR__/.foreign_broker.lock __PROJECT_DIR__/.venv/bin/python __PROJECT_DIR__/foreign_broker_flow.py --budget-seconds 480 --publish
+Nice=10
+TimeoutStartSec=1000
+
+[Install]
+WantedBy=multi-user.target

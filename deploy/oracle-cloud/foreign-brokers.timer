@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh independently collected foreign broker quantities
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 09..18:10,40:00 Asia/Seoul
+Unit=foreign-brokers.service
+AccuracySec=30s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

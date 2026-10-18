@@ -22,6 +22,11 @@ KST = timezone(timedelta(hours=9))
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 STOCK_DATA_RETENTION = {
+    "foreign_broker_daily": ("trade_date", 260),
+    "foreign_broker_universe": ("trade_date", 260),
+    "foreign_broker_closes": ("trade_date", 260),
+    "foreign_broker_attempts": ("trade_date", 260),
+    "foreign_broker_runs": ("started_at", 260),
     "etf_sector_snapshots": ("trade_date", 260),
     "etf_sector_daily": ("trade_date", 260),
     "etf_sector_holdings": ("trade_date", 30),

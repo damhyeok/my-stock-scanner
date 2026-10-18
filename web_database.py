@@ -24,6 +24,10 @@ from market_strength2 import build_market_strength2_display
 
 
 RETENTION = {
+    "foreign_broker_daily": ("trade_date", 60),
+    "foreign_broker_universe": ("trade_date", 60),
+    "foreign_broker_closes": ("trade_date", 60),
+    "foreign_broker_runs": ("started_at", 60),
     "etf_sector_snapshots": ("trade_date", 50),
     "etf_sector_daily": ("trade_date", 60),
     "etf_sector_holdings": ("trade_date", 30),
@@ -62,6 +66,7 @@ DROP_TABLES = {
 # These remain in Oracle's full analysis DB. They are removed only from the
 # bounded web copy after all display values that depend on them are materialized.
 WEB_ONLY_SOURCE_TABLES = {
+    "foreign_broker_attempts",
     "news_discovery_articles", "news_discovery_runs", "news_discovery_snapshots", "news_discovery_versions",
     "news_issue_price_context",
     "news_issue_articles", "news_issue_versions", "news_issue_snapshots", "news_issue_runs",

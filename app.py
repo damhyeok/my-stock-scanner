@@ -34,6 +34,7 @@ from market_strength2 import render_market_strength2
 from program_net_divergence import build_program_price_divergence
 from rise_rankings import build_rise_rank_tables
 from etf_sector_ui import render_etf_sector_tab
+from foreign_broker_ui import render_foreign_broker_tab
 from rise_sector_history import build_rise_sector_history
 from sector_overrides import override_frame_sectors
 import sector_interest as _sector_interest
@@ -1268,7 +1269,7 @@ else:
     st.divider()
 
     # 탭으로 분리
-    watchlist_tab, tab1, tab2, etf_tab, rise_tab, tab3, tab4, tab5, tab6, tab7, tab8, news2_tab, tab9, strength2_tab, tab10, tab11, tab12, tab13, tab14 = st.tabs([
+    watchlist_tab, tab1, tab2, etf_tab, rise_tab, tab3, tab4, tab5, tab6, tab7, tab8, news2_tab, tab9, strength2_tab, tab10, tab11, tab12, tab13, broker_tab, tab14 = st.tabs([
         "⭐ 내 관심종목",
         "🚀 지수대비 강한 종목",
         "🔥 거래대금 Top",
@@ -1287,6 +1288,7 @@ else:
         "🎯 종가베팅 스캐너",
         "🧱 바닥 후보 종목",
         "💻 프로그램 순매수 종목",
+        "🏦 외국계 거래원",
         "🧠 장중·오버나이트 분석"
     ])
     
@@ -1790,6 +1792,10 @@ else:
     with etf_tab:
         etf_db_path, etf_db_version = get_database_path()
         render_etf_sector_tab(etf_db_path, etf_db_version, selected_date, selected_session)
+
+    with broker_tab:
+        broker_db_path, broker_db_version = get_database_path()
+        render_foreign_broker_tab(broker_db_path, broker_db_version, selected_date)
 
     with rise_tab:
         st.header(f"📈 시가총액 3,000억 이상 · 전일 대비 상승률 Top 60 ({selected_session_label})")

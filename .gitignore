@@ -4,6 +4,7 @@ __pycache__/
 .DS_Store
 .env
 .kis_token_cache.json
+.foreign_broker.lock
 stock_data.db
 reports/*.xlsx
 manual_run_status.json
