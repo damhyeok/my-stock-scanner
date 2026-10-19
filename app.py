@@ -35,6 +35,7 @@ from program_net_divergence import build_program_price_divergence
 from rise_rankings import build_rise_rank_tables
 from etf_sector_ui import render_etf_sector_tab
 from foreign_broker_ui import render_foreign_broker_tab
+from investor_history_ui import render_investor_history
 from rise_sector_history import build_rise_sector_history
 from sector_overrides import override_frame_sectors
 import sector_interest as _sector_interest
@@ -1820,7 +1821,7 @@ else:
         st.header(f"🟢 외국인 순매수 Top 30 ({selected_session_label})")
         df_for = df_selected[df_selected['category'] == 'FOREIGN_TOP_30'].copy()
         df_for = df_for.sort_values(by='foreign_net', ascending=False)
-        display_formatted_df(df_for, hidden_columns=['date', 'session', 'ticker', 'volume', 'theme'])
+        render_investor_history(df_raw, selected_date, selected_session, 'foreign', get_trading_dates())
         display_sector_summary(df_for)
         st.write("---")
         st.subheader("🔁 외국인 연속 순매수 종목")
@@ -1833,7 +1834,7 @@ else:
         st.header(f"🔴 기관 순매수 Top 30 ({selected_session_label})")
         df_inst = df_selected[df_selected['category'] == 'INST_TOP_30'].copy()
         df_inst = df_inst.sort_values(by='inst_net', ascending=False)
-        display_formatted_df(df_inst, hidden_columns=['date', 'session', 'ticker', 'volume', 'theme'])
+        render_investor_history(df_raw, selected_date, selected_session, 'institution', get_trading_dates())
         display_sector_summary(df_inst)
         st.write("---")
         st.subheader("🔁 기관 연속 순매수 종목")
@@ -2397,6 +2398,7 @@ else:
                         column.metric(label, score_text, market_strength_status(score))
                     if daily_score is None:
                         summary_columns[3].metric("하루 종합", "데이터 없음")
+                        st.caption(daily_reason + ' 누락 구간을 0점이나 다른 날짜 값으로 대신 계산하지 않습니다.')
                     else:
                         summary_columns[3].metric("하루 종합", f"{daily_score}점", market_strength_status(daily_score))
                         st.caption(

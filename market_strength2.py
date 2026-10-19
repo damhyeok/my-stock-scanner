@@ -3,6 +3,7 @@ import json
 import math
 from contextlib import closing
 import pandas as pd
+import streamlit as st
 
 
 def number(value):
@@ -149,6 +150,7 @@ def interpret_market_environment(payload):
     return {'label': label, 'level': level, 'reason': reason, 'details': details}
 
 
+@st.fragment
 def render_market_strength2(db_path, selected_date, selected_session):
     import sqlite3
     import streamlit as st

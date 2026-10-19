@@ -946,6 +946,36 @@ class MarketStrengthAnalyzer:
         conn.commit()
         conn.close()
 
+    def restore_missing_morning(self):
+        """Re-score only stored morning observations; never query today's late API."""
+        with sqlite3.connect(self.db_path) as conn:
+            exists = conn.execute(
+                "SELECT COUNT(*) FROM market_strength_snapshots WHERE trade_date=? AND analysis_type='morning'",
+                (self.target_date,),
+            ).fetchone()[0]
+        if exists:
+            return False
+        original_type, original_times = self.analysis_type, self.snapshot_times
+        try:
+            self.analysis_type = 'morning'
+            self.snapshot_times = self.MORNING_SNAPSHOT_TIMES
+            snapshots = self._load_stored_snapshots()
+            required = ['program_net','non_arbitrage_net','kospi200_futures_price',
+                        'futures_day_high','futures_day_low','futures_vwap']
+            if any(t not in snapshots or any(
+                    snapshots[t].get(k) is None or not math.isfinite(float(snapshots[t][k]))
+                    for k in required) for t in self.snapshot_times):
+                return False
+            if any(snapshots[t]['kospi200_futures_price'] <= 0 for t in self.snapshot_times):
+                return False
+            scores = self.score_snapshots(snapshots)
+            text = self._build_interpretation(scores['market_strength_score'],scores['basis_score'],
+                                             scores['program_score'],scores['futures_trend_score'],snapshots)
+            self._save_snapshots(snapshots,scores,'저장된 오전 시점 원자료로 재계산. ' + text)
+            return True
+        finally:
+            self.analysis_type, self.snapshot_times = original_type, original_times
+
     def run(self):
         print(f"[Market Strength] {self.target_date} 시장강도 분석 시작")
         now = datetime.now(self.kst)
@@ -972,5 +1002,10 @@ class MarketStrengthAnalyzer:
             total_score, basis_score, program_score, futures_score, snapshots
         )
         self._save_snapshots(snapshots, scores, interpretation_text)
+        if self.analysis_type in ('checkpoint', 'afternoon', 'closing'):
+            try:
+                self.restore_missing_morning()
+            except Exception as error:
+                print(f'[Market Strength Warning] 저장된 오전 자료 재계산 실패: {error}')
         print(f"[Market Strength] 시장강도 {total_score}점 저장 완료")
         return snapshots, scores, interpretation_text

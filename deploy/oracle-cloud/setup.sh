@@ -46,11 +46,11 @@ for timer_file in "$UNIT_SOURCE"/*.timer; do
 done
 
 sudo systemctl daemon-reload
-sudo systemctl disable --now morning-strength.timer 2>/dev/null || true
 sudo systemctl disable --now stock-analysis.timer 2>/dev/null || true
 sudo systemctl enable --now \
   stock-trigger.service \
   morning-program.timer \
+  morning-strength.timer \
   afternoon-program.timer \
   afternoon-strength.timer \
   closing-program.timer \

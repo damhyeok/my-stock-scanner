@@ -266,7 +266,9 @@ def run_full_analysis(manual=False):
         if scheduled_cron == "30 2 * * 1-5":
             # 14시 누적 분석에서 API 조회 범위를 벗어나는 오전 값을 보존한다.
             env["MARKET_STRENGTH_MODE"] = "checkpoint"
-        elif scheduled_cron != "50 0 * * 1-5":
+        else:
+            # Morning strength has its own timer: a running 09:30 full-analysis
+            # can otherwise swallow the 09:50 activation of the same unit.
             env["SKIP_MARKET_STRENGTH"] = "1"
     run_command([sys.executable, "main.py"], env=env)
     return scheduled_cron if not manual else None

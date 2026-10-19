@@ -305,3 +305,26 @@ def test_daily_score_uses_closing_cumulative_state_and_path_adjustment():
     assert calculate_daily_market_strength(
         {"morning": 55, "afternoon": 50, "closing": 65}
     )[:2] == (65, 0)
+
+
+def test_restore_morning_from_existing_exact_time_values_only(tmp_path):
+    analyzer=make_analyzer(tmp_path)
+    analyzer.snapshot_times=analyzer.CLOSING_SNAPSHOT_TIMES
+    snapshots={t:dict(program_net=10+i,arbitrage_net=1,non_arbitrage_net=9+i,
+                     kospi200_futures_price=100+i,basis=1+i*.1,
+                     futures_day_high=110,futures_day_low=90,futures_vwap=100)
+               for i,t in enumerate(analyzer.snapshot_times)}
+    scores=analyzer.score_snapshots(snapshots)
+    analyzer._save_snapshots(snapshots,scores,'fixture')
+    assert analyzer.restore_missing_morning()
+    assert analyzer.analysis_type=='closing'
+    assert analyzer.snapshot_times==analyzer.CLOSING_SNAPSHOT_TIMES
+    with sqlite3.connect(analyzer.db_path) as conn:
+        rows=conn.execute("SELECT snapshot_time,program_net FROM market_strength_snapshots WHERE analysis_type='morning' ORDER BY snapshot_time").fetchall()
+        assert rows==[('09:15',10),('09:30',11),('09:45',12)]
+    assert not analyzer.restore_missing_morning()
+
+
+def test_restore_morning_refuses_missing_snapshot(tmp_path):
+    analyzer=make_analyzer(tmp_path)
+    assert not analyzer.restore_missing_morning()

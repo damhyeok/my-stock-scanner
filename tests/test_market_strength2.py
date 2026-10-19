@@ -14,6 +14,25 @@ def bars():
                          for i, t in enumerate(times)])
 
 
+def test_index_selection_is_fragment_local(tmp_path):
+    from streamlit.testing.v1 import AppTest
+    path=tmp_path/'strength.db'
+    points=summarize_index(bars())
+    supply={'points':[],'program_delta':None,'non_arbitrage_delta':None,'basis_delta':None}
+    with sqlite3.connect(path) as conn:
+        conn.execute('CREATE TABLE web_market_strength2 (trade_date TEXT PRIMARY KEY,payload TEXT)')
+        conn.execute('INSERT INTO web_market_strength2 VALUES (?,?)',('20261002',json.dumps({'supply':supply,'indices':{'KOSPI':points,'KOSDAQ':points}})))
+    app=AppTest.from_string('from market_strength2 import render_market_strength2\n'
+                           +f"render_market_strength2({str(path)!r},'20261002','정규장(16:00)')").run(timeout=30)
+    assert not app.exception
+    app.selectbox[0].select('KOSDAQ').run()
+    assert not app.exception
+    assert app.selectbox[0].value=='KOSDAQ'
+    import inspect
+    from market_strength2 import render_market_strength2
+    assert '@st.fragment' in inspect.getsource(render_market_strength2)
+
+
 class Strength2Tests(unittest.TestCase):
     def environment(self, cumulative=100, delta=20, flow='개선', clv=90, late_return=1):
         return {'supply': {'points': [{'시간': '15:30', '프로그램 누적': cumulative, '비차익 누적': cumulative}],
