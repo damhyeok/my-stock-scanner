@@ -3,9 +3,11 @@ from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 import sqlite3
+import html
 import pandas as pd
 import streamlit as st
 from streamlit_layout import layout_width
+from foreign_broker_history import build_broker_streaks, build_stock_net_history
 
 
 @st.cache_data(ttl=60)
@@ -16,6 +18,8 @@ def load_broker_data(path, version, modified):
             name = 'foreign_broker_' + table
             exists = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone()
             frames[table] = pd.read_sql_query(f'SELECT * FROM {name}', conn) if exists else pd.DataFrame()
+        exists = conn.execute("SELECT 1 FROM sqlite_master WHERE name='web_trading_dates'").fetchone()
+        frames['calendar'] = pd.read_sql_query('SELECT date FROM web_trading_dates ORDER BY date',conn) if exists else pd.DataFrame()
     return frames
 
 
@@ -89,23 +93,63 @@ def show_quantities(frame, identity='broker_name'):
                  hide_index=True, **layout_width())
 
 
-@st.fragment
-def render_broker_stock_search(details, totals, raw, members):
+def show_streaks(frame):
+    if frame.empty:
+        st.info('선택한 마지막 거래일까지 2거래일 이상 연속 순매수가 확인된 종목이 없습니다. 자료 부족은 순매도 또는 0주를 뜻하지 않습니다.')
+        return
+    shown=frame[['name','streak_start','latest_net_qty','streak_net_qty','reference_net_amount']].copy()
+    shown.insert(1,'확인된 연속',frame.apply(lambda r:f"{'최소 ' if r.lower_bound else ''}{r.streak_days}거래일",axis=1))
+    shown['자료 상태']=frame.provisional.map({True:'잠정 포함',False:'확정'})
+    shown['reference_net_amount']=shown.reference_net_amount/1e8
+    shown=shown.rename(columns={'name':'종목명','streak_start':'확인 시작일','latest_net_qty':'마지막 날 순매수(주)',
+                                'streak_net_qty':'연속기간 순매수(주)','reference_net_amount':'종가 환산 참고금액(억)'})
+    st.dataframe(shown.style.format({'마지막 날 순매수(주)':'{:+,.0f}','연속기간 순매수(주)':'{:+,.0f}',
+                                     '종가 환산 참고금액(억)':'{:+,.2f}'},na_rep='종가 미확보'),hide_index=True,**layout_width())
+
+
+def render_stock_net_history(data,ticker,cutoff):
+    frame=build_stock_net_history(data,ticker,cutoff)
+    st.markdown('#### 최근 10거래일 · 거래원별 순매수수량(주)')
+    st.caption('조회 기간과 별도로 마지막 선택 거래일까지 최근 10거래일을 표시합니다. +는 순매수, −는 순매도입니다. 합산은 해당 날짜의 모든 외국계 거래원 자료가 있을 때만 계산합니다. 미수집은 0주가 아닙니다. 모바일에서는 좌우로 밀어 확인하세요.')
+    headers='<th>거래원</th>'+''.join('<th>'+html.escape(d[4:6]+'/'+d[6:8])+'</th>' for d in frame.columns)
+    rows=[]
+    for name,row in frame.iterrows():
+        cells=[]
+        for value in row:
+            text='미수집' if pd.isna(value) else f'{value:+,.0f}' if value else '0'
+            color='#777' if pd.isna(value) or value==0 else '#177a48' if value>0 else '#c43b40'
+            cells.append(f'<td style="color:{color}">{text}</td>')
+        rows.append('<tr><th>'+html.escape(str(name))+'</th>'+''.join(cells)+'</tr>')
+    st.markdown('<style>.broker-history{overflow-x:auto;width:100%;-webkit-overflow-scrolling:touch}.broker-history table{border-collapse:collapse;font-size:13px}.broker-history th,.broker-history td{white-space:nowrap;min-width:90px;padding:7px;border-bottom:1px solid #ddd;text-align:right}.broker-history th:first-child{position:sticky;left:0;background:var(--background-color,#fff);z-index:1;min-width:110px;text-align:left}</style>'
+                +'<div class="broker-history"><table><thead><tr>'+headers+'</tr></thead><tbody>'+''.join(rows)+'</tbody></table></div>',unsafe_allow_html=True)
+
+
+def render_broker_stock_search(details, totals, raw, members, data, cutoff):
     st.subheader('① 종목별 외국계 거래원')
-    options = totals.sort_values('name').ticker.tolist()
-    names = dict(zip(totals.ticker,totals.name))
+    catalog=data['universe'][data['universe'].trade_date.astype(str)<=str(cutoff)].sort_values('trade_date').drop_duplicates('ticker',keep='last').sort_values('name')
+    options = catalog.ticker.tolist()
+    names = dict(zip(catalog.ticker,catalog.name))
+    if st.session_state.get('foreign_stock') not in options:
+        st.session_state['foreign_stock']=None
     chosen = st.selectbox('종목 검색',options,index=None,format_func=lambda t:f'{names[t]} ({t})',
                           placeholder='종목명 또는 코드로 검색',key='foreign_stock')
     if chosen:
+        st.markdown(f'**{names[chosen]} ({chosen}) · 선택 기간 거래원별 매매**')
         stock = details[details.ticker==chosen].copy()
         stock.loc[~stock.complete, 'reference_net_amount'] = float('nan')
         stock = stock.sort_values(['reference_net_amount','broker_code'],ascending=[False,True],na_position='last')
-        show_quantities(stock)
+        if stock.empty:
+            st.info('이 종목은 선택 기간의 수집 대상에 없습니다. 아래에서 과거 수집 내역을 확인하세요.')
+        else:
+            show_quantities(stock)
         st.caption('일부 날짜만 확보된 행의 수량은 확보된 날짜의 소계입니다. 확보일수가 전체 기간보다 작으면 기간 전체 누적으로 해석하지 마세요.')
         if not raw.empty:
             with st.expander('날짜별 상세 내역'):
                 daily = raw[raw.ticker==chosen].merge(members[['broker_code','broker_name']],on='broker_code',how='left').sort_values(['trade_date','broker_name'],ascending=[False,True])
                 st.dataframe(daily[['trade_date','broker_name','buy_qty','sell_qty','net_qty','close','collected_at']].rename(columns={'trade_date':'날짜','broker_name':'거래원','buy_qty':'매수수량','sell_qty':'매도수량','net_qty':'순매수수량','close':'환산 기준 종가','collected_at':'수집 시각'}),hide_index=True,**layout_width())
+        render_stock_net_history(data,chosen,cutoff)
+    else:
+        st.caption('수집 이력이 있는 종목명·6자리 코드로 검색 후 검색 결과를 선택하세요. 결과가 없는 종목은 아직 수집 이력이 없는 경우입니다.')
 
 
 @st.fragment
@@ -147,13 +191,16 @@ def render_foreign_broker_tab(path, version, day):
     st.info('참고금액 = Σ(각 날짜 순매수수량 × 해당 날짜 KRX 종가). 실제 거래금액·매입단가·보유잔고가 아닙니다. 기간 전체 수량과 모든 날짜 종가가 있는 자료만 금액 순위에 포함합니다. 장중에는 당일 종가가 없어 순위가 비어 있을 수 있으며, 종가 수집 후 표시됩니다. 수량 순위로 대신 채우지 않습니다.')
     ranked = complete[complete.reference_net_amount.notna()]
     st.caption(f'전체 금액 순위 비교 가능: {len(ranked)}/{len(totals)}종목 · 수량 완비이나 종가 미확보: {len(complete)-len(ranked)}종목. 기간 누적 금액과 수량의 부호는 날짜별 가격 차이로 다를 수 있습니다.')
-    render_broker_stock_search(details, totals, raw, data['members'])
+    render_broker_stock_search(details, totals, raw, data['members'], data, dates[-1])
     st.subheader('② 외국계 합산 순매수 TOP10')
     buy = rank_reference_amount(totals)
     if buy.empty:
         st.info('기간 전체 수량·종가가 확보된 양수 참고금액 종목이 없습니다.')
     else:
         show_quantities(buy, 'name')
+    st.markdown('#### 외국계 합산 · 연속 순매수 종목')
+    st.caption('선택한 마지막 거래일까지 매일 순매수수량 > 0인 종목 · 2거래일 이상 · 연속일수 우선, 같으면 참고금액순. 조회 기간 시작일과는 무관하게 저장 이력을 확인합니다. ‘최소’는 그 이전 자료가 없어 더 긴 연속 여부를 확인할 수 없다는 뜻입니다. 당일 잠정 자료가 포함되면 표시합니다.')
+    show_streaks(build_broker_streaks(data,dates[-1],combined=True))
     st.subheader('③ 외국계 합산 순매도 TOP10')
     sell = rank_reference_amount(totals, buying=False)
     if sell.empty:
@@ -161,8 +208,11 @@ def render_foreign_broker_tab(path, version, day):
     else:
         show_quantities(sell, 'name')
     st.subheader('④ 거래원별 순매수 · 순매도 상위 종목')
+    broker_streaks=build_broker_streaks(data,dates[-1])
     for member in data['members'].sort_values('broker_name').itertuples():
         with st.expander(member.broker_name):
+            st.write('2거래일 이상 연속 순매수 종목')
+            show_streaks(broker_streaks[broker_streaks.broker_code==member.broker_code])
             broker = details[details.broker_code==member.broker_code]
             subset = broker[broker.complete]
             st.caption(f'기간 전체 수량 확보 {len(subset)}/{len(broker)}종목 · 금액 비교 가능 {int(subset.reference_net_amount.notna().sum())}종목. 미수집은 0주가 아닙니다.')

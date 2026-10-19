@@ -8,6 +8,7 @@ import pytest
 from foreign_broker_flow import (parse_members, parse_daily, init_tables, collect_universe,
                                  ForeignBrokerCollector, publish_broker_snapshot)
 from foreign_broker_ui import aggregate_period, rank_reference_amount
+from foreign_broker_history import build_broker_streaks, build_stock_net_history
 
 
 def test_reference_ranking_uses_money_not_shares_and_excludes_missing():
@@ -164,8 +165,66 @@ def test_fragment_ui_search_stays_local_and_safe(tmp_path):
                              +f"render_foreign_broker_tab({str(path)!r},'v','20261016')").run(timeout=30)
     assert not app.exception
     assert app.selectbox[0].value is None
+    before=len(app.dataframe)
     app.selectbox[0].select('005930').run()
     assert not app.exception
+    assert len(app.dataframe)>before
+    assert any('최근 10거래일' in str(m.value) for m in app.markdown)
     app.radio[0].set_value('최근 5거래일').run()
     assert not app.exception
     assert app.selectbox[0].value == '005930'
+
+
+def test_broker_streaks_use_trading_dates_not_calendar_days(tmp_path):
+    with closing(sqlite3.connect(':memory:')) as conn:
+        fixture(conn)
+        conn.execute("UPDATE foreign_broker_daily SET trade_date='20261019' WHERE trade_date='20261016'")
+        conn.execute("UPDATE foreign_broker_closes SET trade_date='20261019' WHERE trade_date='20261016'")
+        conn.execute("UPDATE foreign_broker_universe SET trade_date='20261019' WHERE trade_date='20261016'")
+        frames=data(conn)
+        frames['calendar']=pd.DataFrame({'date':['20261015','20261019']})
+        combined=build_broker_streaks(frames,'20261019',combined=True)
+        assert combined.ticker.tolist()==['005930']
+        assert combined.iloc[0].streak_days==2
+        assert combined.iloc[0].streak_net_qty==320
+        assert combined.iloc[0].lower_bound
+        individual=build_broker_streaks(frames,'20261019')
+        assert len(individual)==2
+        assert individual.streak_net_qty.tolist()==[160,160]
+        frames['calendar']=pd.DataFrame({'date':['20261015','20261016','20261019']})
+        # A real trading day missing in the middle cannot be skipped.
+        assert build_broker_streaks(frames,'20261019',combined=True).empty
+        assert build_broker_streaks(frames,'20261019').empty
+
+
+def test_combined_requires_all_members_and_zero_breaks_streak():
+    with closing(sqlite3.connect(':memory:')) as conn:
+        fixture(conn)
+        conn.execute("DELETE FROM foreign_broker_daily WHERE ticker='005930' AND broker_code='00033' AND trade_date='20261015'")
+        frames=data(conn)
+        assert build_broker_streaks(frames,'20261016',combined=True).empty
+        assert build_broker_streaks(frames,'20261016').broker_code.tolist()==['00045']
+        history=build_stock_net_history(frames,'005930','20261016')
+        assert pd.isna(history.loc['외국계 합산','20261015'])
+        assert history.loc['외국계 합산','20261016']==160
+        conn.execute("UPDATE foreign_broker_daily SET net_qty=0 WHERE ticker='005930' AND trade_date='20261016'")
+        assert build_broker_streaks(data(conn),'20261016').empty
+
+
+def test_ten_day_history_missing_and_provisional_streak():
+    with closing(sqlite3.connect(':memory:')) as conn:
+        fixture(conn)
+        conn.execute("UPDATE foreign_broker_daily SET is_final=0 WHERE trade_date='20261016'")
+        frames=data(conn)
+        frames['calendar']=pd.DataFrame({'date':pd.bdate_range('2026-10-01','2026-10-16').strftime('%Y%m%d')})
+        history=build_stock_net_history(frames,'005930','20261016')
+        assert len(history.columns)==10
+        assert history.columns[0]=='20261016'
+        assert history.loc['JP모간','20261016']==80
+        assert pd.isna(history.loc['JP모간','20261014'])
+        streak=build_broker_streaks(frames,'20261016',combined=True).iloc[0]
+        assert streak.provisional and streak.lower_bound
+        assert streak.reference_net_amount==48000
+        # The as-of date is authoritative; do not fall back to an earlier day.
+        frames['calendar']=pd.DataFrame({'date':['20261015','20261016','20261019']})
+        assert build_broker_streaks(frames,'20261019',combined=True).empty
