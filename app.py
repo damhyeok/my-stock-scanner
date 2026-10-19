@@ -2351,6 +2351,11 @@ else:
                     .drop_duplicates()
                 )
                 group_order = {'morning': 1, 'afternoon': 2, 'closing': 3, 'manual': 4}
+                if group_options.empty:
+                    # Before afternoon calculation only the 11:30 checkpoint
+                    # may exist. Do not index an empty list and crash all tabs.
+                    group_options = strength_selected[['analysis_type', 'analysis_label']].drop_duplicates()
+                    st.caption('아직 중간 수집값만 있습니다. 오전·오후·종가 확정 결과를 대신하지 않습니다.')
                 group_options['group_order'] = group_options['analysis_type'].map(group_order).fillna(99)
                 group_options = group_options.sort_values('group_order')
 
