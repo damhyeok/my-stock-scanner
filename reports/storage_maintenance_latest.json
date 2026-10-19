@@ -1,8 +1,28 @@
 {
-  "started_at_kst": "2026-10-16T18:30:06+09:00",
-  "completed_at_kst": "2026-10-16T18:31:04+09:00",
+  "started_at_kst": "2026-10-19T18:30:06+09:00",
+  "completed_at_kst": "2026-10-19T18:30:59+09:00",
   "policy": {
     "stock_data": {
+      "foreign_broker_daily": [
+        "trade_date",
+        260
+      ],
+      "foreign_broker_universe": [
+        "trade_date",
+        260
+      ],
+      "foreign_broker_closes": [
+        "trade_date",
+        260
+      ],
+      "foreign_broker_attempts": [
+        "trade_date",
+        260
+      ],
+      "foreign_broker_runs": [
+        "started_at",
+        260
+      ],
       "etf_sector_snapshots": [
         "trade_date",
         260
@@ -123,26 +143,31 @@
   },
   "disk": {
     "total_bytes": 48274628608,
-    "used_bytes_before": 10251624448,
-    "used_bytes_after": 10251624448,
-    "free_bytes_after": 38006226944,
-    "used_percent": 21.24,
+    "used_bytes_before": 10291662848,
+    "used_bytes_after": 10291666944,
+    "free_bytes_after": 37966184448,
+    "used_percent": 21.32,
     "status": "OK"
   },
   "databases": {
     "stock_data": {
       "path": "/home/ubuntu/my-stock-scanner/stock_data.db",
       "exists": true,
-      "bytes_before": 652369920,
-      "bytes_after": 652369920,
+      "bytes_before": 666054656,
+      "bytes_after": 666054656,
       "deleted_rows": {
+        "foreign_broker_daily": 0,
+        "foreign_broker_universe": 0,
+        "foreign_broker_closes": 0,
+        "foreign_broker_attempts": 0,
+        "foreign_broker_runs": 0,
         "etf_sector_snapshots": 0,
         "etf_sector_daily": 0,
         "etf_sector_holdings": 0,
         "etf_sector_runs": 0,
         "daily_stocks": 0,
         "stock_news": 0,
-        "intraday_stock_bars": 23460,
+        "intraday_stock_bars": 25465,
         "intraday_index_bars": 0,
         "intraday_relative_strength_snapshots": 0,
         "intraday_relative_strength_runs": 0,
@@ -166,9 +191,9 @@
       "vacuumed": false,
       "sqlite": {
         "page_size": 4096,
-        "page_count": 159270,
-        "free_pages": 766,
-        "free_ratio": 0.004809443084071074
+        "page_count": 162611,
+        "free_pages": 814,
+        "free_ratio": 0.005005811414971927
       },
       "integrity": "ok"
     },
@@ -197,10 +222,10 @@
   "git": {
     "before": {
       "exists": true,
-      "count_objects": "count: 4752\nsize: 20780\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
+      "count_objects": "count: 4882\nsize: 21364\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
       "return_code": 0,
-      "loose_objects": 4752,
-      "loose_bytes": 21278720,
+      "loose_objects": 4882,
+      "loose_bytes": 21876736,
       "packed_bytes": 2388114432
     },
     "gc": {
@@ -210,10 +235,10 @@
     },
     "after": {
       "exists": true,
-      "count_objects": "count: 4752\nsize: 20780\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
+      "count_objects": "count: 4882\nsize: 21364\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
       "return_code": 0,
-      "loose_objects": 4752,
-      "loose_bytes": 21278720,
+      "loose_objects": 4882,
+      "loose_bytes": 21876736,
       "packed_bytes": 2388114432
     }
   }
