@@ -35,6 +35,7 @@ from program_net_divergence import build_program_price_divergence
 from rise_rankings import build_rise_rank_tables
 from etf_sector_ui import render_etf_sector_tab
 from foreign_broker_ui import render_foreign_broker_tab
+from etf_strength_ui import render_today_sector_flow
 from investor_history_ui import render_investor_history
 from rise_sector_history import build_rise_sector_history
 from sector_overrides import override_frame_sectors
@@ -2693,12 +2694,7 @@ else:
         render_market_strength2(strength2_db, selected_date, selected_session)
 
     with tab10:
-        render_sector_strength_flow_tab(
-            st,
-            db_path=dashboard_db_path,
-            selected_date=str(selected_date),
-            selected_session=str(selected_session),
-        )
+        render_today_sector_flow(dashboard_db_path,str(selected_date),str(selected_session))
         # The legacy turnover-normalization charts below are intentionally no
         # longer rendered.  The user-facing sector-flow tab now uses the same
         # market-betting judgments as the intraday/overnight tab.

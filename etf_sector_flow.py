@@ -131,6 +131,7 @@ class EtfSectorCollector:
         self.crawler._get_kis_access_token()
         deadline = time.monotonic() + 180
         snapshots, holdings, errors = [], [], []
+        flow_opens = {}
         stamp = now.strftime("%Y-%m-%d %H:%M:%S")
         try:
             output = self.request(
@@ -165,6 +166,7 @@ class EtfSectorCollector:
                                       ("stck_prpr", "prdy_ctrt", "acml_tr_pbmn"))
                 if not price or rate is None or value is None:
                     raise RuntimeError("필수 시세 누락")
+                flow_opens[ticker] = number(quote.get('stck_oprc'))
                 snapshots.append((day, session, ticker, sector, name, price, rate, value, kospi,
                                   datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")))
                 if session == "정규장(16:00)":
@@ -197,6 +199,13 @@ class EtfSectorCollector:
             conn.executemany("INSERT INTO etf_sector_holdings VALUES (?,?,?,?,?,?,?,?)", holdings)
             conn.execute("INSERT OR REPLACE INTO etf_sector_runs VALUES (?,?,?,?,?,?,?)",
                          (day, session, len(self.universe), len(snapshots), status, "; ".join(errors), stamp))
+        # Keep ETF path work isolated and bounded by the existing job deadline.
+        # It cannot prevent the established quote/holdings results being saved.
+        try:
+            from etf_strength import collect_etf_strength
+            collect_etf_strength(self,day,session,flow_opens,min(deadline,time.monotonic()+35))
+        except Exception as error:
+            print(f'[ETF Strength Warning] {type(error).__name__}; existing ETF snapshots preserved')
         return {"status": status, "success_count": len(snapshots), "errors": errors}
 
 

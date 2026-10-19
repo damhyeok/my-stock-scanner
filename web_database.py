@@ -21,9 +21,13 @@ from sector_trend_window import build_sector_trend_summary
 from sector_overrides import NAME_SECTOR_OVERRIDES, SECTOR_LABEL_ALIASES, override_frame_sectors
 from stock_catalog_display import build_stock_catalog_display
 from market_strength2 import build_market_strength2_display
+from etf_strength import build_etf_strength_display
 
 
 RETENTION = {
+    "etf_strength_display": ("trade_date", 30),
+    "etf_strength_opens": ("trade_date", 30),
+    "etf_strength_minutes": ("trade_date", 5),
     "foreign_broker_daily": ("trade_date", 60),
     "foreign_broker_universe": ("trade_date", 60),
     "foreign_broker_closes": ("trade_date", 60),
@@ -66,6 +70,7 @@ DROP_TABLES = {
 # These remain in Oracle's full analysis DB. They are removed only from the
 # bounded web copy after all display values that depend on them are materialized.
 WEB_ONLY_SOURCE_TABLES = {
+    "etf_strength_minutes", "etf_strength_opens",
     "foreign_broker_attempts",
     "news_discovery_articles", "news_discovery_runs", "news_discovery_snapshots", "news_discovery_versions",
     "news_issue_price_context",
@@ -227,6 +232,7 @@ def build_web_database(source="stock_data.db", target="web_data.db"):
                             previous.execute("SELECT trade_date,payload FROM web_market_strength2 ORDER BY trade_date DESC LIMIT 30").fetchall(),
                         )
             build_market_strength2_display(conn)
+            build_etf_strength_display(conn)
             for table in WEB_ONLY_SOURCE_TABLES:
                 conn.execute(f'DROP TABLE IF EXISTS "{table}"')
             conn.commit()
