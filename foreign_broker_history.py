@@ -81,3 +81,51 @@ def build_stock_net_history(data, ticker, cutoff, days=10):
     total=totals[totals.ticker==ticker].set_index('trade_date')['net_qty'] if not totals.empty else pd.Series(dtype=float)
     frame.loc['외국계 합산']=[total.get(d,float('nan')) for d in dates]
     return frame.loc[['외국계 합산']+[n for n in frame.index if n!='외국계 합산']]
+
+
+def build_stock_trade_details(data,ticker,cutoff,days=10):
+    """Period totals are observed subtotals; gaps explicitly taint running totals."""
+    universe=data['universe']
+    observed=universe[universe.trade_date.astype(str)<=str(cutoff)]
+    dates=trading_dates(data,cutoff)
+    if days is not None:
+        dates=dates[:days]
+    if observed.empty:
+        return pd.DataFrame(),pd.DataFrame(),[]
+    first=str(observed.trade_date.min())
+    dates=sorted(d for d in dates if d>=first)
+    if not dates:
+        return pd.DataFrame(),pd.DataFrame(),[]
+    codes=data['members'][['broker_code','broker_name']].drop_duplicates('broker_code')
+    matrix=pd.MultiIndex.from_product([codes.broker_code,dates],names=['broker_code','trade_date']).to_frame(index=False)
+    daily=data['daily']
+    selected=daily[(daily.ticker==ticker)&daily.trade_date.astype(str).isin(dates)].drop_duplicates(['broker_code','trade_date'],keep='last') if not daily.empty else pd.DataFrame(columns=['broker_code','trade_date','buy_qty','sell_qty','net_qty','is_final'])
+    matrix=matrix.merge(selected[['broker_code','trade_date','buy_qty','sell_qty','net_qty','is_final']],on=['broker_code','trade_date'],how='left')
+    matrix=matrix.merge(codes,on='broker_code',how='left')
+    # A day-level aggregate is valid only with every foreign member observed.
+    totals=[]
+    for date,frame in matrix.groupby('trade_date'):
+        complete=frame[['buy_qty','sell_qty','net_qty']].notna().all().all()
+        totals.append(dict(broker_code='__ALL__',broker_name='외국계 합산',trade_date=date,
+                           **{k:frame[k].sum() if complete else float('nan') for k in ['buy_qty','sell_qty','net_qty']},
+                           is_final=frame.is_final.min() if complete else float('nan')))
+    matrix=pd.concat([matrix,pd.DataFrame(totals)],ignore_index=True)
+    summaries=[]
+    parts=[]
+    for code,frame in matrix.groupby('broker_code',sort=False):
+        frame=frame.sort_values('trade_date').copy()
+        known=frame[['buy_qty','sell_qty','net_qty']].notna().all(axis=1)
+        frame['cumulative_net_qty']=frame.net_qty.cumsum(skipna=False)
+        # This is labelled "observed subtotal", never an inferred zero observation.
+        frame['cumulative_observed_net_qty']=frame.net_qty.fillna(0).cumsum()
+        frame.loc[known.cumsum().eq(0),'cumulative_observed_net_qty']=float('nan')
+        frame['cumulative_complete']=known.cummin()
+        frame['provisional_to_date']=frame.is_final.eq(0).cummax()
+        frame['status']=['미수집' if not ok else '잠정' if final==0 else '확정' for ok,final in zip(known,frame.is_final)]
+        summaries.append(dict(broker_code=code,broker_name=frame.broker_name.iloc[0],
+                              **{k:frame[k].sum(min_count=1) for k in ['buy_qty','sell_qty','net_qty']},
+                              observed_days=int(known.sum()),expected_days=len(dates),complete=bool(known.all()),
+                              provisional=bool(frame.is_final.eq(0).any())))
+        parts.append(frame)
+    summary=pd.DataFrame(summaries).sort_values(['complete','net_qty','broker_code'],ascending=[False,False,True],na_position='last')
+    return summary,pd.concat(parts,ignore_index=True),dates

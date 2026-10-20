@@ -7,7 +7,7 @@ import html
 import pandas as pd
 import streamlit as st
 from streamlit_layout import layout_width
-from foreign_broker_history import build_broker_streaks, build_stock_net_history
+from foreign_broker_history import build_broker_streaks, build_stock_net_history, build_stock_trade_details
 
 
 @st.cache_data(ttl=60)
@@ -134,20 +134,59 @@ def render_broker_stock_search(details, totals, raw, members, data, cutoff):
     chosen = st.selectbox('종목 검색',options,index=None,format_func=lambda t:f'{names[t]} ({t})',
                           placeholder='종목명 또는 코드로 검색',key='foreign_stock')
     if chosen:
-        st.markdown(f'**{names[chosen]} ({chosen}) · 선택 기간 거래원별 매매**')
+        st.markdown(f'**{names[chosen]} ({chosen}) · 거래원별 매수·매도 이력**')
+        period=st.radio('종목 상세 조회 기간',['최근 10거래일','최근 20거래일','수집 이후 전체(웹 보관분)'],
+                        horizontal=True,key='foreign_stock_history_period')
+        days=10 if period=='최근 10거래일' else 20 if period=='최근 20거래일' else None
+        summary,history,history_dates=build_stock_trade_details(data,chosen,cutoff,days)
+        if history_dates:
+            st.caption(f'{history_dates[0][:4]}/{history_dates[0][4:6]}/{history_dates[0][6:]} ~ '
+                       f'{history_dates[-1][:4]}/{history_dates[-1][4:6]}/{history_dates[-1][6:]} · {len(history_dates)}거래일. '
+                       '상단 전체 순위 조회 기간과 별도입니다. 수집 시작 전은 제외하며 웹은 최근 최대 60거래일을 보관합니다.')
+            st.caption('누적 순매수 = 이 기간 매수−매도 합계이며 실제 보유수량이 아닙니다. 누락이 있으면 확보분의 부분합으로 표시합니다. 합산은 모든 외국계 거래원 자료가 있는 날짜만 포함합니다. 완비된 거래원을 먼저, 그 안에서 누적 순매수수량 큰 순으로 표시합니다.')
+            display=summary[['broker_name','buy_qty','sell_qty','net_qty']].rename(columns={
+                'broker_name':'거래원','buy_qty':'매수 합계(주)','sell_qty':'매도 합계(주)','net_qty':'누적 순매수(주)'})
+            display['확보일수']=summary.observed_days.astype(str)+'/'+summary.expected_days.astype(str)
+            display['합계 구분']=summary.complete.map({True:'기간 합계',False:'확보분 부분합'})
+            display['자료 상태']=summary.provisional.map({True:'잠정 포함',False:'확정분'})
+            display.loc[summary.observed_days.eq(0),'자료 상태']='미수집'
+            st.dataframe(display.style.format({'매수 합계(주)':'{:,.0f}','매도 합계(주)':'{:,.0f}',
+                                              '누적 순매수(주)':'{:+,.0f}'},na_rep='미수집'),hide_index=True,**layout_width())
+            st.markdown('#### 거래원별 일자 내역 · 클릭해서 펼치기')
+            ordered=pd.concat([summary[summary.broker_code=='__ALL__'],summary[summary.broker_code!='__ALL__']])
+            for member in ordered.itertuples():
+                quantity='미수집' if pd.isna(member.net_qty) else f'{member.net_qty:+,.0f}주'
+                label=('누적 ' if member.complete else '확보분 ')+quantity
+                if member.provisional:
+                    label+=' · 잠정 포함'
+                with st.expander(f'{member.broker_name} · {label}'):
+                    days_frame=history[history.broker_code==member.broker_code].sort_values('trade_date',ascending=False).copy()
+                    shown=pd.DataFrame({'날짜':pd.to_datetime(days_frame.trade_date,format='%Y%m%d').dt.strftime('%Y/%m/%d'),
+                                        '매수(주)':days_frame.buy_qty,'매도(주)':days_frame.sell_qty,
+                                        '순매수(주)':days_frame.net_qty,'자료 상태':days_frame.status})
+                    def cumulative(row):
+                        value=row.cumulative_observed_net_qty
+                        if pd.isna(value): return '미수집'
+                        text=f'{value:+,.0f}'
+                        if not row.cumulative_complete: text+=' (부분합)'
+                        if row.provisional_to_date: text+=' · 잠정 포함'
+                        return text
+                    shown['기간 시작일부터 누적(주)']=days_frame.apply(cumulative,axis=1)
+                    shown=shown[['날짜','매수(주)','매도(주)','순매수(주)','기간 시작일부터 누적(주)','자료 상태']]
+                    st.caption('최신 날짜부터 표시합니다. 누적값은 위 조회 기간의 첫 거래일부터 해당 날짜까지 계산합니다.')
+                    st.dataframe(shown.style.format({'매수(주)':'{:,.0f}','매도(주)':'{:,.0f}','순매수(주)':'{:+,.0f}'},na_rep='미수집'),hide_index=True,**layout_width())
+        else:
+            st.info('이 기간에는 조회 가능한 거래일이 없습니다.')
         stock = details[details.ticker==chosen].copy()
         stock.loc[~stock.complete, 'reference_net_amount'] = float('nan')
         stock = stock.sort_values(['reference_net_amount','broker_code'],ascending=[False,True],na_position='last')
-        if stock.empty:
-            st.info('이 종목은 선택 기간의 수집 대상에 없습니다. 아래에서 과거 수집 내역을 확인하세요.')
-        else:
-            show_quantities(stock)
-        st.caption('일부 날짜만 확보된 행의 수량은 확보된 날짜의 소계입니다. 확보일수가 전체 기간보다 작으면 기간 전체 누적으로 해석하지 마세요.')
-        if not raw.empty:
-            with st.expander('날짜별 상세 내역'):
-                daily = raw[raw.ticker==chosen].merge(members[['broker_code','broker_name']],on='broker_code',how='left').sort_values(['trade_date','broker_name'],ascending=[False,True])
-                st.dataframe(daily[['trade_date','broker_name','buy_qty','sell_qty','net_qty','close','collected_at']].rename(columns={'trade_date':'날짜','broker_name':'거래원','buy_qty':'매수수량','sell_qty':'매도수량','net_qty':'순매수수량','close':'환산 기준 종가','collected_at':'수집 시각'}),hide_index=True,**layout_width())
-        render_stock_net_history(data,chosen,cutoff)
+        with st.expander('상단 조회 기간 기준 · 종가 환산 참고금액'):
+            if stock.empty:
+                st.info('상단 조회 기간의 수집 대상에 없습니다.')
+            else:
+                show_quantities(stock)
+        with st.expander('최근 10거래일 순매수수량 비교표'):
+            render_stock_net_history(data,chosen,cutoff)
     else:
         st.caption('수집 이력이 있는 종목명·6자리 코드로 검색 후 검색 결과를 선택하세요. 결과가 없는 종목은 아직 수집 이력이 없는 경우입니다.')
 

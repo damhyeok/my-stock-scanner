@@ -8,7 +8,7 @@ import pytest
 from foreign_broker_flow import (parse_members, parse_daily, init_tables, collect_universe,
                                  ForeignBrokerCollector, publish_broker_snapshot)
 from foreign_broker_ui import aggregate_period, rank_reference_amount
-from foreign_broker_history import build_broker_streaks, build_stock_net_history
+from foreign_broker_history import build_broker_streaks, build_stock_net_history, build_stock_trade_details
 
 
 def test_reference_ranking_uses_money_not_shares_and_excludes_missing():
@@ -173,6 +173,58 @@ def test_fragment_ui_search_stays_local_and_safe(tmp_path):
     app.radio[0].set_value('최근 5거래일').run()
     assert not app.exception
     assert app.selectbox[0].value == '005930'
+    app.radio[1].set_value('최근 20거래일').run()
+    assert not app.exception
+    assert app.selectbox[0].value=='005930'
+    dated=[d.value for d in app.dataframe if '날짜' in d.value.columns]
+    assert dated and '2026/10/16' in dated[0]['날짜'].tolist()
+    assert any('JP모간 · 누적' in e.label for e in app.expander)
+
+
+def test_stock_trade_details_actual_dates_and_cumulative_totals():
+    with closing(sqlite3.connect(':memory:')) as conn:
+        fixture(conn)
+        frames=data(conn)
+        frames['calendar']=pd.DataFrame({'date':['20261014','20261015','20261016']})
+        summary,history,dates=build_stock_trade_details(frames,'005930','20261016',10)
+        assert dates==['20261015','20261016']
+        jp=summary[summary.broker_code=='00033'].iloc[0]
+        assert (jp.buy_qty,jp.sell_qty,jp.net_qty)==(200,40,160)
+        assert jp.complete and jp.observed_days==2
+        daily=history[history.broker_code=='00033'].sort_values('trade_date')
+        assert daily.cumulative_net_qty.tolist()==[80,160]
+        total=summary[summary.broker_code=='__ALL__'].iloc[0]
+        assert total.net_qty==320
+
+
+def test_stock_trade_details_gap_is_partial_not_zero():
+    with closing(sqlite3.connect(':memory:')) as conn:
+        fixture(conn)
+        conn.execute("DELETE FROM foreign_broker_daily WHERE ticker='005930' AND broker_code='00033' AND trade_date='20261015'")
+        summary,history,dates=build_stock_trade_details(data(conn),'005930','20261016',20)
+        jp=summary[summary.broker_code=='00033'].iloc[0]
+        assert not jp.complete and jp.net_qty==80 and jp.observed_days==1
+        daily=history[history.broker_code=='00033'].sort_values('trade_date')
+        assert pd.isna(daily.iloc[0].net_qty)
+        assert pd.isna(daily.iloc[1].cumulative_net_qty)
+        assert daily.iloc[1].cumulative_observed_net_qty==80
+        assert not daily.iloc[1].cumulative_complete
+        total=summary[summary.broker_code=='__ALL__'].iloc[0]
+        assert not total.complete and total.net_qty==160
+
+
+def test_stock_trade_details_provisional_zero_and_no_future():
+    with closing(sqlite3.connect(':memory:')) as conn:
+        fixture(conn)
+        conn.execute("UPDATE foreign_broker_daily SET buy_qty=0,sell_qty=0,net_qty=0,is_final=0 WHERE ticker='005930' AND trade_date='20261016'")
+        summary,history,dates=build_stock_trade_details(data(conn),'005930','20261016',None)
+        jp=summary[summary.broker_code=='00033'].iloc[0]
+        assert jp.provisional and jp.complete and jp.net_qty==80
+        daily=history[history.broker_code=='00033'].sort_values('trade_date')
+        assert daily.iloc[-1].status=='잠정' and daily.iloc[-1].net_qty==0
+        earlier,_,dates=build_stock_trade_details(data(conn),'005930','20261015',None)
+        assert dates==['20261015']
+        assert earlier[earlier.broker_code=='00033'].iloc[0].net_qty==80
 
 
 def test_broker_streaks_use_trading_dates_not_calendar_days(tmp_path):
