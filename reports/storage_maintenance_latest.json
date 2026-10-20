@@ -1,8 +1,20 @@
 {
-  "started_at_kst": "2026-10-19T18:30:06+09:00",
-  "completed_at_kst": "2026-10-19T18:30:59+09:00",
+  "started_at_kst": "2026-10-20T18:30:07+09:00",
+  "completed_at_kst": "2026-10-20T18:31:06+09:00",
   "policy": {
     "stock_data": {
+      "etf_strength_display": [
+        "trade_date",
+        260
+      ],
+      "etf_strength_opens": [
+        "trade_date",
+        60
+      ],
+      "etf_strength_minutes": [
+        "trade_date",
+        5
+      ],
       "foreign_broker_daily": [
         "trade_date",
         260
@@ -143,19 +155,22 @@
   },
   "disk": {
     "total_bytes": 48274628608,
-    "used_bytes_before": 10291662848,
-    "used_bytes_after": 10291666944,
-    "free_bytes_after": 37966184448,
-    "used_percent": 21.32,
+    "used_bytes_before": 10308399104,
+    "used_bytes_after": 10308403200,
+    "free_bytes_after": 37949448192,
+    "used_percent": 21.35,
     "status": "OK"
   },
   "databases": {
     "stock_data": {
       "path": "/home/ubuntu/my-stock-scanner/stock_data.db",
       "exists": true,
-      "bytes_before": 666054656,
-      "bytes_after": 666054656,
+      "bytes_before": 676347904,
+      "bytes_after": 676347904,
       "deleted_rows": {
+        "etf_strength_display": 0,
+        "etf_strength_opens": 0,
+        "etf_strength_minutes": 0,
         "foreign_broker_daily": 0,
         "foreign_broker_universe": 0,
         "foreign_broker_closes": 0,
@@ -167,7 +182,7 @@
         "etf_sector_runs": 0,
         "daily_stocks": 0,
         "stock_news": 0,
-        "intraday_stock_bars": 25465,
+        "intraday_stock_bars": 25051,
         "intraday_index_bars": 0,
         "intraday_relative_strength_snapshots": 0,
         "intraday_relative_strength_runs": 0,
@@ -191,24 +206,24 @@
       "vacuumed": false,
       "sqlite": {
         "page_size": 4096,
-        "page_count": 162611,
-        "free_pages": 814,
-        "free_ratio": 0.005005811414971927
+        "page_count": 165124,
+        "free_pages": 799,
+        "free_ratio": 0.004838787820062499
       },
       "integrity": "ok"
     },
     "program_snapshots": {
       "path": "/home/ubuntu/my-stock-scanner/program_snapshots.db",
       "exists": true,
-      "bytes_before": 118784,
-      "bytes_after": 118784,
+      "bytes_before": 122880,
+      "bytes_after": 122880,
       "deleted_rows": {
         "market_program_snapshots": 0
       },
       "vacuumed": false,
       "sqlite": {
         "page_size": 4096,
-        "page_count": 29,
+        "page_count": 30,
         "free_pages": 0,
         "free_ratio": 0.0
       },
@@ -222,10 +237,10 @@
   "git": {
     "before": {
       "exists": true,
-      "count_objects": "count: 4882\nsize: 21364\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
+      "count_objects": "count: 5019\nsize: 22072\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
       "return_code": 0,
-      "loose_objects": 4882,
-      "loose_bytes": 21876736,
+      "loose_objects": 5019,
+      "loose_bytes": 22601728,
       "packed_bytes": 2388114432
     },
     "gc": {
@@ -235,10 +250,10 @@
     },
     "after": {
       "exists": true,
-      "count_objects": "count: 4882\nsize: 21364\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
+      "count_objects": "count: 5019\nsize: 22072\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
       "return_code": 0,
-      "loose_objects": 4882,
-      "loose_bytes": 21876736,
+      "loose_objects": 5019,
+      "loose_bytes": 22601728,
       "packed_bytes": 2388114432
     }
   }
