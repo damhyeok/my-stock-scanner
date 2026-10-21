@@ -1,6 +1,6 @@
 {
-  "started_at_kst": "2026-10-20T18:30:07+09:00",
-  "completed_at_kst": "2026-10-20T18:31:06+09:00",
+  "started_at_kst": "2026-10-21T18:30:07+09:00",
+  "completed_at_kst": "2026-10-21T18:31:09+09:00",
   "policy": {
     "stock_data": {
       "etf_strength_display": [
@@ -155,18 +155,18 @@
   },
   "disk": {
     "total_bytes": 48274628608,
-    "used_bytes_before": 10308399104,
-    "used_bytes_after": 10308403200,
-    "free_bytes_after": 37949448192,
-    "used_percent": 21.35,
+    "used_bytes_before": 10330939392,
+    "used_bytes_after": 10330943488,
+    "free_bytes_after": 37926907904,
+    "used_percent": 21.4,
     "status": "OK"
   },
   "databases": {
     "stock_data": {
       "path": "/home/ubuntu/my-stock-scanner/stock_data.db",
       "exists": true,
-      "bytes_before": 676347904,
-      "bytes_after": 676347904,
+      "bytes_before": 691265536,
+      "bytes_after": 691265536,
       "deleted_rows": {
         "etf_strength_display": 0,
         "etf_strength_opens": 0,
@@ -182,7 +182,7 @@
         "etf_sector_runs": 0,
         "daily_stocks": 0,
         "stock_news": 0,
-        "intraday_stock_bars": 25051,
+        "intraday_stock_bars": 26351,
         "intraday_index_bars": 0,
         "intraday_relative_strength_snapshots": 0,
         "intraday_relative_strength_runs": 0,
@@ -206,9 +206,9 @@
       "vacuumed": false,
       "sqlite": {
         "page_size": 4096,
-        "page_count": 165124,
-        "free_pages": 799,
-        "free_ratio": 0.004838787820062499
+        "page_count": 168766,
+        "free_pages": 856,
+        "free_ratio": 0.005072111681262813
       },
       "integrity": "ok"
     },
@@ -237,10 +237,10 @@
   "git": {
     "before": {
       "exists": true,
-      "count_objects": "count: 5019\nsize: 22072\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
+      "count_objects": "count: 5129\nsize: 22520\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
       "return_code": 0,
-      "loose_objects": 5019,
-      "loose_bytes": 22601728,
+      "loose_objects": 5129,
+      "loose_bytes": 23060480,
       "packed_bytes": 2388114432
     },
     "gc": {
@@ -250,10 +250,10 @@
     },
     "after": {
       "exists": true,
-      "count_objects": "count: 5019\nsize: 22072\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
+      "count_objects": "count: 5129\nsize: 22520\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
       "return_code": 0,
-      "loose_objects": 5019,
-      "loose_bytes": 22601728,
+      "loose_objects": 5129,
+      "loose_bytes": 23060480,
       "packed_bytes": 2388114432
     }
   }
