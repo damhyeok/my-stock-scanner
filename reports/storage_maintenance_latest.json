@@ -1,6 +1,6 @@
 {
-  "started_at_kst": "2026-10-27T18:30:06+09:00",
-  "completed_at_kst": "2026-10-27T18:31:10+09:00",
+  "started_at_kst": "2026-10-28T18:30:06+09:00",
+  "completed_at_kst": "2026-10-28T18:31:12+09:00",
   "policy": {
     "stock_data": {
       "etf_strength_display": [
@@ -155,22 +155,22 @@
   },
   "disk": {
     "total_bytes": 48274628608,
-    "used_bytes_before": 10399993856,
-    "used_bytes_after": 10399993856,
-    "free_bytes_after": 37857857536,
-    "used_percent": 21.54,
+    "used_bytes_before": 10428530688,
+    "used_bytes_after": 10428530688,
+    "free_bytes_after": 37829320704,
+    "used_percent": 21.6,
     "status": "OK"
   },
   "databases": {
     "stock_data": {
       "path": "/home/ubuntu/my-stock-scanner/stock_data.db",
       "exists": true,
-      "bytes_before": 730935296,
-      "bytes_after": 730935296,
+      "bytes_before": 746442752,
+      "bytes_after": 746442752,
       "deleted_rows": {
         "etf_strength_display": 0,
         "etf_strength_opens": 0,
-        "etf_strength_minutes": 5940,
+        "etf_strength_minutes": 6660,
         "foreign_broker_daily": 0,
         "foreign_broker_universe": 0,
         "foreign_broker_closes": 0,
@@ -182,7 +182,7 @@
         "etf_sector_runs": 0,
         "daily_stocks": 0,
         "stock_news": 0,
-        "intraday_stock_bars": 24825,
+        "intraday_stock_bars": 24829,
         "intraday_index_bars": 0,
         "intraday_relative_strength_snapshots": 0,
         "intraday_relative_strength_runs": 0,
@@ -206,24 +206,24 @@
       "vacuumed": false,
       "sqlite": {
         "page_size": 4096,
-        "page_count": 178451,
-        "free_pages": 938,
-        "free_ratio": 0.0052563448789863885
+        "page_count": 182237,
+        "free_pages": 952,
+        "free_ratio": 0.005223966592953133
       },
       "integrity": "ok"
     },
     "program_snapshots": {
       "path": "/home/ubuntu/my-stock-scanner/program_snapshots.db",
       "exists": true,
-      "bytes_before": 126976,
-      "bytes_after": 126976,
+      "bytes_before": 131072,
+      "bytes_after": 131072,
       "deleted_rows": {
         "market_program_snapshots": 0
       },
       "vacuumed": false,
       "sqlite": {
         "page_size": 4096,
-        "page_count": 31,
+        "page_count": 32,
         "free_pages": 0,
         "free_ratio": 0.0
       },
@@ -237,10 +237,10 @@
   "git": {
     "before": {
       "exists": true,
-      "count_objects": "count: 5519\nsize: 24080\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
+      "count_objects": "count: 5616\nsize: 24468\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
       "return_code": 0,
-      "loose_objects": 5519,
-      "loose_bytes": 24657920,
+      "loose_objects": 5616,
+      "loose_bytes": 25055232,
       "packed_bytes": 2388114432
     },
     "gc": {
@@ -250,10 +250,10 @@
     },
     "after": {
       "exists": true,
-      "count_objects": "count: 5519\nsize: 24080\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
+      "count_objects": "count: 5616\nsize: 24468\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
       "return_code": 0,
-      "loose_objects": 5519,
-      "loose_bytes": 24657920,
+      "loose_objects": 5616,
+      "loose_bytes": 25055232,
       "packed_bytes": 2388114432
     }
   }
