@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 import requests
+from kiwoom_rate_limit import kiwoom_request_slot
 
 from .live_contract_audit import audit_live_contract
 from .verification_readiness import save_readiness_report
@@ -444,12 +445,13 @@ class KiwoomReadOnlyClient:
     def _post_raw(
         self, path: str, body: Mapping[str, Any], headers: Mapping[str, str] | None = None
     ) -> tuple[dict[str, Any], int]:
-        response = requests.post(
-            f"{self.base_url}{path}",
-            headers={"Content-Type": "application/json;charset=UTF-8", **dict(headers or {})},
-            json=dict(body),
-            timeout=self.timeout,
-        )
+        with kiwoom_request_slot(self.app_key):
+            response = requests.post(
+                f"{self.base_url}{path}",
+                headers={"Content-Type": "application/json;charset=UTF-8", **dict(headers or {})},
+                json=dict(body),
+                timeout=self.timeout,
+            )
         status = response.status_code
         response.raise_for_status()
         return response.json(), status
