@@ -1,6 +1,6 @@
 {
-  "started_at_kst": "2026-11-17T18:30:07+09:00",
-  "completed_at_kst": "2026-11-17T18:31:44+09:00",
+  "started_at_kst": "2026-11-18T18:30:07+09:00",
+  "completed_at_kst": "2026-11-18T18:31:49+09:00",
   "policy": {
     "stock_data": {
       "etf_strength_display": [
@@ -155,9 +155,9 @@
   },
   "disk": {
     "total_bytes": 48274628608,
-    "used_bytes_before": 10551570432,
-    "used_bytes_after": 10551570432,
-    "free_bytes_after": 37706280960,
+    "used_bytes_before": 10553327616,
+    "used_bytes_after": 10553327616,
+    "free_bytes_after": 37704523776,
     "used_percent": 21.86,
     "status": "OK"
   },
@@ -165,8 +165,8 @@
     "stock_data": {
       "path": "/home/ubuntu/my-stock-scanner/stock_data.db",
       "exists": true,
-      "bytes_before": 872710144,
-      "bytes_after": 872710144,
+      "bytes_before": 879177728,
+      "bytes_after": 879177728,
       "deleted_rows": {
         "etf_strength_display": 0,
         "etf_strength_opens": 0,
@@ -175,14 +175,14 @@
         "foreign_broker_universe": 0,
         "foreign_broker_closes": 0,
         "foreign_broker_attempts": 0,
-        "foreign_broker_runs": 19,
+        "foreign_broker_runs": 20,
         "etf_sector_snapshots": 0,
         "etf_sector_daily": 0,
-        "etf_sector_holdings": 0,
+        "etf_sector_holdings": 2754,
         "etf_sector_runs": 0,
         "daily_stocks": 0,
-        "stock_news": 747,
-        "intraday_stock_bars": 26509,
+        "stock_news": 820,
+        "intraday_stock_bars": 27100,
         "intraday_index_bars": 0,
         "intraday_relative_strength_snapshots": 0,
         "intraday_relative_strength_runs": 0,
@@ -206,9 +206,9 @@
       "vacuumed": false,
       "sqlite": {
         "page_size": 4096,
-        "page_count": 213064,
-        "free_pages": 1153,
-        "free_ratio": 0.005411519543423573
+        "page_count": 214643,
+        "free_pages": 1253,
+        "free_ratio": 0.0058376001080864505
       },
       "integrity": "ok"
     },
@@ -237,10 +237,10 @@
   "git": {
     "before": {
       "exists": true,
-      "count_objects": "count: 6961\nsize: 29856\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
+      "count_objects": "count: 7054\nsize: 30228\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
       "return_code": 0,
-      "loose_objects": 6961,
-      "loose_bytes": 30572544,
+      "loose_objects": 7054,
+      "loose_bytes": 30953472,
       "packed_bytes": 2388114432
     },
     "gc": {
@@ -250,10 +250,10 @@
     },
     "after": {
       "exists": true,
-      "count_objects": "count: 6961\nsize: 29856\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
+      "count_objects": "count: 7054\nsize: 30228\nin-pack: 22364\npacks: 3\nsize-pack: 2332143\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0",
       "return_code": 0,
-      "loose_objects": 6961,
-      "loose_bytes": 30572544,
+      "loose_objects": 7054,
+      "loose_bytes": 30953472,
       "packed_bytes": 2388114432
     }
   }
